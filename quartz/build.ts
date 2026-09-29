@@ -143,7 +143,12 @@ async function startWatching(
     ignored: (fp) => {
       const pathStr = toPosixPath(fp.toString())
       if (pathStr.startsWith(".git/")) return true
-      if (gitIgnoredMatcher(pathStr)) return true
+      if (
+        gitIgnoredMatcher(pathStr) &&
+        path.resolve(pathStr) !== path.resolve("content") &&
+        !path.resolve(pathStr).startsWith(path.resolve("content") + path.sep)
+      )
+        return true
       for (const pattern of cfg.configuration.ignorePatterns) {
         if (minimatch(pathStr, pattern)) {
           return true

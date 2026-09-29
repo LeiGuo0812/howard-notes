@@ -1,5 +1,28 @@
 @use "./variables.scss" as *;
 
+.library-intro {
+  padding: 32px;
+  justify-content: center;
+}
+.library-count {
+  font-size: 76px;
+  line-height: 1.2;
+  margin: 22px 0 36px;
+  color: var(--secondary);
+  font-weight: 600;
+}
+.library-count span {
+  font-size: 15px;
+  margin-left: 14px;
+  color: var(--gray);
+  font-weight: 400;
+}
+.unavailable-note {
+  color: var(--gray);
+  text-decoration: underline dotted;
+  text-underline-offset: 4px;
+}
+
 // Editorial blog: DESIGN_VARIANCE 5, MOTION_INTENSITY 2, VISUAL_DENSITY 3.
 // Native Quartz components, local system fonts, one green accent in both themes.
 :root {

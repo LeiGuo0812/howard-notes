@@ -19,3 +19,6 @@ output/
 .env*
 
 *lighthouse.*/
+.local/
+.sync/
+content/

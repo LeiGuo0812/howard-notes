@@ -1,16 +1,8 @@
-import fs from "node:fs"
-import path from "node:path"
 import { QuartzComponent, QuartzComponentProps } from "./types"
 import { FullSlug, pathToRoot, resolveRelative, simplifySlug } from "../util/path"
 import { PageFrame } from "./frames/types"
 import { slug } from "github-slugger"
 
-const topics = [
-  ["系统与开发环境", "Docker、Git 与日常环境维护"],
-  ["Python 与数据分析", "从数组结构到可复用的计算方法"],
-  ["数据可视化", "让图形、标签与数据表达更清楚"],
-  ["写作与效率工具", "整理知识，也整理工作的方式"],
-]
 const root = (data: QuartzComponentProps) =>
   data.fileData.slug === "404"
     ? new URL(`https://${data.cfg.baseUrl}`).pathname.replace(/\/$/, "")
@@ -57,10 +49,13 @@ export const BlogHome: QuartzComponent = (props) => {
         String(b.frontmatter?.date).localeCompare(String(a.frontmatter?.date)) ||
         a.slug!.localeCompare(b.slug!),
     )
-  const featured = articles.filter((file) => file.frontmatter?.featured === true)
-  const image = fs
-    .readdirSync(path.join(process.cwd(), "content/assets"))
-    .find((file) => file.endsWith("reshape-orders.png"))
+  const featured = articles.filter((file) => file.frontmatter?.featured === true).slice(0, 6)
+  const topics = [...new Set(articles.map((file) => String(file.frontmatter?.category)))].map(
+    (title) => [
+      title,
+      `${articles.filter((file) => file.frontmatter?.category === title).length} 篇笔记`,
+    ],
+  )
   return (
     <div class="home-content">
       <section class="home-intro" aria-labelledby="home-title">
@@ -79,20 +74,16 @@ export const BlogHome: QuartzComponent = (props) => {
             浏览全部文章 <span aria-hidden="true">↗</span>
           </a>
         </div>
-        <a class="intro-figure internal" href={href(props, "notes/numpy-reshape")}>
-          {image && (
-            <img
-              src={`${pathToRoot(props.fileData.slug!)}/assets/${image}`}
-              width="1080"
-              height="460"
-              alt="同一组数字按 C 与 F 顺序重塑后的数组"
-              fetchpriority="high"
-            />
-          )}
+        <a class="intro-figure library-intro internal" href={href(props, "topics")}>
+          <p class="intro-label">持续积累的知识库</p>
+          <p class="library-count">
+            {articles.length}
+            <span>篇笔记</span>
+          </p>
           <div>
-            <span>从一个小例子开始</span>
+            <span>编程、统计与科研工具</span>
             <strong>
-              理解 NumPy 的数组重塑 <span aria-hidden="true">↗</span>
+              从 {topics.length} 个专题开始阅读 <span aria-hidden="true">↗</span>
             </strong>
           </div>
         </a>
@@ -116,7 +107,7 @@ export const BlogHome: QuartzComponent = (props) => {
         <section aria-labelledby="latest-heading">
           <h2 id="latest-heading">最近发布</h2>
           <ul class="latest-list">
-            {articles.map((file) => (
+            {articles.slice(0, 10).map((file) => (
               <li>
                 <time dateTime={String(file.frontmatter?.date)}>
                   {String(file.frontmatter?.date).slice(5).replace("-", " / ")}
@@ -151,6 +142,9 @@ export const BlogFooter: QuartzComponent = (props) => (
     <span>Howard 的技术笔记</span>
     <div>
       <a href={`${root(props)}/index.xml`}>RSS</a>
+      <a href={`${root(props)}/admin/`} data-router-ignore>
+        文章管理
+      </a>
       <a href="https://github.com/LeiGuo0812/howard-notes">GitHub</a>
       <a href="https://quartz.jzhao.xyz/">Quartz</a>
     </div>

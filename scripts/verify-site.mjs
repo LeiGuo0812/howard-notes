@@ -24,6 +24,7 @@ for (const file of files.filter((file) => file.endsWith(".html"))) {
     links = []
   visit(tree, "element", (node) => {
     if (node.properties.id) ids.add(String(node.properties.id))
+    if (node.tagName === "a" && node.properties.name) ids.add(String(node.properties.name))
     if (["a", "link", "img", "script"].includes(node.tagName)) {
       const value = node.properties.href ?? node.properties.src
       if (typeof value === "string") links.push(value)
@@ -44,7 +45,16 @@ for (const [file, { links }] of pages) {
   const pageUrl = new URL(route, base)
   for (const link of links) {
     if (/^(mailto:|tel:|data:|javascript:)/.test(link)) continue
-    const target = new URL(link, pageUrl)
+    let target
+    try {
+      target = new URL(link, pageUrl)
+    } catch {
+      // Historical notes contain literal URL examples such as localhost:<端口号>.
+      // Retain the original example without treating it as a generated site route.
+      if (route.startsWith("notes/") && /^[a-z][a-z0-9+.-]*:/i.test(link)) continue
+      failures.push(`${route}: invalid URL ${link}`)
+      continue
+    }
     if (target.origin !== base.origin) continue
     if (
       !target.pathname.startsWith(base.pathname) &&
@@ -72,8 +82,13 @@ const allowed = new Set(
   manifest.files.filter((file) => file.endsWith(".md")).map((file) => file.slice(0, -3)),
 )
 const index = JSON.parse(await fs.readFile("public/static/contentIndex.json", "utf8"))
+for (const slug of allowed) {
+  if (!existing.has(path.join(publicDir, slug + ".html")))
+    failures.push(`Missing rendered document: ${slug}`)
+  if (!index[slug]) failures.push(`Missing search document: ${slug}`)
+}
 for (const slug of Object.keys(index))
-  if (!allowed.has(slug) && !slug.startsWith("tags/"))
+  if (!allowed.has(slug) && slug !== "tags" && !slug.startsWith("tags/"))
     failures.push(`Unexpected search document: ${slug}`)
 for (const file of files)
   if (/\/(\.obsidian|\.git|\.trash)\/|\.md$|publish-manifest/.test(file))

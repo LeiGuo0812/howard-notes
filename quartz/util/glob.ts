@@ -15,7 +15,9 @@ export async function glob(
     await globby(pattern, {
       cwd,
       ignore: ignorePatterns,
-      gitignore: true,
+      // This site generates the allowlisted content directory before each build.
+      // It is excluded from Git, but must still be visible to the renderer.
+      gitignore: path.resolve(cwd) !== path.resolve("content"),
     })
   ).map(toPosixPath)
   return fps as FilePath[]

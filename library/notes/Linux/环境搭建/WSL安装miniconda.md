@@ -1,0 +1,1 @@
+[linux一键安装Miniconda\_linux 安装miniconda 选择安装位置-CSDN博客](https://blog.csdn.net/qq_41636123/article/details/130266232)

@@ -1,0 +1,162 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <meta name="robots" content="noindex,nofollow" />
+    <meta name="referrer" content="no-referrer" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; script-src 'self'; style-src 'self'; connect-src https://api.github.com; img-src 'self' https: blob: data:; object-src 'none'; base-uri 'none'; form-action 'none'"
+    />
+    <title>文章管理 · Howard</title>
+    <link rel="icon" href="../static/icon.png" />
+    <link rel="stylesheet" href="admin.css" />
+    <script src="admin.js" defer></script>
+  </head>
+  <body>
+    <header class="topbar">
+      <a class="brand" href="../">h. <span>Howard / 文章管理</span></a>
+      <div class="account">
+        <span id="account"></span><button id="logout" hidden>退出登录</button>
+      </div>
+    </header>
+    <main>
+      <section id="login-panel" class="login-panel">
+        <p class="eyebrow">写作与维护</p>
+        <h1>让笔记继续生长。</h1>
+        <p>编辑原文、上传图片，管理文章发布状态。保存后的版本可同步回 Obsidian。</p>
+        <form id="login-form">
+          <label for="token">GitHub 访问令牌</label>
+          <input
+            id="token"
+            name="token"
+            type="password"
+            autocomplete="off"
+            required
+            placeholder="粘贴仅限此博客仓库的令牌"
+          />
+          <button type="submit" class="primary">登录文章管理</button>
+        </form>
+        <details>
+          <summary>首次使用：如何获取登录令牌</summary>
+          <ol>
+            <li>
+              打开
+              <a
+                href="https://github.com/settings/personal-access-tokens/new"
+                target="_blank"
+                rel="noopener noreferrer"
+                >GitHub 令牌设置</a
+              >，创建 Fine-grained token。
+            </li>
+            <li>
+              Repository access 选择 Only select repositories，仅选择
+              <strong>howard-notes</strong>。
+            </li>
+            <li>
+              Repository permissions 中将 <strong>Contents</strong> 设为
+              <strong>Read and write</strong>，设置有效期后生成。
+            </li>
+            <li>
+              将令牌粘贴到上方登录框。本站仅在当前页面内存中使用它；刷新或退出后需要重新登录。
+            </li>
+          </ol>
+        </details>
+        <p class="small">
+          文章库是公开的 GitHub 仓库。这里的“草稿 /
+          撤下”控制网站展示，已提交的原文及历史仍可在仓库查看。私人草稿请保存在本地。
+        </p>
+        <a href="../maintenance">查看维护与同步说明</a>
+      </section>
+      <div id="workspace" class="workspace" hidden>
+        <aside class="article-sidebar">
+          <div class="list-heading">
+            <h2>文章</h2>
+            <button id="new-article" class="primary">新建</button>
+          </div>
+          <label for="search">查找文章</label
+          ><input id="search" type="search" placeholder="标题、专题或标签" />
+          <label for="filter">发布状态</label
+          ><select id="filter">
+            <option value="all">全部文章</option>
+            <option value="published">已发布</option>
+            <option value="draft">草稿 / 已撤下</option>
+          </select>
+          <p id="article-count" class="small"></p>
+          <div id="article-list" class="article-list"></div>
+        </aside>
+        <section class="editor-panel">
+          <div id="empty" class="empty">
+            <h2>选择一篇文章开始编辑</h2>
+            <p>正文与发布设置分别保存，调整专题或状态不会改写原文。</p>
+          </div>
+          <form id="editor-form" hidden>
+            <div class="editor-toolbar">
+              <h2 id="editor-heading">编辑文章</h2>
+              <div>
+                <button id="reload" type="button">重新载入</button
+                ><button id="download" type="button">下载原文</button
+                ><button id="save" class="primary" type="submit">保存更新</button>
+              </div>
+            </div>
+            <div class="fields">
+              <label class="wide">文章标题<input id="title" required maxlength="250" /></label>
+              <label
+                >专题<input id="category" required list="categories" /><datalist
+                  id="categories"
+                ></datalist
+              ></label>
+              <label
+                >文章网址<input
+                  id="slug"
+                  required
+                  pattern="[a-z0-9]+(-[a-z0-9]+)*"
+                  placeholder="例如 numpy-notes"
+                /><span class="small">首次保存后固定，避免旧链接失效。</span></label
+              >
+              <label>发布日期<input id="date" type="date" required /></label>
+              <label>标签<input id="tags" placeholder="用逗号分隔" /></label>
+              <label class="wide">摘要（可选）<input id="description" maxlength="500" /></label>
+              <label
+                >发布状态<select id="published">
+                  <option value="false">草稿 / 从网站撤下</option>
+                  <option value="true">公开发布到网站</option>
+                </select></label
+              >
+              <label class="checkbox"
+                ><input id="featured" type="checkbox" />在首页精选中展示</label
+              >
+            </div>
+            <div class="body-toolbar">
+              <strong>Markdown 原文</strong>
+              <div>
+                <label class="upload-label" for="image">插入图片</label
+                ><input
+                  id="image"
+                  type="file"
+                  accept="image/png,image/jpeg,image/gif,image/webp"
+                  hidden
+                /><button id="toggle-preview" type="button" aria-pressed="false">显示预览</button
+                ><a id="view-live" target="_blank" rel="noopener noreferrer">查看网页 ↗</a>
+              </div>
+            </div>
+            <div id="writing-area" class="writing-area">
+              <textarea
+                id="body"
+                aria-label="Markdown 原文"
+                spellcheck="false"
+                wrap="off"
+              ></textarea>
+              <article id="preview" class="preview" hidden aria-label="Markdown 预览"></article>
+            </div>
+            <p class="small">
+              预览用于检查基础排版；双链、公式和流程图以发布后的文章为准。图片随本次保存一起提交。
+            </p>
+          </form>
+        </section>
+      </div>
+      <div id="status" role="status" aria-live="polite" hidden></div>
+    </main>
+  </body>
+</html>
