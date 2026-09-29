@@ -1,0 +1,180 @@
+configuration:
+  pageTitle: Howard 的技术笔记
+  pageTitleSuffix: " | Howard"
+  enableSPA: true
+  enablePopovers: true
+  analytics: null
+  locale: zh-CN
+  baseUrl: leiguo0812.github.io/howard-notes
+  ignorePatterns:
+    - private
+    - templates
+    - .obsidian
+    - "**/.*"
+  theme:
+    fontOrigin: local
+    cdnCaching: true
+    typography:
+      header: Microsoft YaHei
+      body: Microsoft YaHei
+      code: Cascadia Code
+    colors:
+      lightMode:
+        light: "#fafbf9"
+        lightgray: "#e2e7e3"
+        gray: "#5e6c67"
+        darkgray: "#3e4b48"
+        dark: "#192f2b"
+        secondary: "#286352"
+        tertiary: "#387e68"
+        highlight: rgba(40,99,82,0.08)
+        textHighlight: "#b8dbc980"
+      darkMode:
+        light: "#15221f"
+        lightgray: "#2d4039"
+        gray: "#a5b5ae"
+        darkgray: "#d0dcd5"
+        dark: "#edf4ef"
+        secondary: "#91cbb2"
+        tertiary: "#b0ddc6"
+        highlight: rgba(145,203,178,0.12)
+        textHighlight: "#45765d80"
+plugins:
+  - source: "@quartz-community/created-modified-date"
+    enabled: true
+    options:
+      defaultDateType: published
+      priority:
+        - frontmatter
+    order: 10
+  - source: "@quartz-community/syntax-highlighting"
+    enabled: true
+    options:
+      theme:
+        light: github-light
+        dark: github-dark
+      keepBackground: false
+    order: 20
+  - source: "@quartz-community/obsidian-flavored-markdown"
+    enabled: true
+    options:
+      enableInHtmlEmbed: false
+      enableCheckbox: true
+    order: 30
+  - source: "@quartz-community/github-flavored-markdown"
+    enabled: true
+    order: 40
+  - source: "@quartz-community/table-of-contents"
+    enabled: true
+    order: 50
+    layout:
+      position: right
+      priority: 30
+  - source: "@quartz-community/crawl-links"
+    enabled: true
+    options:
+      markdownLinkResolution: absolute
+    order: 60
+  - source: "@quartz-community/description"
+    enabled: true
+    order: 70
+  - source: "@quartz-community/latex"
+    enabled: true
+    options:
+      renderEngine: katex
+    order: 80
+  - source: "@quartz-community/remove-draft"
+    enabled: true
+  - source: "@quartz-community/explicit-publish"
+    enabled: true
+  - source: "@quartz-community/alias-redirects"
+    enabled: true
+  - source: "@quartz-community/content-index"
+    enabled: true
+    options:
+      enableSiteMap: true
+      enableRSS: false
+      rssLimit: 20
+      rssFullHtml: false
+  - source: "@quartz-community/favicon"
+    enabled: true
+  - source: "@quartz-community/content-page"
+    enabled: true
+  - source: "@quartz-community/folder-page"
+    enabled: true
+  - source: "@quartz-community/tag-page"
+    enabled: true
+  - source: "@quartz-community/graph"
+    enabled: true
+    layout:
+      position: right
+      priority: 10
+      condition: not-index
+    options:
+      localGraph:
+        depth: 1
+        scale: 1.0
+      globalGraph:
+        depth: -1
+  - source: "@quartz-community/search"
+    enabled: true
+    layout:
+      position: header
+      priority: 20
+  - source: "@quartz-community/backlinks"
+    enabled: true
+    layout:
+      position: right
+      priority: 50
+  - source: "@quartz-community/article-title"
+    enabled: true
+    layout:
+      position: beforeBody
+      priority: 10
+      condition: not-index
+  - source: "@quartz-community/content-meta"
+    enabled: true
+    layout:
+      position: beforeBody
+      priority: 20
+      condition: not-index
+  - source: "@quartz-community/darkmode"
+    enabled: true
+    layout:
+      position: header
+      priority: 30
+  - source: "@quartz-community/breadcrumbs"
+    enabled: true
+    options:
+      rootName: 首页
+    layout:
+      position: beforeBody
+      priority: 5
+      condition: not-index
+  - source: "@quartz-community/note-properties"
+    enabled: true
+    options:
+      includeAll: false
+      includedProperties:
+        - description
+        - tags
+        - aliases
+      excludedProperties: []
+      hidePropertiesView: true
+      delimiters: "---"
+      language: yaml
+    order: 5
+    layout:
+      position: beforeBody
+      priority: 15
+      display: all
+layout:
+  byPageType:
+    content:
+      template: blog
+    folder:
+      template: blog
+    tag:
+      template: blog
+    "404":
+      template: blog
