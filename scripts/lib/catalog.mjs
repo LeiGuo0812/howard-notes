@@ -34,6 +34,18 @@ export function validateCatalog(catalog) {
       throw new Error("请填写专题。")
     if (typeof article.published !== "boolean") throw new Error("请设置文章发布状态。")
     if (
+      article.draftOf !== undefined &&
+      (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(article.draftOf) ||
+        article.draftOf === article.id ||
+        article.published ||
+        article.draftBaseline?.article?.id !== article.draftOf ||
+        article.draftBaseline?.article?.published !== true ||
+        typeof article.draftBaseline?.sha !== "string" ||
+        !article.draftBaseline.sha ||
+        !safeRelative(article.draftBaseline.article.file))
+    )
+      throw new Error("文章修改草稿的原版本信息不正确。")
+    if (
       typeof article.date !== "string" ||
       !/^\d{4}-\d{2}-\d{2}$/.test(article.date) ||
       Number.isNaN(Date.parse(article.date))

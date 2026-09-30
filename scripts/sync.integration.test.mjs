@@ -121,6 +121,40 @@ test("sync initializes exact copies, merges independent edits and preserves file
     assert.equal(await read(mirror, "notes/c.md"), historicalNote)
     assert.match(sync(), /"changes": \[\]/)
     git(web, "pull", "--ff-only")
+    const webCatalog = JSON.parse(await read(web, "library/catalog.json"))
+    const originalA = webCatalog.articles.find((article) => article.id === "a")
+    const draftFile = "notes/网页草稿/draft-a.md"
+    const editingDraft = {
+      ...originalA,
+      id: "draft-a",
+      file: draftFile,
+      published: false,
+      draftOf: "a",
+      draftBaseline: {
+        article: structuredClone(originalA),
+        sha: git(web, "hash-object", "library/notes/a.md").trim(),
+      },
+    }
+    webCatalog.articles.push(editingDraft)
+    await write(web, "library/catalog.json", JSON.stringify(webCatalog))
+    await write(web, "library/" + draftFile, "未发布的 A 修改\r\n")
+    git(web, "add", "library")
+    git(web, "commit", "-m", "Save editing draft")
+    git(web, "push", "origin", "main")
+    sync("--apply")
+    assert.equal(await read(mirror, "notes/a.md"), "本地更新 A\r\n")
+    assert.equal(await read(mirror, draftFile), "未发布的 A 修改\r\n")
+    webCatalog.articles = webCatalog.articles.filter((article) => article.id !== "draft-a")
+    await write(web, "library/catalog.json", JSON.stringify(webCatalog))
+    await write(web, "library/notes/a.md", "网页发布草稿 A\r\n")
+    await fs.rm(path.join(web, "library", draftFile))
+    git(web, "add", "library")
+    git(web, "commit", "-m", "Publish editing draft")
+    git(web, "push", "origin", "main")
+    sync("--apply")
+    assert.equal(await read(mirror, "notes/a.md"), "网页发布草稿 A\r\n")
+    await assert.rejects(read(mirror, draftFile), { code: "ENOENT" })
+    assert.match(sync(), /"changes": \[\]/)
     await webEdit("网页冲突 B\r\n")
     await write(mirror, "notes/b.md", "本地冲突 B\r\n")
     const beforeConflict = git(project, "rev-parse", "HEAD")

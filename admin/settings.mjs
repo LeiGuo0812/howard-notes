@@ -43,9 +43,7 @@ export function createSettings({ getSnapshot, action, message, onSaved, refresh 
       if (section.id === "activity") el.append(node("div", "笔记活动", "mini-heatmap"))
       else if (["featured", "recent"].includes(section.id)) {
         const articles = getSnapshot()
-          .catalog.articles.filter(
-            (article) => article.published && (section.id !== "featured" || article.featured),
-          )
+          .catalog.articles.filter((article) => article.published)
           .sort((a, b) =>
             (b.modified || b.created || b.date).localeCompare(a.modified || a.created || a.date),
           )

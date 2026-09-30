@@ -138,6 +138,15 @@ a.blog-brand.internal {
   grid-template-columns: minmax(0, 760px) 210px;
   gap: 70px;
 }
+.page[data-frame="blog"] #quartz-body .blog-layout.is-article > #main-content.center {
+  grid-area: 1 / 2;
+}
+.page[data-frame="blog"] #quartz-body .blog-layout.is-article > .reading-sidebar {
+  grid-area: 1 / 1;
+}
+.page[data-frame="blog"] #quartz-body .blog-layout.is-article > .article-backlinks {
+  grid-area: 2 / 2;
+}
 .blog-layout .page-header {
   margin: 0 0 24px;
 }
@@ -906,5 +915,288 @@ a.article-row > span {
   }
   .home-modules {
     gap: 35px;
+  }
+}
+
+// Random recommendations and a quieter reading column.
+.page[data-frame="blog"] {
+  max-width: 1320px;
+}
+.lucky-previews {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 22px;
+  padding-top: 12px;
+}
+.layout-split .module-featured {
+  grid-column: 1 / -1;
+}
+.lucky-previews a.note-preview.internal {
+  display: flex;
+  flex-direction: column;
+  min-height: 270px;
+  padding: 28px 24px 24px;
+  border: 1px solid var(--lightgray);
+  border-radius: 12px;
+  background: var(--highlight);
+  transition:
+    border-color 180ms,
+    background 180ms;
+  &:hover {
+    border-color: var(--secondary);
+  }
+  .preview-note-heading {
+    display: block;
+  }
+  h3 {
+    font-size: 19px;
+    font-weight: 600;
+    line-height: 1.7;
+  }
+  time {
+    display: block;
+    margin-top: 10px;
+  }
+  p {
+    font-size: 13px;
+    margin: 18px 0 22px;
+    -webkit-line-clamp: 3;
+  }
+  > small {
+    margin-top: auto;
+  }
+}
+.pagination[hidden] {
+  display: none;
+}
+.pagination button {
+  font: inherit;
+  font-size: 12px;
+  padding: 7px 11px;
+  border: 1px solid var(--lightgray);
+  border-radius: 5px;
+  background: transparent;
+  color: var(--darkgray);
+  cursor: pointer;
+  &:hover {
+    border-color: var(--secondary);
+  }
+  &[aria-current="page"] {
+    background: var(--secondary);
+    border-color: var(--secondary);
+    color: var(--light);
+  }
+  &:disabled {
+    opacity: 0.4;
+    cursor: default;
+  }
+}
+#listing-pages {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+#listing-page-state {
+  font-size: 11px;
+  color: var(--gray);
+  margin: 0 4px;
+}
+.tag-symbol {
+  opacity: 0.6;
+  font-weight: 400;
+}
+.tag-chips .tag-count {
+  padding-left: 7px;
+  border-left: 1px solid var(--lightgray);
+}
+.article-note-meta .tag-chips {
+  gap: 8px;
+  margin-top: 10px;
+  a.topic-chip.internal {
+    padding: 6px 12px;
+    border-radius: 20px;
+    gap: 5px;
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--secondary);
+    border: 1px solid var(--lightgray);
+    background: var(--highlight);
+    &:hover {
+      border-color: var(--secondary);
+    }
+  }
+}
+.blog-layout.is-article {
+  grid-template-columns: minmax(260px, 310px) minmax(0, 760px);
+  gap: 44px;
+  max-width: 1114px;
+}
+.blog-layout .sidebar.reading-sidebar {
+  position: sticky;
+  top: 24px;
+  height: fit-content;
+  min-width: 0;
+  padding: 0;
+}
+.reading-tools {
+  width: 100%;
+  max-height: calc(100dvh - 48px);
+  overflow-y: auto;
+}
+.reading-tools > summary {
+  display: none;
+}
+.reading-tool-panels {
+  display: flex;
+  flex-direction: column;
+  gap: 26px;
+}
+.reading-sidebar .graph {
+  min-width: 0;
+}
+.reading-sidebar .graph > h3 {
+  font-size: 13px;
+  margin: 0 0 12px;
+}
+.reading-sidebar .graph .graph-outer {
+  height: 300px;
+  border-radius: 10px;
+}
+.reading-sidebar .graph .graph-container {
+  height: 100%;
+}
+.note-relationship-graph {
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+}
+.note-relationship-graph path {
+  fill: none;
+  stroke: var(--lightgray);
+  stroke-width: 1.5;
+}
+.note-relationship-graph .topic-edge {
+  stroke-dasharray: 3 4;
+}
+.note-relationship-graph circle {
+  fill: var(--secondary);
+}
+.note-relationship-graph text {
+  fill: var(--darkgray);
+  font-size: 11px;
+  font-family: var(--bodyFont);
+  font-weight: 400;
+}
+.note-relationship-graph .current-node-title {
+  font-size: 10px;
+  fill: var(--secondary);
+  font-weight: 600;
+}
+.note-relationship-graph .graph-note:hover text {
+  fill: var(--secondary);
+}
+.note-relationship-graph .graph-note:focus-visible {
+  outline: none;
+}
+.note-relationship-graph .graph-note:focus-visible circle {
+  stroke: var(--secondary);
+  stroke-width: 6;
+  stroke-opacity: 0.3;
+}
+.reading-sidebar .toc {
+  min-height: auto;
+}
+.reading-sidebar .toc-header h3 {
+  font-size: 13px;
+  font-weight: 600;
+}
+.reading-sidebar ul.toc-content.overflow {
+  font-size: 12px;
+  line-height: 1.7;
+  margin-top: 12px;
+  max-height: none;
+  > li {
+    margin: 6px 0;
+  }
+  > li > a {
+    opacity: 0.8;
+    color: var(--darkgray);
+    font-weight: 400;
+  }
+  > li > a:hover,
+  > li > a.in-view {
+    opacity: 1;
+    color: var(--secondary);
+  }
+  .depth-0 {
+    padding-left: 0;
+  }
+  .depth-0 > a {
+    font-weight: 700;
+  }
+  .depth-1 {
+    padding-left: 12px;
+  }
+  .depth-1 > a {
+    font-weight: 550;
+  }
+  .depth-2 {
+    padding-left: 24px;
+  }
+  .depth-3 {
+    padding-left: 36px;
+  }
+  .depth-4 {
+    padding-left: 48px;
+  }
+}
+.article-backlinks {
+  grid-column: 2;
+  font-size: 13px;
+}
+.article-backlinks .backlinks > h3 {
+  font-size: 14px;
+}
+@media (max-width: 999px) {
+  .blog-layout.is-article {
+    display: flex;
+    flex-direction: column;
+    gap: 24px;
+    max-width: 760px;
+  }
+  .blog-layout .sidebar.reading-sidebar {
+    display: block;
+    position: static;
+    width: 100%;
+  }
+  .reading-tools {
+    max-height: none;
+    overflow: visible;
+    border-block: 1px solid var(--lightgray);
+    padding: 10px 0;
+  }
+  .reading-tools > summary {
+    display: list-item;
+    cursor: pointer;
+    color: var(--secondary);
+    font-size: 13px;
+  }
+  .reading-tool-panels {
+    margin-top: 18px;
+  }
+  .reading-sidebar .graph .graph-outer {
+    height: 300px;
+  }
+}
+@media (max-width: 767px) {
+  .lucky-previews {
+    grid-template-columns: 1fr;
+    gap: 12px;
+  }
+  .lucky-previews a.note-preview.internal {
+    min-height: 210px;
+    padding: 22px;
+  }
+  .lucky-previews a.note-preview.internal h3 {
+    font-size: 18px;
   }
 }

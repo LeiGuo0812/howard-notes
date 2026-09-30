@@ -68,7 +68,7 @@ plugins:
     enabled: true
     order: 50
     layout:
-      position: right
+      position: left
       priority: 30
   - source: "@quartz-community/crawl-links"
     enabled: true
@@ -107,15 +107,20 @@ plugins:
   - source: "@quartz-community/graph"
     enabled: true
     layout:
-      position: right
+      position: left
       priority: 10
-      condition: not-index
     options:
       localGraph:
-        depth: 1
+        depth: 2
         scale: 1.0
+        fontSize: 0.75
+        opacityScale: 4.75
+        linkDistance: 65
+        repelForce: 0.8
       globalGraph:
         depth: -1
+        fontSize: 0.8
+        opacityScale: 2.5
   - source: "@quartz-community/search"
     enabled: true
     layout:

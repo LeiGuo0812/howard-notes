@@ -30,22 +30,16 @@
       </section>
       <nav id="admin-tabs" class="admin-tabs" aria-label="管理功能" hidden>
         <button id="tab-articles" aria-current="page">文章</button
-        ><button id="tab-settings">页面设置</button>
+        ><button id="tab-drafts">草稿箱</button><button id="tab-settings">页面设置</button>
       </nav>
       <div id="workspace" class="workspace" hidden>
         <aside class="article-sidebar">
           <div class="list-heading">
-            <h2>文章</h2>
+            <h2 id="list-title">文章</h2>
             <button id="new-article" class="primary">新建</button>
           </div>
           <label for="search">搜索</label
           ><input id="search" type="search" placeholder="标题、专题、标签" />
-          <label for="filter">状态</label
-          ><select id="filter">
-            <option value="all">全部</option>
-            <option value="published">已发布</option>
-            <option value="draft">草稿 / 已撤下</option>
-          </select>
           <p id="article-count" class="small"></p>
           <div id="article-list" class="article-list"></div>
         </aside>
@@ -58,7 +52,10 @@
                 <span id="save-state" class="small" role="status">已保存</span
                 ><button id="reload" type="button">重新载入</button
                 ><button id="download" type="button">下载</button
-                ><button id="save" class="primary" type="submit">保存</button>
+                ><button id="cancel-edit" type="button">取消</button>
+                <button id="delete-draft" class="danger" type="button">删除</button>
+                <button id="save-draft" type="submit" formnovalidate>存草稿</button>
+                <button id="save" class="primary" type="submit">发布</button>
               </div>
             </div>
             <label class="title-label"
@@ -66,12 +63,9 @@
             /></label>
             <div class="publish-fields">
               <label>专题<select id="category" required></select></label
-              ><label
-                >发布状态<select id="published">
-                  <option value="false">草稿 / 撤下</option>
-                  <option value="true">公开发布</option>
-                </select></label
-              ><label class="checkbox"><input id="featured" type="checkbox" />精选</label>
+              ><input id="published" type="hidden" value="false" />
+              <span id="publication-state" class="publication-state">未发布</span>
+              <label class="checkbox"><input id="featured" type="checkbox" />精选</label>
             </div>
             <details class="article-options">
               <summary>文章设置</summary>
@@ -81,6 +75,7 @@
                 <label>标签<input id="tags" placeholder="逗号分隔" /></label
                 ><label>摘要<input id="description" maxlength="500" /></label>
               </div>
+              <button id="unpublish" type="button" hidden>从网站撤下</button>
             </details>
             <div class="writing-controls">
               <div class="view-switch" role="group" aria-label="编辑视图">

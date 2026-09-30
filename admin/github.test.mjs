@@ -17,6 +17,122 @@ const snapshot = (sha = "original", articles = [article]) => ({
   entries: new Map([["library/notes/a.md", { sha }]]),
   catalog: { version: 2, articles },
 })
+const revision = () => ({
+  ...article,
+  id: "draft-a",
+  file: "notes/网页草稿/draft-a.md",
+  published: false,
+  draftOf: article.id,
+  draftBaseline: { article: structuredClone(article), sha: "original" },
+})
+function recordWrites(client, latest) {
+  const calls = []
+  client.snapshot = async () => latest
+  client.repo = async (endpoint, method, body) => {
+    calls.push({ endpoint, method, body })
+    return { sha: "new" }
+  }
+  return calls
+}
+test("saving a published article's editing draft leaves published metadata and bytes untouched", async () => {
+  const client = new GitHubLibrary("test-not-a-token")
+  const calls = recordWrites(client, snapshot())
+  const draft = revision()
+  await client.save({ opened: null, openedSha: null, edited: draft, text: "new draft\r\n" })
+  const tree = calls[0].body.tree
+  assert.deepEqual(
+    tree.map((change) => change.path),
+    ["library/catalog.json", `library/${draft.file}`],
+  )
+  assert.deepEqual(JSON.parse(tree[0].content).articles[0], article)
+  assert.equal(tree[1].content, "new draft\r\n")
+  assert.equal(calls.at(-1).body.force, false)
+})
+test("publishing an editing draft atomically updates the original route and retires only that draft", async () => {
+  const draft = revision(),
+    latest = snapshot("original", [article, draft, { ...article, id: "b", file: "notes/b.md" }])
+  latest.entries.set(`library/${draft.file}`, { sha: "draft-version" })
+  const client = new GitHubLibrary("test-not-a-token"),
+    calls = recordWrites(client, latest)
+  const result = await client.publishDraft({
+    opened: draft,
+    openedSha: "draft-version",
+    edited: { ...draft, title: "新标题" },
+    text: "new original\r\n",
+  })
+  const tree = calls[0].body.tree,
+    catalog = JSON.parse(tree[0].content)
+  assert.equal(result.articleId, "a")
+  assert.equal(catalog.articles.length, 2)
+  assert.equal(catalog.articles[0].id, "a")
+  assert.equal(catalog.articles[0].file, "notes/a.md")
+  assert.equal(catalog.articles[0].published, true)
+  assert.equal(catalog.articles[0].draftOf, undefined)
+  assert.equal(catalog.articles[1].id, "b")
+  assert.deepEqual(tree[1], {
+    path: "library/notes/a.md",
+    mode: "100644",
+    type: "blob",
+    content: "new original\r\n",
+  })
+  assert.equal(tree[2].path, `library/${draft.file}`)
+  assert.equal(tree[2].sha, null)
+  assert.equal(calls.at(-1).body.force, false)
+})
+test("new editing drafts reject a newer published version or an existing editing draft", async () => {
+  const draft = revision(),
+    client = new GitHubLibrary("test-not-a-token")
+  for (const latest of [snapshot("new original"), snapshot("original", [article, draft])]) {
+    const calls = recordWrites(client, latest)
+    await assert.rejects(
+      client.save({ opened: null, openedSha: null, edited: draft, text: "draft" }),
+      /另一端|已有编辑草稿/,
+    )
+    assert.equal(calls.length, 0)
+  }
+})
+test("draft publishing detects changes to either draft or published version before writing", async () => {
+  for (const changed of ["draft-body", "original-body", "draft-settings", "original-settings"]) {
+    const draft = revision(),
+      latest = snapshot("original", [article, draft])
+    latest.catalog = structuredClone(latest.catalog)
+    latest.entries.set(`library/${draft.file}`, {
+      sha: changed === "draft-body" ? "new-draft" : "draft-version",
+    })
+    if (changed === "original-body")
+      latest.entries.set("library/notes/a.md", { sha: "new-original" })
+    if (changed === "draft-settings") latest.catalog.articles[1].title = "concurrent"
+    if (changed === "original-settings") latest.catalog.articles[0].title = "concurrent"
+    const client = new GitHubLibrary("test-not-a-token"),
+      calls = recordWrites(client, latest)
+    await assert.rejects(
+      client.publishDraft({
+        opened: draft,
+        openedSha: "draft-version",
+        edited: draft,
+        text: "new",
+      }),
+      /另一端/,
+    )
+    assert.equal(calls.length, 0)
+  }
+})
+test("deleting an editing draft preserves the published article and refuses stale or published entries", async () => {
+  const draft = revision(),
+    latest = snapshot("original", [article, draft])
+  latest.entries.set(`library/${draft.file}`, { sha: "draft-version" })
+  const client = new GitHubLibrary("test-not-a-token"),
+    calls = recordWrites(client, latest)
+  await client.removeDraft({ opened: draft, openedSha: "draft-version" })
+  const tree = calls[0].body.tree
+  assert.deepEqual(JSON.parse(tree[0].content).articles, [article])
+  assert.equal(tree[1].path, `library/${draft.file}`)
+  assert.equal(tree[1].sha, null)
+  calls.length = 0
+  await assert.rejects(client.removeDraft({ opened: article, openedSha: "original" }), /未发布/)
+  await assert.rejects(client.removeDraft({ opened: draft, openedSha: "stale" }), /另一端/)
+  assert.equal(calls.length, 0)
+})
 test("refuses to overwrite an article changed since it was opened", async () => {
   const client = new GitHubLibrary("test-not-a-token")
   client.snapshot = async () => snapshot("new remote sha")

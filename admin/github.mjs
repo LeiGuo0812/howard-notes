@@ -5,6 +5,7 @@ import {
   validateCatalog,
   mergeArticle,
   safeRelative,
+  equal,
 } from "../scripts/lib/catalog.mjs"
 import { SITE_PATH, validateSite } from "../scripts/lib/site-settings.mjs"
 
@@ -89,6 +90,16 @@ export class GitHubLibrary {
   }
   async save({ opened, openedSha, edited, text, images = [] }) {
     const latest = await this.snapshot()
+    if (edited.draftOf && !opened) {
+      const original = latest.catalog.articles.find((article) => article.id === edited.draftOf)
+      if (
+        !equal(original, edited.draftBaseline?.article) ||
+        latest.entries.get(`library/${original?.file}`)?.sha !== edited.draftBaseline?.sha
+      )
+        throw new Error("已发布文章已在另一端更改，请重新载入后再存草稿。")
+      if (latest.catalog.articles.some((article) => article.draftOf === edited.draftOf))
+        throw new Error("这篇文章已有编辑草稿，请从草稿箱继续编辑。")
+    }
     const currentSha = latest.entries.get(`library/${edited.file}`)?.sha ?? null
     if (currentSha !== (openedSha ?? null))
       throw new Error("这篇原文已在另一端更改。请先下载你的编辑，再重新载入；本次没有覆盖远端。")
@@ -102,6 +113,14 @@ export class GitHubLibrary {
       },
       { path: `library/${edited.file}`, mode: "100644", type: "blob", content: text },
     ]
+    await this.appendImages(changes, images)
+    return this.commit(
+      latest,
+      changes,
+      `${edited.published ? "Publish" : "Save draft"}: ${edited.title}`,
+    )
+  }
+  async appendImages(changes, images) {
     for (const image of images) {
       if (
         !safeRelative(image.file) ||
@@ -114,11 +133,43 @@ export class GitHubLibrary {
       })
       changes.push({ path: "library/" + image.file, mode: "100644", type: "blob", sha: blob.sha })
     }
-    return this.commit(
-      latest,
-      changes,
-      `${edited.published ? "Publish" : "Save draft"}: ${edited.title}`,
+  }
+  async publishDraft({ opened, openedSha, edited, text, images = [] }) {
+    if (!opened?.draftOf || opened.published !== false) throw new Error("找不到文章修改草稿。")
+    const latest = await this.snapshot()
+    const draft = latest.catalog.articles.find((article) => article.id === opened.id)
+    const original = latest.catalog.articles.find((article) => article.id === opened.draftOf)
+    if (!equal(draft, opened) || latest.entries.get(`library/${opened.file}`)?.sha !== openedSha)
+      throw new Error("草稿已在另一端更改，请重新载入后再发布。")
+    if (
+      !equal(original, opened.draftBaseline?.article) ||
+      latest.entries.get(`library/${original?.file}`)?.sha !== opened.draftBaseline?.sha
     )
+      throw new Error("已发布文章已在另一端更改；原文章和草稿均已保留，请先核对最新文章。")
+    const published = {
+      ...edited,
+      id: original.id,
+      file: original.file,
+      date: original.date,
+      published: true,
+    }
+    delete published.draftOf
+    delete published.draftBaseline
+    const catalog = mergeArticle(latest.catalog, original, published)
+    catalog.articles = catalog.articles.filter((article) => article.id !== opened.id)
+    const changes = [
+      {
+        path: CATALOG_PATH,
+        mode: "100644",
+        type: "blob",
+        content: JSON.stringify(catalog, null, 2) + "\n",
+      },
+      { path: `library/${original.file}`, mode: "100644", type: "blob", content: text },
+      { path: `library/${opened.file}`, mode: "100644", type: "blob", sha: null },
+    ]
+    await this.appendImages(changes, images)
+    const result = await this.commit(latest, changes, `Publish changes: ${published.title}`)
+    return { ...result, articleId: published.id }
   }
   async saveSettings({ openedSha, settings }) {
     validateSite(settings)
@@ -147,6 +198,28 @@ export class GitHubLibrary {
         },
       ],
       "Update site layout and topics",
+    )
+  }
+  async removeDraft({ opened, openedSha }) {
+    if (!opened || opened.published !== false) throw new Error("只能删除未发布的草稿。")
+    const latest = await this.snapshot()
+    const current = latest.catalog.articles.find((article) => article.id === opened.id)
+    if (!equal(current, opened) || latest.entries.get(`library/${opened.file}`)?.sha !== openedSha)
+      throw new Error("草稿已在另一端更改，请重新载入；本次没有删除远端内容。")
+    const catalog = structuredClone(latest.catalog)
+    catalog.articles = catalog.articles.filter((article) => article.id !== opened.id)
+    return this.commit(
+      latest,
+      [
+        {
+          path: CATALOG_PATH,
+          mode: "100644",
+          type: "blob",
+          content: JSON.stringify(catalog, null, 2) + "\n",
+        },
+        { path: `library/${opened.file}`, mode: "100644", type: "blob", sha: null },
+      ],
+      `Delete draft: ${opened.title}`,
     )
   }
   async readAsset(file, snapshot) {

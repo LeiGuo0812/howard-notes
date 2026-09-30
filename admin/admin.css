@@ -55,6 +55,20 @@ button:disabled {
 .primary:hover {
   background: #20513f;
 }
+.danger {
+  color: var(--danger);
+}
+.publication-state {
+  align-self: center;
+  font-size: 12px;
+  padding: 4px 9px;
+  background: var(--wash);
+  border-radius: 5px;
+  color: var(--muted);
+}
+.list-empty {
+  padding: 20px 0;
+}
 input,
 select,
 textarea {

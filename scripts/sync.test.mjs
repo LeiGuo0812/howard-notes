@@ -1,8 +1,39 @@
 import test from "node:test"
 import assert from "node:assert/strict"
-import { planSync } from "./lib/sync-plan.mjs"
+import { planSync, retiredWebDrafts } from "./lib/sync-plan.mjs"
 const files = (object) =>
   new Map(Object.entries(object).map(([name, value]) => [name, Buffer.from(value)]))
+test("consumed web drafts sync their removal while local edits and original-note deletion stay protected", () => {
+  const draft = { id: "draft-a", file: "notes/网页草稿/draft-a.md", published: false, draftOf: "a" }
+  const original = { id: "a", file: "notes/a.md", published: true }
+  const base = files({
+    "catalog.json": JSON.stringify({ articles: [original, draft] }),
+    [draft.file]: "draft",
+    [original.file]: "public",
+  })
+  const remote = files({
+    "catalog.json": JSON.stringify({ articles: [original] }),
+    [original.file]: "new public",
+  })
+  const allowDeleteFiles = retiredWebDrafts(base, remote)
+  assert.deepEqual([...allowDeleteFiles], [draft.file])
+  const clean = planSync(base, new Map(base), remote, { allowDeleteFiles })
+  assert.equal(clean.conflicts.length, 0)
+  assert.equal(clean.merged.has(draft.file), false)
+  const edited = new Map(base)
+  edited.set(draft.file, Buffer.from("local draft edit"))
+  assert.ok(
+    planSync(base, edited, remote, { allowDeleteFiles }).conflicts.some(
+      (item) => item.file === draft.file && item.reason === "两端同时修改",
+    ),
+  )
+  remote.delete(original.file)
+  assert.ok(
+    planSync(base, new Map(base), remote, { allowDeleteFiles }).conflicts.some(
+      (item) => item.file === original.file,
+    ),
+  )
+})
 test("one-way edits and additions merge in both directions without changing original bytes", () => {
   const base = files({ a: "old\r\n", b: "old b" })
   const local = files({ a: "local\r\n", b: "old b", c: "new local" })

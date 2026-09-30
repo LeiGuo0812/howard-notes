@@ -3,7 +3,9 @@ import { QuartzComponent, QuartzComponentProps } from "./types"
 import { FullSlug, pathToRoot, resolveRelative, simplifySlug } from "../util/path"
 import { PageFrame } from "./frames/types"
 import { slug } from "github-slugger"
+import { cloneElement, isValidElement, ComponentChildren } from "preact"
 import siteSettings from "../../library/site.json"
+import { ARTICLES_PER_PAGE } from "./scripts/browsing"
 // @ts-ignore Quartz's inline-script loader turns this module into a JavaScript string.
 import browserScript from "./scripts/note-browser.inline"
 
@@ -141,8 +143,11 @@ function TagChips({
     <nav class="topic-chips tag-chips" aria-label="笔记标签">
       {tags.map((tag) => (
         <a class="internal topic-chip" data-no-popover="true" href={href(props, `tags/${tag.id}`)}>
-          <span>#{tag.title}</span>
-          {tag.count !== undefined && <small>{tag.count}</small>}
+          <span class="tag-symbol" aria-hidden="true">
+            #
+          </span>
+          <span>{tag.title}</span>
+          {tag.count !== undefined && <small class="tag-count">{tag.count}</small>}
         </a>
       ))}
     </nav>
@@ -225,6 +230,100 @@ function TopicDirectory({ props }: { props: QuartzComponentProps }) {
         ))}
     </div>
   )
+}
+function ReadingGraph({
+  props,
+  Component,
+}: {
+  props: QuartzComponentProps
+  Component: QuartzComponent
+}) {
+  const current = data().articles.find((row) => `notes/${row.id}` === props.fileData.slug)
+  if (!current) return <Component {...props} />
+  const outgoing = new Set(props.fileData.links || [])
+  const tags = new Set(current.tags.map((tag) => tag.id))
+  const related = data()
+    .articles.filter((row) => row.id !== current.id)
+    .map((row) => {
+      const file = props.allFiles.find((file) => file.slug === `notes/${row.id}`)
+      const references =
+        outgoing.has(simplifySlug(`notes/${row.id}` as FullSlug)) ||
+        file?.links?.includes(simplifySlug(props.fileData.slug!))
+      const common = row.tags.filter((tag) => tags.has(tag.id)).length
+      return {
+        row,
+        score: (references ? 100 : 0) + common * 10 + Number(row.category === current.category),
+        relation: references ? "笔记引用" : common ? "共同标签" : "同一专题",
+      }
+    })
+    .filter((item) => item.score > 0)
+    .sort((a, b) => b.score - a.score || a.row.title.localeCompare(b.row.title, "zh-CN"))
+    .slice(0, 6)
+  const positions = [
+    [52, 48],
+    [268, 48],
+    [48, 155],
+    [272, 155],
+    [72, 260],
+    [248, 260],
+  ]
+  const lines = (title: string) => {
+    const chars = [...title]
+    return chars.length > 22
+      ? [chars.slice(0, 11).join(""), chars.slice(11, 21).join("") + "…"]
+      : [chars.slice(0, 11).join(""), chars.slice(11).join("")]
+  }
+  const graph = (
+    <svg class="note-relationship-graph" viewBox="0 0 320 330" aria-label="笔记关系图谱">
+      {related.map((item, index) => (
+        <path
+          class={item.relation === "笔记引用" ? "reference-edge" : "topic-edge"}
+          d={`M160 144 L${positions[index][0]} ${positions[index][1]}`}
+        >
+          <title>{item.relation}</title>
+        </path>
+      ))}
+      <circle class="current-node" cx="160" cy="144" r="7" />
+      <text class="current-node-title" x="160" y="126" text-anchor="middle">
+        <title>{current.title}</title>
+        {[...current.title].slice(0, 16).join("")}
+        {[...current.title].length > 16 ? "…" : ""}
+      </text>
+      {related.map(({ row, relation }, index) => {
+        const [x, y] = positions[index]
+        return (
+          <a
+            class="internal graph-note"
+            href={href(props, `notes/${row.id}`)}
+            data-no-popover="true"
+            aria-label={row.title}
+          >
+            <title>
+              {row.title} · {relation}
+            </title>
+            <circle cx={x} cy={y} r="4" />
+            <text x={index % 2 ? 174 : 14} y={y + 22}>
+              {lines(row.title).map((line, i) => (
+                <tspan x={index % 2 ? 174 : 14} dy={i ? 16 : 0}>
+                  {line}
+                </tspan>
+              ))}
+            </text>
+          </a>
+        )
+      })}
+    </svg>
+  )
+  // Keep Quartz's full-graph button and dialog, replace only the small local canvas.
+  // Generated listing pages are navigation, so local relations use actual notes.
+  const replace = (node: ComponentChildren): ComponentChildren => {
+    if (Array.isArray(node)) return node.map(replace)
+    if (!isValidElement(node)) return node
+    const attributes = node.props as { class?: string; children?: ComponentChildren }
+    if (attributes.class === "graph-container") return graph
+    return cloneElement(node, {}, replace(attributes.children))
+  }
+  return <>{replace(Component(props))}</>
 }
 function Heatmap({ props }: { props: QuartzComponentProps }) {
   const activity = data().activity
@@ -330,13 +429,31 @@ export const BlogHome: QuartzComponent = (props) => {
                 <a
                   class="internal"
                   data-no-popover="true"
-                  href={href(props, `collections/${section.id}`)}
+                  href={href(
+                    props,
+                    section.id === "featured" ? "notes/index" : `collections/${section.id}`,
+                  )}
                 >
                   全部 <span aria-hidden="true">↗</span>
                 </a>
               )}
             </div>
-            {section.id === "featured" || section.id === "recent" ? (
+            {section.id === "featured" ? (
+              <>
+                <div class="home-note-previews lucky-previews" id="random-notes">
+                  {data()
+                    .recent.slice(0, 3)
+                    .map((row) => (
+                      <NotePreview props={props} row={row} />
+                    ))}
+                </div>
+                <template id="random-note-pool">
+                  {data().articles.map((row) => (
+                    <NotePreview props={props} row={row} />
+                  ))}
+                </template>
+              </>
+            ) : section.id === "recent" ? (
               <div class={`home-note-previews ${section.id}-previews`}>
                 {data()[section.id].length ? (
                   data()[section.id].map((row) => (
@@ -396,8 +513,9 @@ function ListingPage({ props, listing }: { props: QuartzComponentProps; listing:
         </button>
       </div>
       <ol class="article-rows" id="sortable-articles">
-        {listing.rows.map((row) => (
+        {listing.rows.map((row, index) => (
           <li
+            hidden={index >= ARTICLES_PER_PAGE}
             data-note-id={row.id}
             data-title={row.title}
             data-created={row.created}
@@ -420,6 +538,18 @@ function ListingPage({ props, listing }: { props: QuartzComponentProps; listing:
           </li>
         ))}
       </ol>
+      <nav class="pagination" id="listing-pagination" aria-label="文章分页">
+        <button type="button" id="listing-previous" disabled>
+          上一页
+        </button>
+        <span id="listing-pages" />
+        <span id="listing-page-state" role="status">
+          1 / {Math.max(1, Math.ceil(listing.total / ARTICLES_PER_PAGE))}
+        </span>
+        <button type="button" id="listing-next" disabled={listing.total <= ARTICLES_PER_PAGE}>
+          下一页
+        </button>
+      </nav>
       <p class="empty-list" id="listing-empty" hidden={listing.rows.length > 0}>
         暂无文章
       </p>
@@ -442,7 +572,7 @@ export const BlogFooter: QuartzComponent = (props) => (
 )
 export const BlogFrame: PageFrame = {
   name: "blog",
-  render({ componentData, header, beforeBody, pageBody: Content, afterBody, right, footer }) {
+  render({ componentData, header, beforeBody, pageBody: Content, afterBody, left, right, footer }) {
     const home = componentData.fileData.slug === "index",
       type = componentData.fileData.frontmatter?.type
     const article = type === "article",
@@ -465,6 +595,22 @@ export const BlogFrame: PageFrame = {
         <div
           class={`blog-layout ${home ? "is-home" : ""} ${article ? "is-article" : ""} ${hub || listing ? "is-directory" : ""}`}
         >
+          {article && (
+            <aside class="left sidebar reading-sidebar" aria-label="文章导航">
+              <details class="reading-tools" open>
+                <summary>目录与图谱</summary>
+                <div class="reading-tool-panels">
+                  {left.map((Component) =>
+                    Component.name === "Graph" ? (
+                      <ReadingGraph props={componentData} Component={Component} />
+                    ) : (
+                      <Component {...componentData} />
+                    ),
+                  )}
+                </div>
+              </details>
+            </aside>
+          )}
           <main class="center" id="main-content">
             <div class="page-header">
               <div class="popover-hint">
@@ -502,8 +648,8 @@ export const BlogFrame: PageFrame = {
               </div>
             )}
           </main>
-          {article && (
-            <aside class="right sidebar" aria-label="文章导航">
+          {article && right.length > 0 && (
+            <aside class="article-backlinks" aria-label="反向链接">
               {right.map((Component) => (
                 <Component {...componentData} />
               ))}

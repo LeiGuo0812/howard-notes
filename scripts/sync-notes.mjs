@@ -4,7 +4,7 @@ import { fileURLToPath } from "node:url"
 import { execFileSync } from "node:child_process"
 import { walk, hash, splitNote, renderLibrary, extractNoteTags } from "./lib/library.mjs"
 import { validateCatalog, safeRelative } from "./lib/catalog.mjs"
-import { planSync } from "./lib/sync-plan.mjs"
+import { planSync, retiredWebDrafts } from "./lib/sync-plan.mjs"
 import { validateSite } from "./lib/site-settings.mjs"
 import { sourceDates } from "./lib/note-dates.mjs"
 
@@ -103,7 +103,10 @@ async function main() {
         throw new Error(`首次同步发现不同的本地文件，未覆盖：${file}`)
     // Missing initial files are additions from the website, not local deletions.
   }
-  const plan = planSync(base, local, remote, { allowDelete: args.has("--allow-delete") })
+  const plan = planSync(base, local, remote, {
+    allowDelete: args.has("--allow-delete"),
+    allowDeleteFiles: retiredWebDrafts(base, remote),
+  })
   if (plan.conflicts.length) {
     if (apply) {
       const folder = `.sync/conflicts/${Date.now()}`

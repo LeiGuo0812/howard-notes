@@ -2,6 +2,28 @@ import test from "node:test"
 import assert from "node:assert/strict"
 import { renderLibrary, splitNote, hash, extractNoteTags } from "./lib/library.mjs"
 import { validateCatalog, mergeArticle } from "./lib/catalog.mjs"
+import { paginateItems, sampleItems } from "../quartz/components/scripts/browsing.ts"
+
+test("pagination handles last, empty, invalid and out-of-range pages with twenty articles", () => {
+  const articles = Array.from({ length: 172 }, (_, i) => i)
+  assert.equal(paginateItems(articles, 1).items.length, 20)
+  assert.deepEqual(paginateItems(articles, 2).items, articles.slice(20, 40))
+  assert.equal(paginateItems(articles, 9).items.length, 12)
+  assert.equal(paginateItems(articles, 999).page, 9)
+  for (const page of [-1, 0, NaN, Infinity, 1.5])
+    assert.equal(paginateItems(articles, page).page, 1)
+  assert.deepEqual(paginateItems([], 9), { page: 1, pages: 1, start: 0, items: [] })
+})
+test("random recommendations sample unique articles without changing the source order", () => {
+  const articles = Array.from({ length: 50 }, (_, i) => i),
+    before = [...articles]
+  const selected = sampleItems(articles, 3, () => 0.9)
+  assert.equal(selected.length, 3)
+  assert.equal(new Set(selected).size, 3)
+  assert.ok(selected.every((item) => articles.includes(item)))
+  assert.deepEqual(articles, before)
+  assert.equal(sampleItems([1, 2]).length, 2)
+})
 
 const entry = (id, extra = {}) => ({
   id,

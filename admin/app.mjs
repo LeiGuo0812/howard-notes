@@ -15,6 +15,7 @@ let client,
   savedForm = "",
   images = [],
   busy = false,
+  articleScope = "published",
   previewTimer,
   previewVersion = 0,
   linkSelection = [0, 0]
@@ -53,7 +54,8 @@ const viewer = createPreview($("preview"), () => ({
   snapshot,
   articles: snapshot?.catalog.articles || [],
   images,
-  articleFile: current?.file || `notes/网页新建/${$("slug").value}.md`,
+  articleFile:
+    current?.draftBaseline?.article.file || current?.file || `notes/网页新建/${$("slug").value}.md`,
 }))
 function message(text, error = false, href) {
   const el = $("status")
@@ -95,14 +97,13 @@ function renderCategories(value) {
   select.value = value || ""
 }
 function renderList() {
-  const query = $("search").value.trim().toLocaleLowerCase(),
-    filter = $("filter").value
+  const query = $("search").value.trim().toLocaleLowerCase()
   const topics = topicList(snapshot.settings, snapshot.catalog.articles),
     label = (category) => topics.find((topic) => topic.category === category)?.title || category
   const list = snapshot.catalog.articles
     .filter(
       (article) =>
-        (filter === "all" || (filter === "published") === article.published) &&
+        (articleScope === "published") === article.published &&
         [article.title, label(article.category), ...(article.tags || [])]
           .join(" ")
           .toLocaleLowerCase()
@@ -115,16 +116,30 @@ function renderList() {
     const button = document.createElement("button")
     button.type = "button"
     button.className = "article-item"
-    button.setAttribute("aria-current", String(current?.id === article.id))
+    button.setAttribute(
+      "aria-current",
+      String(current?.id === article.id || current?.draftOf === article.id),
+    )
     const title = document.createElement("strong"),
       meta = document.createElement("span")
     title.textContent = article.title
-    meta.textContent = `${label(article.category)} · ${article.published ? "已发布" : "草稿 / 已撤下"}`
+    const hasDraft = snapshot.catalog.articles.some((item) => item.draftOf === article.id)
+    meta.textContent = `${label(article.category)} · ${article.published ? (hasDraft ? "已发布 · 有草稿" : "已发布") : article.draftOf ? "修改草稿" : "草稿"}`
     button.append(title, meta)
     button.onclick = () => {
       if (mayLeaveArticle()) action(() => openArticle(article.id))
     }
     $("article-list").append(button)
+  }
+  if (!list.length) {
+    const empty = document.createElement("p")
+    empty.className = "small list-empty"
+    empty.textContent = query
+      ? "没有匹配的文章"
+      : articleScope === "draft"
+        ? "暂无草稿"
+        : "暂无文章"
+    $("article-list").append(empty)
   }
 }
 function clearImages() {
@@ -138,7 +153,22 @@ function showEditor(article, text) {
   raw = text
   $("empty").hidden = true
   $("editor-form").hidden = false
-  $("editor-heading").textContent = article ? "编辑文章" : "新建文章"
+  $("editor-heading").textContent = article
+    ? article.published
+      ? "编辑文章"
+      : "编辑草稿"
+    : "新建文章"
+  $("cancel-edit").hidden = !article
+  $("save-draft").hidden = false
+  $("delete-draft").hidden = !!article?.published
+  $("unpublish").hidden = !article?.published
+  $("publication-state").textContent = article?.published
+    ? "已发布"
+    : article?.draftOf
+      ? "修改草稿"
+      : article
+        ? "草稿"
+        : "未发布"
   for (const key of ["title", "description"]) $(key).value = article?.[key] || ""
   renderCategories(article?.category)
   $("slug").value = article?.id || `note-${crypto.randomUUID()}`
@@ -148,8 +178,8 @@ function showEditor(article, text) {
   $("tags").value = (article?.tags || []).join(", ")
   $("featured").checked = article?.featured || false
   $("body").value = text
-  $("view-live").hidden = !article?.published
-  $("view-live").href = "../notes/" + (article?.id || "")
+  $("view-live").hidden = !article?.published && !article?.draftOf
+  $("view-live").href = "../notes/" + (article?.draftOf || article?.id || "")
   $("reload").hidden = !article
   $("link-fields").hidden = true
   history.reset($("body").value)
@@ -161,7 +191,8 @@ function showEditor(article, text) {
 async function openArticle(id) {
   message("正在载入…")
   snapshot = await client.snapshot()
-  const article = snapshot.catalog.articles.find((item) => item.id === id)
+  const draft = snapshot.catalog.articles.find((item) => item.draftOf === id)
+  const article = draft || snapshot.catalog.articles.find((item) => item.id === id)
   if (!article) throw new Error("文章已移除，请重新载入。")
   const loaded = await client.read(article, snapshot)
   openedSha = loaded.sha
@@ -174,7 +205,7 @@ function sourceText() {
   return raw.includes("\r\n") ? edited.replace(/\r?\n/g, "\r\n") : edited
 }
 function updateState() {
-  $("save-state").textContent = articleDirty() ? "未保存" : "已保存"
+  $("save-state").textContent = !current || articleDirty() ? "未保存" : "已保存"
   $("word-count").textContent = `${Array.from($("body").value).length.toLocaleString()} 字符`
 }
 async function preview() {
@@ -216,10 +247,38 @@ function format(command, extra = "", selection) {
     return false
   }
 }
+function closeEditor() {
+  clearImages()
+  current = null
+  openedSha = null
+  raw = ""
+  savedForm = ""
+  $("editor-form").hidden = true
+  $("empty").hidden = false
+  $("status").hidden = true
+  renderList()
+}
+function setScope(scope) {
+  articleScope = scope
+  $("list-title").textContent = scope === "draft" ? "草稿箱" : "文章"
+  $("tab-articles").setAttribute("aria-current", scope === "published" ? "page" : "false")
+  $("tab-drafts").setAttribute("aria-current", scope === "draft" ? "page" : "false")
+  $("tab-settings").setAttribute("aria-current", "false")
+  renderList()
+}
 function showMode(mode) {
-  $("workspace").hidden = mode !== "articles"
+  const scope = mode === "drafts" ? "draft" : "published"
+  if (mode !== "settings" && scope !== articleScope) {
+    if (!mayLeaveArticle()) return
+    closeEditor()
+  }
+  $("workspace").hidden = mode === "settings"
   $("settings-workspace").hidden = mode !== "settings"
-  $("tab-articles").setAttribute("aria-current", mode === "articles" ? "page" : "false")
+  if (mode !== "settings") setScope(scope)
+  else {
+    $("tab-articles").setAttribute("aria-current", "false")
+    $("tab-drafts").setAttribute("aria-current", "false")
+  }
   $("tab-settings").setAttribute("aria-current", mode === "settings" ? "page" : "false")
   document.body.classList.remove("focus-editor")
   $("focus-mode").setAttribute("aria-pressed", "false")
@@ -263,9 +322,9 @@ $("logout").onclick = () => {
   }
 }
 $("tab-articles").onclick = () => showMode("articles")
+$("tab-drafts").onclick = () => showMode("drafts")
 $("tab-settings").onclick = () => showMode("settings")
 $("search").oninput = renderList
-$("filter").onchange = renderList
 $("new-article").onclick = () => {
   if (mayLeaveArticle()) {
     openedSha = null
@@ -357,7 +416,7 @@ window.addEventListener("keydown", (event) => {
     event.preventDefault()
     if (!busy) {
       if (!$("settings-workspace").hidden) $("site-form").requestSubmit()
-      else if (!$("editor-form").hidden) $("editor-form").requestSubmit()
+      else if (!$("editor-form").hidden) $("editor-form").requestSubmit($("save-draft"))
     }
   }
 })
@@ -401,7 +460,10 @@ $("image").onchange = () => {
     }
     if (images.some((item) => item.file === image.file)) URL.revokeObjectURL(image.preview)
     else images.push(image)
-    const articleFile = current?.file || `notes/网页新建/${$("slug").value.trim()}.md`,
+    const articleFile =
+        current?.draftBaseline?.article.file ||
+        current?.file ||
+        `notes/网页新建/${$("slug").value.trim()}.md`,
       relative = "../".repeat(articleFile.split("/").length - 1) + image.file
     const input = $("body")
     input.setRangeText(
@@ -418,6 +480,15 @@ $("image").onchange = () => {
 }
 $("editor-form").onsubmit = (event) => {
   event.preventDefault()
+  const published = event.submitter?.id !== "save-draft"
+  if (!published) {
+    if (!$("title").value.trim()) $("title").value = "未命名文章"
+    if (!$("category").value) {
+      if (![...$("category").options].some((option) => option.value === "未分类"))
+        $("category").add(new Option("未分类", "未分类"))
+      $("category").value = "未分类"
+    }
+  }
   const edited = {
     ...(current || {}),
     id: $("slug").value.trim(),
@@ -431,7 +502,7 @@ $("editor-form").onsubmit = (event) => {
       .value.split(/[,，]/)
       .map((tag) => tag.trim())
       .filter(Boolean),
-    published: $("published").value === "true",
+    published,
     featured: $("featured").checked,
     modified:
       !current || sourceText() !== raw
@@ -439,16 +510,84 @@ $("editor-form").onsubmit = (event) => {
         : current.modified || current.created || current.date,
   }
   action(async () => {
+    if (published) {
+      delete edited.draftOf
+      delete edited.draftBaseline
+    }
     validateCatalog({ version: 2, articles: [edited] })
     message("正在保存…")
-    await client.save({ opened: current, openedSha, edited, text: sourceText(), images })
+    let nextId = edited.id
+    if (!published && current?.published) {
+      const id = `draft-${crypto.randomUUID()}`
+      const draft = {
+        ...edited,
+        id,
+        file: `notes/网页草稿/${id}.md`,
+        draftOf: current.id,
+        draftBaseline: { article: current, sha: openedSha },
+      }
+      await client.save({
+        opened: null,
+        openedSha: null,
+        edited: draft,
+        text: sourceText(),
+        images,
+      })
+      nextId = id
+    } else if (published && current?.draftOf) {
+      const result = await client.publishDraft({
+        opened: current,
+        openedSha,
+        edited,
+        text: sourceText(),
+        images,
+      })
+      nextId = result.articleId
+    } else {
+      await client.save({ opened: current, openedSha, edited, text: sourceText(), images })
+    }
     savedForm = formValue()
-    await openArticle(edited.id)
+    setScope(published ? "published" : "draft")
+    $("workspace").hidden = false
+    $("settings-workspace").hidden = true
+    await openArticle(nextId)
     message(
       edited.published ? "已保存，正在部署。" : "草稿已保存。",
       false,
       "https://github.com/LeiGuo0812/howard-notes/actions",
     )
+  })
+}
+$("cancel-edit").onclick = () => {
+  if (mayLeaveArticle()) closeEditor()
+}
+$("unpublish").onclick = () => {
+  if (!current?.published || !mayLeaveArticle() || !confirm("将这篇文章从网站撤下？")) return
+  action(async () => {
+    const id = current.id
+    await client.save({
+      opened: current,
+      openedSha,
+      edited: { ...current, published: false },
+      text: raw,
+    })
+    savedForm = ""
+    setScope("draft")
+    await openArticle(id)
+    message("文章已撤下。")
+  })
+}
+$("delete-draft").onclick = () => {
+  if (!confirm("删除这篇草稿？")) return
+  if (!current) {
+    closeEditor()
+    return
+  }
+  action(async () => {
+    await client.removeDraft({ opened: current, openedSha })
+    snapshot = await client.snapshot()
+    closeEditor()
+    message("草稿已删除。")
   })
 }
 window.onbeforeunload = (event) => {
