@@ -117,6 +117,22 @@ export const BlogNav: QuartzComponent = (props) => (
           {item.label}
         </a>
       ))}
+      <a class="blog-admin" href={`${root(props)}/admin/`} data-router-ignore>
+        <svg
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="1.6"
+          aria-hidden="true"
+        >
+          <path
+            d="M14 5H5v14h14v-9M14 4l6 6M10 14l2.5-.5L21 5l-3-3-8.5 8.5Z"
+            stroke-linejoin="round"
+            stroke-linecap="round"
+          />
+        </svg>
+        管理
+      </a>
     </nav>
   </>
 )
@@ -624,9 +640,6 @@ export const BlogFooter: QuartzComponent = (props) => (
     <div>
       <a href={`${root(props)}/index.xml`} data-router-ignore>
         RSS
-      </a>
-      <a href={`${root(props)}/admin/`} data-router-ignore>
-        管理
       </a>
       <a href="https://github.com/LeiGuo0812/howard-notes">GitHub</a>
     </div>

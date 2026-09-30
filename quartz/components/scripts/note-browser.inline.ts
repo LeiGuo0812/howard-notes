@@ -51,7 +51,7 @@ function setupNoteBrowser() {
   }
   const tools = document.querySelector<HTMLDetailsElement>(".reading-tools")
   if (tools) {
-    const desktop = matchMedia("(min-width: 1000px)")
+    const desktop = matchMedia("(min-width: 1240px)")
     const resize = () => {
       tools.open = desktop.matches
     }

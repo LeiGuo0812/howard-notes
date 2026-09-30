@@ -266,13 +266,8 @@
                       <option value="centered">居中</option>
                     </select></label
                   >
-                  <label
-                    >字体<select data-setting="design.font">
-                      <option value="sans">黑体</option>
-                      <option value="serif">宋体</option>
-                      <option value="system">系统字体</option>
-                    </select></label
-                  >
+                  <label>中文字体<select data-setting="design.chineseFont"></select></label>
+                  <label>英文字体<select data-setting="design.englishFont"></select></label>
                   <label>浅色主色<input type="color" data-setting="design.accentColor" /></label>
                   <label
                     >深色主色<input type="color" data-setting="design.darkAccentColor"
@@ -323,6 +318,7 @@
                       data-setting="design.radius"
                   /></label>
                 </div>
+                <p class="small">使用设备已安装的字体，缺少时自动回退。</p>
                 <button id="reset-design" type="button">恢复默认样式</button>
               </fieldset>
               <fieldset>

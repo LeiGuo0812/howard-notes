@@ -1,6 +1,6 @@
 // Shared material tokens. Opaque defaults remain usable without backdrop-filter.
 :root {
-  --light: #f4f6f9;
+  --light: #f1f5fa;
   --lightgray: #dce2eb;
   --gray: #657184;
   --darkgray: #354154;
@@ -13,12 +13,16 @@
   --headerFont: var(--bodyFont);
   --codeFont: "SFMono-Regular", "Cascadia Code", Consolas, monospace;
   --glass-solid: #f8fafd;
-  --glass-fill: rgb(248 251 255 / 76%);
+  --glass-fill: rgb(246 251 255 / 64%);
   --glass-border: rgb(255 255 255 / 88%);
-  --glass-edge: rgb(166 186 209 / 36%);
+  --glass-edge: rgb(150 175 205 / 26%);
   --glass-highlight: rgb(255 255 255 / 92%);
-  --glass-shadow: 0 10px 32px rgb(45 68 100 / 7%), 0 2px 6px rgb(45 68 100 / 4%);
-  --glass-inset: inset 0 1px 0 var(--glass-highlight), inset 0 -1px 0 var(--glass-edge);
+  --glass-reflection: rgb(139 173 208 / 28%);
+  --glass-tint: rgb(180 215 239 / 16%);
+  --glass-shadow: 0 20px 44px -16px rgb(43 65 98 / 22%), 0 6px 12px -6px rgb(43 65 98 / 14%);
+  --glass-inset:
+    inset 0 1px 0 var(--glass-highlight), inset 1px 0 0 rgb(255 255 255 / 28%),
+    inset 0 -1px 0 var(--glass-reflection);
   --glass-blur: 20px;
   --glass-radius-nav: 24px;
   --glass-radius-control: 12px;
@@ -26,15 +30,22 @@
   --glass-gap: 12px;
   --glass-space: 24px;
   --glass-transition: 180ms ease;
-  --glass-card: rgb(255 255 255 / 82%);
+  --glass-card: rgb(250 253 255 / 78%);
   --glass-card-hover: #ffffff;
-  --glass-card-shadow: 0 8px 22px rgb(42 62 91 / 5%), 0 1px 3px rgb(42 62 91 / 3%);
+  --glass-card-shadow: 0 18px 32px -16px rgb(42 62 91 / 19%), 0 4px 9px -5px rgb(42 62 91 / 12%);
+  --glass-card-shine: rgb(255 255 255 / 72%);
+  --glass-card-tint: rgb(177 210 235 / 15%);
+  --glass-card-violet: rgb(192 199 231 / 15%);
+  --glass-recessed: rgb(226 234 244 / 32%);
   --glass-reading: #fdfefe;
   --glass-code: #f3f5f8;
   --glass-hover: rgb(222 232 244 / 60%);
   --glass-scrim: rgb(44 58 78 / 22%);
-  --glass-edge-blue: rgb(165 204 234 / 24%);
-  --glass-edge-cyan: rgb(178 215 225 / 19%);
+  --glass-edge-blue: rgb(130 188 231 / 32%);
+  --glass-edge-cyan: rgb(130 207 218 / 25%);
+  --glass-edge-violet: rgb(168 171 222 / 24%);
+  --glass-reader-blue: rgb(165 204 234 / 12%);
+  --glass-reader-violet: rgb(181 188 224 / 10%);
   --glass-anchor-offset: 112px;
   --glass-z-controls: 20;
   --glass-z-header: 30;
@@ -43,7 +54,7 @@
 }
 
 :root[saved-theme="dark"] {
-  --light: #1a1e25;
+  --light: #181c24;
   --lightgray: #343d49;
   --gray: #a2aebe;
   --darkgray: #c7d0dc;
@@ -52,30 +63,58 @@
   --tertiary: #b2d1eb;
   --highlight: #93bbdf16;
   --textHighlight: #49739366;
-  --glass-solid: #262c35;
-  --glass-fill: rgb(38 46 57 / 82%);
-  --glass-border: rgb(173 195 221 / 18%);
-  --glass-edge: rgb(10 14 21 / 60%);
-  --glass-highlight: rgb(215 232 255 / 10%);
-  --glass-shadow: 0 12px 32px rgb(6 12 20 / 26%), 0 2px 6px rgb(6 12 20 / 16%);
-  --glass-card: rgb(37 44 55 / 92%);
+  --glass-solid: #272f3d;
+  --glass-fill: rgb(31 42 58 / 54%);
+  --glass-border: rgb(182 209 239 / 25%);
+  --glass-edge: rgb(140 165 197 / 12%);
+  --glass-highlight: rgb(218 237 255 / 15%);
+  --glass-reflection: rgb(117 154 204 / 17%);
+  --glass-tint: rgb(60 130 164 / 10%);
+  --glass-shadow: 0 24px 48px -14px rgb(3 9 19 / 58%), 0 8px 14px -6px rgb(3 9 19 / 36%);
+  --glass-inset:
+    inset 0 1px 0 var(--glass-highlight), inset 1px 0 0 rgb(218 237 255 / 4%),
+    inset 0 -1px 0 rgb(10 16 28 / 38%);
+  --glass-card: rgb(36 45 59 / 80%);
   --glass-card-hover: #2b3440;
-  --glass-card-shadow: 0 8px 22px rgb(6 12 20 / 14%), 0 1px 3px rgb(6 12 20 / 12%);
+  --glass-card-shadow: 0 20px 36px -14px rgb(3 9 19 / 36%), 0 5px 10px -5px rgb(3 9 19 / 24%);
+  --glass-card-shine: rgb(179 210 244 / 9%);
+  --glass-card-tint: rgb(61 127 156 / 9%);
+  --glass-card-violet: rgb(117 105 163 / 10%);
+  --glass-recessed: rgb(17 24 34 / 26%);
   --glass-reading: #222831;
   --glass-code: #1b212a;
   --glass-hover: rgb(104 145 184 / 13%);
   --glass-scrim: rgb(5 9 16 / 58%);
-  --glass-edge-blue: rgb(60 111 149 / 13%);
-  --glass-edge-cyan: rgb(55 119 129 / 10%);
+  --glass-edge-blue: rgb(54 116 167 / 25%);
+  --glass-edge-cyan: rgb(46 135 145 / 19%);
+  --glass-edge-violet: rgb(109 87 168 / 21%);
+  --glass-reader-blue: rgb(54 116 167 / 9%);
+  --glass-reader-violet: rgb(109 87 168 / 8%);
 }
 
 @mixin glass($radius: var(--glass-radius-control)) {
   border: 1px solid var(--glass-border);
   border-radius: $radius;
-  background: linear-gradient(165deg, var(--glass-highlight), transparent 42%), var(--glass-solid);
+  background:
+    linear-gradient(
+      135deg,
+      var(--glass-highlight),
+      transparent 28%,
+      var(--glass-tint) 78%,
+      var(--glass-reflection)
+    ),
+    var(--glass-solid);
   box-shadow: var(--glass-inset), var(--glass-shadow);
   @supports ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
-    background: linear-gradient(165deg, var(--glass-highlight), transparent 42%), var(--glass-fill);
+    background:
+      linear-gradient(
+        135deg,
+        var(--glass-highlight),
+        transparent 28%,
+        var(--glass-tint) 78%,
+        var(--glass-reflection)
+      ),
+      var(--glass-fill);
     -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(125%);
     backdrop-filter: blur(var(--glass-blur)) saturate(125%);
   }
@@ -102,5 +141,31 @@
   }
   &:active {
     transform: translateY(1px);
+  }
+}
+
+// Reflection on the rim uses a masked gradient, without another blur layer.
+// Browsers without mask compositing retain the ordinary glass border.
+@mixin rim($radius: var(--glass-radius-control)) {
+  @supports ((mask-composite: exclude) or (-webkit-mask-composite: xor)) {
+    content: "";
+    position: absolute;
+    inset: 0;
+    border-radius: $radius;
+    padding: 1px;
+    pointer-events: none;
+    background: linear-gradient(
+      115deg,
+      var(--glass-highlight),
+      var(--glass-border) 24%,
+      transparent 48%,
+      var(--glass-reflection) 75%,
+      var(--glass-highlight)
+    );
+    -webkit-mask:
+      linear-gradient(#fff 0 0) content-box,
+      linear-gradient(#fff 0 0);
+    -webkit-mask-composite: xor;
+    mask-composite: exclude;
   }
 }

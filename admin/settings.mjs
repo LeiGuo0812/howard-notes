@@ -2,6 +2,8 @@ import { validateSite, topicList } from "../scripts/lib/site-settings.mjs"
 import {
   ACCENT_COLORS,
   DEFAULT_DESIGN,
+  CHINESE_FONTS,
+  ENGLISH_FONTS,
   normalizeSite,
   applyHomeTemplate,
   sectionLimit,
@@ -36,6 +38,24 @@ export function createSettings({ getSnapshot, action, message, onSaved, refresh 
   } catch {}
   const dirty = () => !!working && JSON.stringify(working) !== baseline
   const preview = createSitePreview(() => working, getSnapshot)
+  for (const [path, fonts] of [
+    ["design.chineseFont", CHINESE_FONTS],
+    ["design.englishFont", ENGLISH_FONTS],
+  ]) {
+    const select = $("site-form").querySelector(`[data-setting="${path}"]`)
+    const groups = new Map()
+    for (const font of fonts) {
+      if (!groups.has(font.group)) {
+        const group = node("optgroup")
+        group.label = font.group
+        groups.set(font.group, group)
+      }
+      const option = node("option", font.label)
+      option.value = font.id
+      groups.get(font.group).append(option)
+    }
+    select.replaceChildren(...groups.values())
+  }
   const persist = () => {
     try {
       validateSite(working)

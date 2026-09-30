@@ -36,7 +36,7 @@ function applyPreview() {
     if (anchor) {
       anchor.hidden = !item.visible
       anchor.textContent = item.label
-      nav!.append(anchor)
+      nav!.insertBefore(anchor, nav!.querySelector(".blog-admin"))
     }
   }
   const home = document.querySelector<HTMLElement>(".home-workspace")

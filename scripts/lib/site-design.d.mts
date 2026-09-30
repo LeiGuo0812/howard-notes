@@ -1,5 +1,7 @@
 export interface DesignSettings {
   font: "sans" | "serif" | "system"
+  chineseFont: string
+  englishFont: string
   fontSize: number
   lineHeight: number
   contentWidth: number
@@ -8,6 +10,15 @@ export interface DesignSettings {
   accentColor: string
   darkAccentColor: string
 }
+export interface FontOption {
+  readonly id: string
+  readonly label: string
+  readonly group: string
+  readonly families: readonly string[]
+  readonly generic: "sans-serif" | "serif" | "monospace"
+}
+export const CHINESE_FONTS: readonly FontOption[]
+export const ENGLISH_FONTS: readonly FontOption[]
 export interface PageSettings {
   homeTemplate: "classic" | "articles" | "knowledge"
   topicLayout: "list" | "cards"

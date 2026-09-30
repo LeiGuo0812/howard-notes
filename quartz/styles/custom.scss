@@ -8,8 +8,16 @@ body {
   font-size: 16px;
   -webkit-font-smoothing: antialiased;
   background:
-    radial-gradient(ellipse 480px 720px at 0 120px, var(--glass-edge-blue), transparent 80%),
-    radial-gradient(ellipse 420px 620px at 100% 360px, var(--glass-edge-cyan), transparent 80%),
+    radial-gradient(ellipse 460px 760px at 0 90px, var(--glass-edge-cyan), transparent 78%),
+    radial-gradient(ellipse 620px 440px at 8% 0, var(--glass-edge-blue), transparent 80%),
+    radial-gradient(ellipse 500px 740px at 100% 140px, var(--glass-edge-violet), transparent 78%),
+    var(--light);
+}
+// Ambient light is static, stays at the edges, and recedes while reading.
+body:has(.blog-layout.is-article) {
+  background:
+    radial-gradient(ellipse 300px 600px at 0 100px, var(--glass-reader-blue), transparent 80%),
+    radial-gradient(ellipse 280px 560px at 100% 140px, var(--glass-reader-violet), transparent 80%),
     var(--light);
 }
 * {
@@ -91,24 +99,19 @@ summary:focus-visible {
 .page[data-frame="blog"]:has(.is-article) {
   max-width: none;
   padding-inline: clamp(20px, 2vw, 36px);
-  padding-right: max(64px, env(safe-area-inset-right));
-}
-.site-surface[data-article-layout="centered"]:has(.is-article) {
-  max-width: calc(var(--site-content-width) + 360px);
-  margin-inline: auto;
 }
 
 // Blur lives on a separate backing layer: native fixed search dialogs stay
 // attached to the viewport rather than the blurred header's containing block.
 .blog-header {
   position: sticky;
-  top: max(16px, env(safe-area-inset-top));
+  top: max(20px, env(safe-area-inset-top));
   z-index: var(--glass-z-header);
   display: flex;
   align-items: center;
   gap: 20px;
   min-height: 76px;
-  margin: 16px 0 0;
+  margin: 20px 0 0;
   padding: 14px 20px;
   isolation: isolate;
   &::before {
@@ -118,6 +121,9 @@ summary:focus-visible {
     inset: 0;
     z-index: -1;
     pointer-events: none;
+  }
+  &::after {
+    @include material.rim(var(--glass-radius-nav));
   }
   .search {
     flex: 0 0 108px;
@@ -200,7 +206,7 @@ a.blog-brand.internal {
   gap: 4px;
   margin-left: auto;
 }
-.blog-nav a.internal {
+.blog-nav a {
   background: none;
   color: var(--darkgray);
   border: 1px solid transparent;
@@ -222,6 +228,21 @@ a.blog-brand.internal {
     border-color: color-mix(in srgb, var(--secondary) 16%, transparent);
   }
 }
+.blog-nav a.blog-admin {
+  @include material.control;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  margin-left: 6px;
+  padding: 10px 13px;
+  font-size: 13px;
+  svg {
+    width: 15px;
+    height: 15px;
+    flex-shrink: 0;
+  }
+}
 .blog-layout {
   max-width: 820px;
   margin: 44px auto 80px;
@@ -234,12 +255,24 @@ a.blog-brand.internal {
   max-width: 1040px;
 }
 .blog-layout.is-article {
+  --reader-width: var(--site-content-width);
+  --reader-rail: clamp(224px, 18vw, 280px);
+  --reader-gap: 24px;
   display: grid;
-  grid-template-columns: clamp(260px, 20vw, 300px) minmax(0, 1fr);
+  // A matching empty right rail makes the prose centre the viewport centre.
+  grid-template-columns:
+    minmax(0, 1fr) minmax(
+      0,
+      min(var(--reader-width), calc(100% - 2 * var(--reader-rail) - 2 * var(--reader-gap)))
+    )
+    minmax(0, 1fr);
   align-items: start;
-  gap: 28px;
+  gap: var(--reader-gap);
   max-width: none;
   margin-top: 32px;
+}
+.site-surface[data-article-layout="centered"] .blog-layout.is-article {
+  --reader-width: min(var(--site-content-width), 900px);
 }
 .blog-layout .article-title {
   color: var(--dark);
@@ -456,11 +489,13 @@ a.note-preview.internal {
 .lucky-previews a.note-preview.internal {
   display: flex;
   flex-direction: column;
-  min-height: 252px;
-  padding: 24px;
-  border: 1px solid var(--glass-edge);
+  min-height: 272px;
+  padding: 27px;
+  border: 1px solid transparent;
   border-radius: var(--site-radius);
-  background: linear-gradient(150deg, var(--glass-highlight), transparent 50%), var(--glass-card);
+  background:
+    linear-gradient(140deg, var(--glass-card-shine), transparent 38%),
+    linear-gradient(165deg, transparent 40%, var(--glass-card-tint)), var(--glass-card);
   box-shadow: var(--glass-inset), var(--glass-card-shadow);
   transition:
     transform var(--glass-transition),
@@ -471,9 +506,10 @@ a.note-preview.internal {
     display: block;
   }
   h3 {
-    font-size: 20px;
-    font-weight: 600;
-    line-height: 1.55;
+    font-size: 22px;
+    font-weight: 650;
+    line-height: 1.45;
+    letter-spacing: -0.025em;
     text-wrap: balance;
   }
   time {
@@ -482,7 +518,9 @@ a.note-preview.internal {
     font-size: 11px;
   }
   p {
-    margin: 18px 0 20px;
+    margin: 20px 0 24px;
+    font-size: 13px;
+    line-height: 1.85;
     -webkit-line-clamp: 3;
   }
   > small {
@@ -495,6 +533,17 @@ a.note-preview.internal {
     color: var(--secondary);
     font-size: 11px;
     overflow-wrap: anywhere;
+  }
+  &:nth-child(2) {
+    background:
+      linear-gradient(140deg, var(--glass-card-shine), transparent 38%),
+      linear-gradient(165deg, transparent 40%, var(--glass-card-violet)), var(--glass-card);
+  }
+  &:nth-child(3) {
+    box-shadow:
+      var(--glass-inset),
+      0 22px 38px -18px var(--glass-reflection),
+      var(--glass-card-shadow);
   }
 }
 @media (hover: hover) {
@@ -523,10 +572,10 @@ a.compact-preview.internal {
 }
 .recent-previews {
   padding: 3px 12px;
-  border: 1px solid var(--glass-edge);
+  border: 0;
   border-radius: var(--site-radius);
-  background: var(--glass-card);
-  box-shadow: inset 0 1px 0 var(--glass-highlight);
+  background: var(--glass-recessed);
+  box-shadow: inset 0 1px 2px rgb(26 45 68 / 3%);
   > :last-child {
     border-bottom: 0;
   }
@@ -674,9 +723,9 @@ a.topic-chip.internal {
 // Activity and listings stay opaque and scannable, with accessible contrast.
 .home-module.module-activity {
   padding: 24px;
-  border: 1px solid var(--glass-edge);
+  border: 0;
   border-radius: var(--site-radius);
-  background: var(--glass-card);
+  background: var(--glass-recessed);
 }
 .activity-period-label,
 .listing-sort {
@@ -1075,7 +1124,9 @@ a.article-row.internal {
   display: block;
   height: fit-content;
   min-width: 0;
-  width: 100%;
+  width: var(--reader-rail);
+  max-width: 100%;
+  justify-self: start;
   padding: 0;
   z-index: auto;
 }
@@ -1267,6 +1318,9 @@ a.article-row.internal {
   }
   > .search-space {
     @include material.glass(24px);
+    &::before {
+      @include material.rim(24px);
+    }
     width: min(960px, 100%);
     margin: 112px auto 32px;
     padding: 14px;
@@ -1371,7 +1425,7 @@ a.article-row.internal {
   }
 }
 
-@media (max-width: 999px) {
+@media (max-width: 1239px) {
   .page[data-frame="blog"]:has(.is-article) {
     padding-inline: 24px;
   }
@@ -1379,7 +1433,8 @@ a.article-row.internal {
     display: flex;
     flex-direction: column;
     gap: 18px;
-    max-width: none;
+    align-items: center;
+    max-width: var(--reader-width);
   }
   .page[data-frame="blog"] #quartz-body .blog-layout .sidebar.reading-sidebar {
     position: static;
@@ -1441,10 +1496,17 @@ a.article-row.internal {
     justify-content: space-between;
     gap: 4px;
     margin: 0;
-    a.internal {
+    a {
       flex: 1;
       text-align: center;
       padding: 7px 10px;
+    }
+    a.blog-admin {
+      margin-left: 0;
+      padding: 7px 10px;
+      svg {
+        display: none;
+      }
     }
   }
   .blog-layout {
@@ -1533,8 +1595,7 @@ a.article-row.internal {
     }
   }
   .page[data-frame="blog"] #quartz-body .blog-layout.is-article > #main-content.center {
-    padding: 24px 20px;
-    padding-right: 26px;
+    padding: 24px 26px;
   }
   .blog-layout .article-title {
     font-size: 26px;

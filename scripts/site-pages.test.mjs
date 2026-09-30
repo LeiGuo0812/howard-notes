@@ -11,6 +11,9 @@ import {
   applyHomeTemplate,
   orderedSections,
   designVariables,
+  designStyle,
+  CHINESE_FONTS,
+  ENGLISH_FONTS,
 } from "./lib/site-design.mjs"
 const settings = JSON.parse(await fs.readFile("library/site.json", "utf8"))
 const article = (index, extra = {}) => ({
@@ -76,6 +79,84 @@ test("style validation rejects injected CSS and invalid sizes; configured counts
   }
   configured.pages.topicLayout = "arbitrary"
   assert.throws(() => validateSite(configured), /模板/)
+})
+
+test("legacy typography migrates to separate language choices without changing saved settings", () => {
+  for (const [font, chineseFont, englishFont] of [
+    ["sans", "sans", "system"],
+    ["serif", "serif", "serif"],
+    ["system", "sans", "system"],
+  ]) {
+    const legacy = structuredClone(settings)
+    legacy.design = { ...legacy.design, font }
+    delete legacy.design.chineseFont
+    delete legacy.design.englishFont
+    const before = structuredClone(legacy)
+    const normalized = normalizeSite(legacy)
+    assert.equal(normalized.design.chineseFont, chineseFont)
+    assert.equal(normalized.design.englishFont, englishFont)
+    assert.deepEqual(legacy, before)
+    assert.doesNotThrow(() => validateSite(normalized))
+    assert.equal(designVariables(legacy)["--site-font"], designVariables(normalized)["--site-font"])
+  }
+  const explicit = normalizeSite(settings)
+  explicit.design.font = "serif"
+  explicit.design.chineseFont = "microsoft-yahei"
+  explicit.design.englishFont = "georgia"
+  const reloaded = normalizeSite(JSON.parse(JSON.stringify(explicit)))
+  assert.equal(reloaded.design.chineseFont, "microsoft-yahei")
+  assert.equal(reloaded.design.englishFont, "georgia")
+})
+
+test("English families precede the chosen Chinese family, with generic fallbacks last", () => {
+  const configured = normalizeSite(settings)
+  configured.design.chineseFont = "noto-serif-cjk"
+  configured.design.englishFont = "georgia"
+  const variables = designVariables(configured)
+  assert.ok(variables["--site-font"].startsWith('"Georgia",'))
+  assert.ok(
+    variables["--site-font"].indexOf('"Georgia"') <
+      variables["--site-font"].indexOf('"Noto Serif CJK SC"'),
+  )
+  assert.ok(variables["--site-font-chinese"].startsWith('"Noto Serif CJK SC",'))
+  assert.ok(variables["--site-font-english"].startsWith('"Georgia",'))
+  assert.match(variables["--site-font"], /, serif$/)
+  assert.ok(!variables["--site-font"].includes("system-ui"))
+  assert.equal(
+    new Set(variables["--site-font"].split(", ")).size,
+    variables["--site-font"].split(", ").length,
+  )
+})
+
+test("every local font option validates and unsupported font identifiers cannot inject CSS", () => {
+  for (const [key, fonts] of [
+    ["chineseFont", CHINESE_FONTS],
+    ["englishFont", ENGLISH_FONTS],
+  ]) {
+    assert.equal(new Set(fonts.map((font) => font.id)).size, fonts.length)
+    assert.ok(Object.isFrozen(fonts))
+    for (const font of fonts) {
+      const configured = normalizeSite(settings)
+      configured.design[key] = font.id
+      assert.doesNotThrow(() => validateSite(configured), font.id)
+      assert.ok(
+        designVariables(configured)["--site-font"].includes(JSON.stringify(font.families[0])),
+      )
+    }
+    for (const invalidFont of [
+      "__proto__",
+      "constructor",
+      "Arial; background:url(evil)",
+      null,
+      42,
+    ]) {
+      const configured = normalizeSite(settings)
+      configured.design[key] = invalidFont
+      assert.throws(() => validateSite(configured), /样式/)
+      assert.doesNotThrow(() => designStyle(configured))
+      assert.ok(!designStyle(configured).includes("evil"))
+    }
+  }
 })
 
 test("original Obsidian dates preserve China calendar days, ordinal dates and ISO zones", () => {
