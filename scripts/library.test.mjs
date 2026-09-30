@@ -3,6 +3,44 @@ import assert from "node:assert/strict"
 import { renderLibrary, splitNote, hash, extractNoteTags } from "./lib/library.mjs"
 import { validateCatalog, mergeArticle } from "./lib/catalog.mjs"
 import { paginateItems, sampleItems } from "../quartz/components/scripts/browsing.ts"
+import { prepareArticleImages } from "../quartz/util/article-images.ts"
+
+test("rendered restricted images omit referrers while retaining URLs and the original tree", () => {
+  const image = (src) => ({
+    type: "element",
+    tagName: "img",
+    properties: { src, alt: "原图片" },
+    children: [],
+  })
+  const tree = {
+    type: "root",
+    children: [
+      image("https://cdn.nlark.com/yuque/image.png#original-fragment"),
+      image("https://img-blog.csdnimg.cn/image.png"),
+      image("https://raw.githubusercontent.com/owner/repo/main/img/test.png"),
+      image("/assets/local.png"),
+      image("https://cdn.nlark.com.example.test/image.png"),
+      {
+        type: "element",
+        tagName: "a",
+        properties: { href: "https://cdn.nlark.com/image.png" },
+        children: [],
+      },
+    ],
+  }
+  const before = structuredClone(tree)
+  const rendered = prepareArticleImages(tree)
+  assert.deepEqual(tree, before)
+  assert.deepEqual(
+    rendered.children.map((node) => node.properties.src),
+    tree.children.map((node) => node.properties.src),
+  )
+  for (const node of rendered.children.slice(0, 2)) {
+    assert.equal(node.properties.referrerPolicy, "no-referrer")
+    assert.equal(node.properties.alt, "原图片")
+  }
+  assert.deepEqual(rendered.children.slice(2), tree.children.slice(2))
+})
 
 test("pagination handles last, empty, invalid and out-of-range pages with twenty articles", () => {
   const articles = Array.from({ length: 172 }, (_, i) => i)

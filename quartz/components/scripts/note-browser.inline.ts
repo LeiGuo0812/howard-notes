@@ -5,7 +5,45 @@ function setupNoteBrowser() {
   const pool = document.querySelector<HTMLTemplateElement>("#random-note-pool")
   if (recommendations && pool) {
     const notes = [...pool.content.querySelectorAll<HTMLAnchorElement>(".note-preview")]
-    recommendations.replaceChildren(...sampleItems(notes).map((note) => note.cloneNode(true)))
+    const draw = () => {
+      let chosen = sampleItems(notes)
+      // Always change at least one article when there is a larger pool.
+      const previous = new Set(
+        [...recommendations.querySelectorAll<HTMLAnchorElement>(".note-preview")].map((note) =>
+          note.getAttribute("href"),
+        ),
+      )
+      if (
+        notes.length > chosen.length &&
+        chosen.every((note) => previous.has(note.getAttribute("href")))
+      ) {
+        chosen = [
+          sampleItems(
+            notes.filter((note) => !previous.has(note.getAttribute("href"))),
+            1,
+          )[0],
+          ...chosen.slice(1),
+        ]
+      }
+      recommendations.replaceChildren(...chosen.map((note) => note.cloneNode(true)))
+    }
+    const refresh = document.querySelector<HTMLButtonElement>("#refresh-random-notes")
+    refresh?.addEventListener("click", draw)
+    window.addCleanup(() => refresh?.removeEventListener("click", draw))
+    draw()
+  }
+  const scrollControls = document.querySelector<HTMLElement>(".reading-scroll-controls")
+  if (scrollControls) {
+    const jump = (event: MouseEvent) => {
+      const button = (event.target as HTMLElement).closest<HTMLButtonElement>("button[data-scroll]")
+      if (!button) return
+      window.scrollTo({
+        top: button.dataset.scroll === "top" ? 0 : document.documentElement.scrollHeight,
+        behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "instant" : "smooth",
+      })
+    }
+    scrollControls.addEventListener("click", jump)
+    window.addCleanup(() => scrollControls.removeEventListener("click", jump))
   }
   const tools = document.querySelector<HTMLDetailsElement>(".reading-tools")
   if (tools) {

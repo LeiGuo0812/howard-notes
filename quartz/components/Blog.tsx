@@ -6,6 +6,7 @@ import { slug } from "github-slugger"
 import { cloneElement, isValidElement, ComponentChildren } from "preact"
 import siteSettings from "../../library/site.json"
 import { ARTICLES_PER_PAGE } from "./scripts/browsing"
+import { prepareArticleImages } from "../util/article-images"
 // @ts-ignore Quartz's inline-script loader turns this module into a JavaScript string.
 import browserScript from "./scripts/note-browser.inline"
 
@@ -424,7 +425,29 @@ export const BlogHome: QuartzComponent = (props) => {
             aria-labelledby={`section-${section.id}`}
           >
             <div class="module-heading">
-              <h2 id={`section-${section.id}`}>{section.title}</h2>
+              <div class="module-title">
+                <h2 id={`section-${section.id}`}>{section.title}</h2>
+                {section.id === "featured" && (
+                  <button
+                    type="button"
+                    id="refresh-random-notes"
+                    aria-label="换一组文章"
+                    title="换一组"
+                  >
+                    <svg
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      stroke-width="1.6"
+                      aria-hidden="true"
+                    >
+                      <path d="M20 7v5h-5M4 17v-5h5" />
+                      <path d="M6.1 7a7 7 0 0 1 11.5-1L20 12M4 12l2.4 6A7 7 0 0 0 17.9 17" />
+                    </svg>
+                    <span>换一组</span>
+                  </button>
+                )}
+              </div>
               {["featured", "recent"].includes(section.id) && (
                 <a
                   class="internal"
@@ -638,7 +661,10 @@ export const BlogFrame: PageFrame = {
               ) : listing && listingData ? (
                 <ListingPage props={componentData} listing={listingData} />
               ) : (
-                <Content {...componentData} />
+                <Content
+                  {...componentData}
+                  tree={article ? prepareArticleImages(componentData.tree) : componentData.tree}
+                />
               ))}
             {article && (
               <div class="page-footer">
@@ -656,6 +682,32 @@ export const BlogFrame: PageFrame = {
             </aside>
           )}
         </div>
+        {article && (
+          <nav class="reading-scroll-controls" aria-label="阅读位置">
+            <button type="button" data-scroll="top" aria-label="到顶" title="到顶">
+              <svg
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="1.6"
+                aria-hidden="true"
+              >
+                <path d="M5 4h14M6 13l6-6 6 6M12 7v13" />
+              </svg>
+            </button>
+            <button type="button" data-scroll="bottom" aria-label="到底" title="到底">
+              <svg
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="1.6"
+                aria-hidden="true"
+              >
+                <path d="M5 20h14M6 11l6 6 6-6M12 17V4" />
+              </svg>
+            </button>
+          </nav>
+        )}
         {footer.map((Component) => (
           <Component {...componentData} />
         ))}
