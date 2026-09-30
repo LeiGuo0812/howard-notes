@@ -150,11 +150,20 @@ export async function handle(request, env, fetcher = (...args) => fetch(...args)
         "开通 GitHub 登录",
         '<p>使用 LeiGuo0812 创建登录应用。</p><form method="post" action="/setup/start"><input type="hidden" name="key" id="key"><button id="start" disabled>连接 GitHub</button></form><p id="hint"></p>',
         'const k=location.hash.slice(1);history.replaceState(null,"","/setup");if(/^[A-Za-z0-9_-]{43}$/.test(k)){document.getElementById("key").value=k;document.getElementById("start").disabled=false}else{document.getElementById("hint").textContent="请使用本机生成的首次开通链接。"}',
+        // HTML form POSTs send Origin: null under no-referrer. Keep the origin,
+        // without disclosing paths, query strings or the setup fragment.
+        { "Referrer-Policy": "strict-origin" },
       )
     }
     if (path === "/setup/start" && request.method === "POST") {
       if (request.headers.get("Origin") !== url.origin)
-        return new Response("Forbidden", { status: 403, headers: headers() })
+        return page(
+          "请重新打开开通入口",
+          "<p>未能验证页面来源，请重新运行开通程序。</p>",
+          "",
+          {},
+          403,
+        )
       if (await config(env)) throw new Error("登录应用已配置，不能重复开通。")
       if (Number(request.headers.get("Content-Length")) > 4096)
         return new Response("Too large", { status: 413 })
@@ -171,7 +180,7 @@ export async function handle(request, env, fetcher = (...args) => fetch(...args)
         difference |= byte ^ new Uint8Array(b)[i]
       })
       if (!env.SETUP_KEY || difference)
-        return new Response("Forbidden", { status: 403, headers: headers() })
+        return page("请重新打开开通入口", "<p>开通链接无效，请重新运行开通程序。</p>", "", {}, 403)
       const pending = await createFlow(env, { kind: "setup", origin: url.origin })
       const manifest = {
         name: `Howard Notes ${env.OWNER_LOGIN} ${random(4)}`,
@@ -189,7 +198,7 @@ export async function handle(request, env, fetcher = (...args) => fetch(...args)
         "连接 GitHub",
         `<form method="post" action="https://github.com/settings/apps/new?state=${pending.flow.state}"><input type="hidden" name="manifest" value="${escape(JSON.stringify(manifest))}"><button>在 GitHub 创建登录应用</button></form>`,
         "document.forms[0].submit()",
-        { "Set-Cookie": pending.cookie },
+        { "Set-Cookie": pending.cookie, "Referrer-Policy": "strict-origin" },
       )
     }
     if (path === "/setup/callback" && request.method === "GET") {

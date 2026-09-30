@@ -164,6 +164,8 @@ test("cancelled authorization reports a bounded message and consumes the request
 })
 test("setup requires a secret and same origin before creating a GitHub manifest", async () => {
   const { env } = environment()
+  const entry = await handle(new Request(`${origin}/setup`), env)
+  assert.equal(entry.headers.get("Referrer-Policy"), "strict-origin")
   const request = (key, requestOrigin = origin) =>
     new Request(`${origin}/setup/start`, {
       method: "POST",
@@ -172,9 +174,11 @@ test("setup requires a secret and same origin before creating a GitHub manifest"
     })
   assert.equal((await handle(request("wrong"), env)).status, 403)
   assert.equal((await handle(request(env.SETUP_KEY, "https://attacker.test"), env)).status, 403)
+  assert.equal((await handle(request(env.SETUP_KEY, "null"), env)).status, 403)
   const response = await handle(request(env.SETUP_KEY), env)
   const body = await response.text()
   assert.equal(response.status, 200)
+  assert.equal(response.headers.get("Referrer-Policy"), "strict-origin")
   assert.ok(body.includes("contents&quot;:&quot;write"))
   assert.ok(!body.includes(env.SETUP_KEY))
   assert.ok(body.includes("public&quot;:false"))
