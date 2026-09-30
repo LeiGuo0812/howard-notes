@@ -54,6 +54,15 @@ const saveState = (state) =>
   fs.writeFile(stateFile, JSON.stringify(state, null, 2) + "\n", { mode: 0o600 })
 const pause = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
 const open = (url) => run("/home/howard/.local/bin/wsl-browser", [url])
+async function health(origin) {
+  // curl honors the desktop/WSL proxy, unlike Node's default direct fetch.
+  const result = await run(
+    "curl",
+    ["--fail", "--silent", "--show-error", "--max-time", "15", `${origin}/health`],
+    { capture: true, allowFailure: true },
+  )
+  return result.code ? null : JSON.parse(result.output)
+}
 
 async function main() {
   console.log("开通 GitHub 账号登录。文章原文不会改变。")
@@ -164,9 +173,9 @@ async function main() {
   let configured = false
   for (let attempt = 0; attempt < 12; attempt++) {
     try {
-      const response = await fetch(`${workerUrl}/health`, { signal: AbortSignal.timeout(15000) })
-      if (response.ok) {
-        configured = (await response.json()).configured
+      const response = await health(workerUrl)
+      if (response?.ok) {
+        configured = response.configured
         break
       }
     } catch {}
@@ -181,8 +190,8 @@ async function main() {
     while (Date.now() < deadline) {
       await pause(5000)
       try {
-        const response = await fetch(`${workerUrl}/health`, { signal: AbortSignal.timeout(10000) })
-        if (response.ok && (await response.json()).configured) {
+        const response = await health(workerUrl)
+        if (response?.ok && response.configured) {
           configured = true
           break
         }
