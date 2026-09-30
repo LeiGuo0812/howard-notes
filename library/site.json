@@ -7,7 +7,7 @@
   },
   "brand": {
     "name": "Howard",
-    "subtitle": "技术笔记",
+    "subtitle": "Blog",
     "mark": "h."
   },
   "home": {
@@ -164,7 +164,9 @@
   },
   "design": {
     "font": "sans",
-    "fontSize": 16,
+    "chineseFont": "source-han-serif",
+    "englishFont": "system",
+    "fontSize": 14,
     "lineHeight": 1.95,
     "contentWidth": 1040,
     "cardGap": 22,
