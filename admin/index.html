@@ -117,7 +117,8 @@
               ><input
                 id="image"
                 type="file"
-                accept="image/png,image/jpeg,image/gif,image/webp"
+                accept="image/png,image/jpeg,image/gif,image/webp,image/avif"
+                multiple
                 hidden
               />
               <button type="button" data-format="inline-code" aria-label="行内代码">
@@ -152,7 +153,7 @@
               <article id="preview" class="preview" aria-label="实时预览"></article>
             </div>
             <div class="writing-status">
-              <span id="word-count">0 字</span
+              <span id="word-count">0 字</span><span id="image-destination"></span
               ><label><input id="sync-scroll" type="checkbox" checked />同步滚动</label
               ><span id="preview-state" aria-live="polite"></span>
             </div>
@@ -172,6 +173,40 @@
           </div>
           <div class="settings-grid">
             <div class="settings-fields">
+              <fieldset>
+                <legend>图片托管</legend>
+                <div class="fields">
+                  <label
+                    >仓库<input
+                      id="image-repository"
+                      data-setting="imageHost.repository"
+                      placeholder="账号/仓库名"
+                      required
+                      maxlength="200"
+                  /></label>
+                  <label
+                    >目录<input
+                      id="image-directory"
+                      data-setting="imageHost.directory"
+                      placeholder="img"
+                      maxlength="300"
+                  /></label>
+                  <label
+                    >分支<input
+                      id="image-branch"
+                      data-setting="imageHost.branch"
+                      required
+                      maxlength="200"
+                  /></label>
+                </div>
+                <div class="image-host-actions">
+                  <button id="test-image-host" type="button">检查连接</button>
+                  <a id="authorize-images" target="_blank" rel="noopener noreferrer" hidden
+                    >仓库授权 ↗</a
+                  >
+                  <span id="image-host-state" role="status" class="small"></span>
+                </div>
+              </fieldset>
               <fieldset>
                 <legend>首页</legend>
                 <div class="fields">

@@ -243,9 +243,15 @@ export async function handle(request, env, fetcher = (...args) => fetch(...args)
     if (path === "/ready" && request.method === "GET") {
       const app = await config(env)
       if (!app) throw new Error("请先完成首次开通。")
+      const repository = url.searchParams.get("repository") || "LeiGuo0812/pic_cloud_gl"
+      if (
+        !/^[a-zA-Z0-9][a-zA-Z0-9-]*\/[a-zA-Z0-9][a-zA-Z0-9._-]*$/.test(repository) ||
+        repository.length > 200
+      )
+        throw new Error("图片仓库名称不正确。")
       return page(
-        "授权博客仓库",
-        `<p>点击安装，仅选择 <strong>howard-notes</strong> 仓库。</p><a class="button" href="https://github.com/apps/${escape(app.slug)}/installations/new">安装到博客仓库</a><p><a href="${escape(env.ADMIN_URL)}">完成后返回管理后台</a></p>`,
+        "仓库授权",
+        `<p>保留 <strong>howard-notes</strong>，并添加图片仓库 <strong>${escape(repository)}</strong>。保存后在后台重新登录。</p><a class="button" href="https://github.com/apps/${escape(app.slug)}/installations/new">管理仓库授权</a><p><a href="${escape(env.ADMIN_URL)}">返回管理后台</a></p>`,
       )
     }
     if (path === "/login" && request.method === "GET") {

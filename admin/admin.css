@@ -656,12 +656,24 @@ li {
 }
 .writing-status {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
   font-size: 11px;
   color: var(--muted);
   margin: 10px 0;
+}
+#image-destination {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.image-host-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+  font-size: 12px;
 }
 .writing-status label {
   display: flex;

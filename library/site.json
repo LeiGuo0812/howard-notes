@@ -1,5 +1,10 @@
 {
   "version": 1,
+  "imageHost": {
+    "repository": "LeiGuo0812/pic_cloud_gl",
+    "directory": "img",
+    "branch": "main"
+  },
   "brand": {
     "name": "Howard",
     "subtitle": "技术笔记",

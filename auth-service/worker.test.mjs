@@ -61,6 +61,24 @@ async function start(env) {
   assert.match(cookie, /HttpOnly; Secure; SameSite=Lax; Path=\//)
   return { authorize, cookie: cookie.split(";")[0] }
 }
+test("repository authorization guides preserve notes access, support another image repo and never expose credentials", async () => {
+  const { env } = await configured()
+  const response = await handle(
+    new Request(`${origin}/ready?repository=LeiGuo0812/another-images`),
+    env,
+  )
+  const body = await response.text()
+  assert.equal(response.status, 200)
+  assert.match(body, /howard-notes/)
+  assert.match(body, /LeiGuo0812\/another-images/)
+  assert.match(body, /https:\/\/github.com\/apps\/howard-notes-test\/installations\/new/)
+  assert.ok(!body.includes(app.clientSecret))
+  assert.equal(
+    (await handle(new Request(`${origin}/ready?repository=${encodeURIComponent("<script>")}`), env))
+      .status,
+    400,
+  )
+})
 function callback(pending, additions = "code=code-from-github-123") {
   return new Request(
     `${origin}/oauth/callback?state=${pending.authorize.searchParams.get("state")}&${additions}`,

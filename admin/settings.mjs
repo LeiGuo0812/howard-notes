@@ -1,4 +1,7 @@
 import { validateSite, topicList } from "../scripts/lib/site-settings.mjs"
+import { imageHostSettings } from "../scripts/lib/image-host.mjs"
+import { GitHubImageHost } from "./images.mjs"
+import { brokerOrigin } from "./auth.mjs"
 const $ = (id) => document.getElementById(id)
 const node = (tag, text, cls) => {
   const el = document.createElement(tag)
@@ -20,6 +23,12 @@ export function createSettings({ getSnapshot, action, message, onSaved, refresh 
   const dirty = () => !!working && JSON.stringify(working) !== baseline
   const changed = () => {
     $("settings-state").textContent = dirty() ? "未保存" : "已保存"
+    $("image-host-state").textContent = ""
+    if (!$("authorize-images").hidden) {
+      const link = new URL($("authorize-images").href)
+      link.searchParams.set("repository", working.imageHost.repository)
+      $("authorize-images").href = link.href
+    }
     renderPreview()
   }
   function renderPreview() {
@@ -155,6 +164,7 @@ export function createSettings({ getSnapshot, action, message, onSaved, refresh 
   function load(snapshot) {
     openedSha = snapshot.siteSha
     working = structuredClone(snapshot.settings)
+    working.imageHost = { ...imageHostSettings(working) }
     working.topics = topicList(working, snapshot.catalog.articles).map(
       ({ count, ...topic }) => topic,
     )
@@ -169,7 +179,27 @@ export function createSettings({ getSnapshot, action, message, onSaved, refresh 
     }
     renderRows()
     changed()
+    fetch(new URL("auth-config.json", location.href), { cache: "no-store" })
+      .then((response) => response.json())
+      .then((config) => {
+        const link = new URL("/ready", brokerOrigin(config.brokerOrigin))
+        link.searchParams.set("repository", working.imageHost.repository)
+        $("authorize-images").href = link.href
+        $("authorize-images").hidden = false
+      })
+      .catch(() => {})
   }
+  $("test-image-host").onclick = () =>
+    action(async () => {
+      $("image-host-state").textContent = "正在检查…"
+      try {
+        await new GitHubImageHost(getSnapshot().client, working.imageHost).checkAccess()
+        $("image-host-state").textContent = "仓库公开，分支可访问"
+      } catch (error) {
+        $("image-host-state").textContent = "连接失败"
+        throw error
+      }
+    })
   $("add-topic").onclick = () => {
     const title = $("new-topic").value.trim()
     if (!title) {

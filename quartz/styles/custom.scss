@@ -1026,9 +1026,17 @@ a.article-row > span {
   }
 }
 .blog-layout.is-article {
-  grid-template-columns: minmax(260px, 310px) minmax(0, 760px);
-  gap: 44px;
-  max-width: 1114px;
+  grid-template-columns: clamp(260px, 21vw, 310px) minmax(0, 1fr);
+  gap: clamp(28px, 3vw, 48px);
+  max-width: none;
+}
+.page[data-frame="blog"]:has(.blog-layout.is-article) {
+  max-width: none;
+  padding-inline: clamp(22px, 2vw, 36px);
+}
+.blog-layout.is-article > #main-content,
+.blog-layout.is-article > .article-backlinks {
+  max-width: 1200px;
 }
 .blog-layout .sidebar.reading-sidebar {
   position: sticky;
@@ -1161,7 +1169,7 @@ a.article-row > span {
     display: flex;
     flex-direction: column;
     gap: 24px;
-    max-width: 760px;
+    max-width: none;
   }
   .blog-layout .sidebar.reading-sidebar {
     display: block;

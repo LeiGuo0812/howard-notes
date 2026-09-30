@@ -5,6 +5,8 @@ import { formatSelection, TextHistory } from "./formatting.mjs"
 import { createPreview } from "./preview.mjs"
 import { createSettings } from "./settings.mjs"
 import { signIn } from "./auth.mjs"
+import { GitHubImageHost, prepareImage } from "./images.mjs"
+import { imageHostSettings } from "../scripts/lib/image-host.mjs"
 
 const $ = (id) => document.getElementById(id)
 let client,
@@ -18,7 +20,8 @@ let client,
   articleScope = "published",
   previewTimer,
   previewVersion = 0,
-  linkSelection = [0, 0]
+  linkSelection = [0, 0],
+  imageSelection = null
 const history = new TextHistory()
 const date = () =>
   new Intl.DateTimeFormat("sv-SE", { timeZone: "Asia/Shanghai" }).format(new Date())
@@ -46,6 +49,7 @@ const settings = createSettings({
   onSaved: () => {
     renderList()
     renderCategories($("category").value)
+    renderImageDestination()
   },
 })
 const dirty = () => articleDirty() || settings.dirty()
@@ -148,7 +152,12 @@ function clearImages() {
   viewer.clear()
 }
 function showEditor(article, text) {
-  clearImages()
+  const sameArticle =
+    article &&
+    current &&
+    (article.id === current.id || article.draftOf === current.id || article.id === current.draftOf)
+  if (sameArticle) viewer.clear()
+  else clearImages()
   current = article ? structuredClone(article) : null
   raw = text
   $("empty").hidden = true
@@ -187,6 +196,13 @@ function showEditor(article, text) {
   updateState()
   preview()
   renderList()
+  renderImageDestination()
+}
+function renderImageDestination() {
+  const host = imageHostSettings(snapshot.settings)
+  $("image-destination").textContent =
+    host.repository.split("/")[1] + (host.directory ? "/" + host.directory : "")
+  $("insert-image").title = `上传到 ${host.repository}/${host.directory}`
 }
 async function openArticle(id) {
   message("正在载入…")
@@ -432,50 +448,58 @@ for (const [source, target] of [
     target.scrollTop = ratio * (target.scrollHeight - target.clientHeight)
     requestAnimationFrame(() => (scrolling = false))
   })
-$("insert-image").onclick = () => $("image").click()
+$("insert-image").onclick = () => {
+  imageSelection = [$("body").selectionStart, $("body").selectionEnd]
+  $("image").click()
+}
 $("image").onchange = () => {
-  const file = $("image").files[0]
+  const files = [...$("image").files]
   $("image").value = ""
-  if (!file) return
+  const selection = imageSelection
+  imageSelection = null
+  insertImages(files, selection)
+}
+$("body").addEventListener("paste", (event) => {
+  const files = [...(event.clipboardData?.items || [])]
+    .filter((item) => item.kind === "file" && item.type.startsWith("image/"))
+    .map((item) => item.getAsFile())
+    .filter(Boolean)
+  if (!files.length) return
+  event.preventDefault()
+  insertImages(files)
+})
+function insertImages(files, selection) {
+  if (!files.length || busy) return
+  const input = $("body")
+  const [start, end] = selection || [input.selectionStart, input.selectionEnd]
   action(async () => {
-    const ext = {
-      "image/png": "png",
-      "image/jpeg": "jpg",
-      "image/webp": "webp",
-      "image/gif": "gif",
-    }[file.type]
-    if (!ext || file.size > 10 * 1024 * 1024)
-      throw new Error("请选择 10 MB 以内的 PNG、JPEG、WebP 或 GIF。")
-    const bytes = new Uint8Array(await file.arrayBuffer()),
-      digest = [...new Uint8Array(await crypto.subtle.digest("SHA-256", bytes))]
-        .map((n) => n.toString(16).padStart(2, "0"))
-        .join("")
-    let binary = ""
-    for (let offset = 0; offset < bytes.length; offset += 8192)
-      binary += String.fromCharCode(...bytes.subarray(offset, offset + 8192))
-    const image = {
-      file: `assets/${digest}.${ext}`,
-      base64: btoa(binary),
-      preview: URL.createObjectURL(file),
+    message("正在读取图片…")
+    const prepared = []
+    for (const file of files) prepared.push(await prepareImage(file))
+    // Read the latest saved destination without changing the opened article's conflict baseline.
+    const latest = await client.snapshot()
+    snapshot.settings = latest.settings
+    const host = new GitHubImageHost(client, imageHostSettings(latest.settings))
+    const uploaded = await host.upload(prepared, (index, total) =>
+      message(`正在上传图片 ${index} / ${total}…`),
+    )
+    for (const [index, image] of uploaded.entries()) {
+      if (!images.some((item) => item.url === image.url))
+        images.push({ url: image.url, preview: URL.createObjectURL(files[index]) })
     }
-    if (images.some((item) => item.file === image.file)) URL.revokeObjectURL(image.preview)
-    else images.push(image)
-    const articleFile =
-        current?.draftBaseline?.article.file ||
-        current?.file ||
-        `notes/网页新建/${$("slug").value.trim()}.md`,
-      relative = "../".repeat(articleFile.split("/").length - 1) + image.file
-    const input = $("body")
     input.setRangeText(
-      `\n![${file.name.replace(/[\[\]\r\n]/g, "")}](${relative})\n`,
-      input.selectionStart,
-      input.selectionEnd,
+      "\n" + uploaded.map((image) => `![${image.alt}](${image.url})`).join("\n") + "\n",
+      start,
+      end,
       "end",
     )
     history.record(bodyState(), "image")
     updateState()
     preview()
-    message("图片已插入。")
+    renderImageDestination()
+    message(
+      uploaded.length === 1 ? "图片已上传并插入。" : `${uploaded.length} 张图片已上传并插入。`,
+    )
   })
 }
 $("editor-form").onsubmit = (event) => {
@@ -531,7 +555,6 @@ $("editor-form").onsubmit = (event) => {
         openedSha: null,
         edited: draft,
         text: sourceText(),
-        images,
       })
       nextId = id
     } else if (published && current?.draftOf) {
@@ -540,11 +563,10 @@ $("editor-form").onsubmit = (event) => {
         openedSha,
         edited,
         text: sourceText(),
-        images,
       })
       nextId = result.articleId
     } else {
-      await client.save({ opened: current, openedSha, edited, text: sourceText(), images })
+      await client.save({ opened: current, openedSha, edited, text: sourceText() })
     }
     savedForm = formValue()
     setScope(published ? "published" : "draft")

@@ -172,7 +172,7 @@ export function createPreview(element, context) {
         img.referrerPolicy = "no-referrer"
         img.loading = "lazy"
         const file = assetPath(src, ctx.articleFile),
-          staged = ctx.images.find((item) => item.file === file)
+          staged = ctx.images.find((item) => item.url === src || (file && item.file === file))
         if (staged) {
           img.src = staged.preview
           return
