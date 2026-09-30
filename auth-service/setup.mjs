@@ -109,7 +109,7 @@ async function main() {
   if (!accounts.some((account) => account.id === state.accountId))
     throw new Error("当前 Cloudflare 账号与之前的配置不同。")
   await saveState(state)
-  const config = JSON.parse(await fs.readFile(path.join(directory, "wrangler.jsonc"), "utf8"))
+  const config = JSON.parse(await fs.readFile(path.join(directory, "wrangler.json"), "utf8"))
   config.account_id = state.accountId
   try {
     const previous = JSON.parse(await fs.readFile(localConfig, "utf8"))
