@@ -32,13 +32,13 @@
         "enabled": true
       },
       {
-        "id": "collections",
-        "title": "浏览",
-        "enabled": false
-      },
-      {
         "id": "tags",
         "title": "标签",
+        "enabled": true
+      },
+      {
+        "id": "collections",
+        "title": "浏览",
         "enabled": true
       },
       {
