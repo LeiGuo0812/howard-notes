@@ -1,25 +1,16 @@
 import fs from "node:fs/promises"
 import path from "node:path"
-import YAML from "yaml"
 import { readLibrary, renderLibrary, walk } from "./lib/library.mjs"
+import { generateSitePages } from "./lib/site-pages.mjs"
+import { readActivity } from "./lib/activity.mjs"
 
 const { catalog, sources } = await readLibrary("library")
 const { output, warnings, records } = renderLibrary(catalog, sources)
 for (const file of await walk("site"))
   if (file.endsWith(".md")) output.set(path.relative("site", file), await fs.readFile(file))
-const groups = new Map()
-for (const article of catalog.articles.filter((article) => article.published)) {
-  if (!groups.has(article.category)) groups.set(article.category, [])
-  groups.get(article.category).push(article)
-}
-let topics = `---\n${YAML.stringify({ title: "专题导航", description: "按主题浏览原文笔记。", publish: true, draft: false })}---\n\n`
-for (const [category, articles] of groups) {
-  topics += `## ${category}\n\n`
-  for (const article of articles.sort((a, b) => a.title.localeCompare(b.title, "zh-CN")))
-    topics += `- [${article.title.replace(/[\[\]]/g, "")}](notes/${article.id})\n`
-  topics += "\n"
-}
-output.set("topics.md", Buffer.from(topics))
+const settings = JSON.parse(sources.get("site.json").toString())
+const pages = generateSitePages(settings, catalog, readActivity())
+for (const [file, bytes] of pages.output) output.set(file, bytes)
 // content is generated and ignored. The original bytes live exclusively in library.
 await fs.mkdir("content", { recursive: true })
 for (const file of await walk("content")) await fs.unlink(file)
@@ -33,10 +24,11 @@ await fs.writeFile(
   JSON.stringify({ files: [...output.keys()].sort(), records, warnings }, null, 2) + "\n",
 )
 await fs.mkdir(".local", { recursive: true })
+await fs.writeFile(".local/blog-data.json", JSON.stringify(pages.data))
 await fs.writeFile(
   ".local/render-report.json",
   JSON.stringify({ articles: records.length, warnings }, null, 2),
 )
 console.log(
-  `Prepared ${records.length} original notes, ${groups.size} topics; ${warnings.length} unavailable source references retained as text.`,
+  `Prepared ${records.length} original notes, ${pages.data.topics.length} topics; ${warnings.length} unavailable source references retained as text.`,
 )

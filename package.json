@@ -24,7 +24,7 @@
     "export": "node scripts/prepare-content.mjs",
     "sync": "node scripts/sync-notes.mjs",
     "preview": "node scripts/preview.mjs",
-    "test:publish": "node --test scripts/library.test.mjs scripts/sync.test.mjs scripts/sync.integration.test.mjs admin/github.test.mjs",
+    "test:publish": "node --test scripts/library.test.mjs scripts/site-pages.test.mjs scripts/sync.test.mjs scripts/sync.integration.test.mjs admin/github.test.mjs admin/formatting.test.mjs",
     "verify:site": "node scripts/verify-site.mjs"
   },
   "engines": {
@@ -102,8 +102,10 @@
     "hast-util-from-html": "^2.0.0",
     "hast-util-to-jsx-runtime": "^2.3.6",
     "isomorphic-git": "^1.36.3",
+    "katex": "0.18.9",
     "lightningcss": "^1.31.1",
     "marked": "18.0.14",
+    "mermaid": "11.17.2",
     "micromorph": "^0.4.5",
     "minimatch": "^10.1.1",
     "preact": "^10.28.2",

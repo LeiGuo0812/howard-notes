@@ -1,0 +1,139 @@
+{
+  "version": 1,
+  "brand": {
+    "name": "Howard",
+    "subtitle": "技术笔记",
+    "mark": "h."
+  },
+  "home": {
+    "title": "笔记",
+    "description": "",
+    "layout": "single",
+    "density": "comfortable",
+    "sections": [
+      {
+        "id": "topics",
+        "title": "专题",
+        "enabled": true
+      },
+      {
+        "id": "collections",
+        "title": "浏览",
+        "enabled": true
+      },
+      {
+        "id": "activity",
+        "title": "提交",
+        "enabled": true
+      }
+    ]
+  },
+  "topics": [
+    {
+      "id": "topic-976e087c6f87de8a",
+      "title": "编程与数据处理",
+      "category": "编程与数据处理",
+      "visible": true
+    },
+    {
+      "id": "topic-34a37542d3bca832",
+      "title": "系统与开发环境",
+      "category": "系统与开发环境",
+      "visible": true
+    },
+    {
+      "id": "topic-9ef2e8d759ad4853",
+      "title": "写作与效率工具",
+      "category": "写作与效率工具",
+      "visible": true
+    },
+    {
+      "id": "topic-e42623d15e08fbd1",
+      "title": "R 与统计分析",
+      "category": "R 与统计分析",
+      "visible": true
+    },
+    {
+      "id": "topic-9488c320beb4ee04",
+      "title": "数据可视化",
+      "category": "数据可视化",
+      "visible": true
+    },
+    {
+      "id": "topic-693c55dc20d4d110",
+      "title": "科研方法与工具",
+      "category": "科研方法与工具",
+      "visible": true
+    },
+    {
+      "id": "topic-dce32c4ecd54977c",
+      "title": "脑影像分析",
+      "category": "脑影像分析",
+      "visible": true
+    },
+    {
+      "id": "topic-b786c5453565d697",
+      "title": "脑电分析",
+      "category": "脑电分析",
+      "visible": true
+    },
+    {
+      "id": "topic-7536bace7bbbed16",
+      "title": "行为学与计算建模",
+      "category": "行为学与计算建模",
+      "visible": true
+    },
+    {
+      "id": "topic-945fa5828e156d56",
+      "title": "近红外分析",
+      "category": "近红外分析",
+      "visible": true
+    },
+    {
+      "id": "topic-3c1fa6bb8a4886d7",
+      "title": "统计方法",
+      "category": "统计方法",
+      "visible": true
+    }
+  ],
+  "collections": [
+    {
+      "id": "recent",
+      "title": "最近更新",
+      "enabled": true
+    },
+    {
+      "id": "featured",
+      "title": "精选",
+      "enabled": true
+    },
+    {
+      "id": "all",
+      "title": "全部文章",
+      "enabled": true
+    }
+  ],
+  "navigation": [
+    {
+      "id": "topics",
+      "label": "专题",
+      "visible": true
+    },
+    {
+      "id": "notes",
+      "label": "文章",
+      "visible": true
+    },
+    {
+      "id": "about",
+      "label": "关于",
+      "visible": true
+    }
+  ],
+  "accent": "green",
+  "footer": "Howard",
+  "about": {
+    "title": "关于",
+    "body": "Howard 的技术笔记。"
+  }
+}

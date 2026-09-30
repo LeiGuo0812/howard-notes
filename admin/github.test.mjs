@@ -1,6 +1,8 @@
 import test from "node:test"
 import assert from "node:assert/strict"
 import { GitHubLibrary, decodeBase64 } from "./github.mjs"
+import fs from "node:fs/promises"
+const settings = JSON.parse(await fs.readFile("library/site.json", "utf8"))
 const article = {
   id: "a",
   file: "notes/a.md",
@@ -66,4 +68,43 @@ test("a racing branch update is surfaced as failure, without forced retry", asyn
 test("decodes UTF-8 with BOM and CRLF losslessly", () => {
   const original = "\uFEFF中文\r\n原文\r\n"
   assert.equal(decodeBase64(Buffer.from(original).toString("base64")), original)
+})
+test("page settings use independent conflict detection and never write Markdown", async () => {
+  const client = new GitHubLibrary("test-not-a-token"),
+    calls = []
+  client.snapshot = async () => ({ ...snapshot(), siteSha: "site-old", settings })
+  client.repo = async (endpoint, method, body) => {
+    calls.push({ endpoint, method, body })
+    return { sha: "new" }
+  }
+  const edited = structuredClone(settings)
+  edited.home.title = "新首页"
+  await client.saveSettings({ openedSha: "site-old", settings: edited })
+  assert.deepEqual(
+    calls[0].body.tree.map((item) => item.path),
+    ["library/site.json"],
+  )
+  assert.equal(calls[2].body.force, false)
+  calls.length = 0
+  await assert.rejects(client.saveSettings({ openedSha: "stale", settings: edited }), /另一端/)
+  assert.equal(calls.length, 0)
+})
+test("settings cannot silently reassign article categories or delete an occupied topic", async () => {
+  const client = new GitHubLibrary("test-not-a-token")
+  const inTopic = { ...article, category: settings.topics[0].category }
+  client.snapshot = async () => ({
+    ...snapshot("original", [inTopic]),
+    siteSha: "site-old",
+    settings,
+  })
+  client.repo = () => assert.fail("must not write")
+  const changed = structuredClone(settings)
+  changed.topics[0].category = "其他"
+  await assert.rejects(client.saveSettings({ openedSha: "site-old", settings: changed }), /归属/)
+  const removed = structuredClone(settings)
+  removed.topics.shift()
+  await assert.rejects(
+    client.saveSettings({ openedSha: "site-old", settings: removed }),
+    /仍有文章/,
+  )
 })

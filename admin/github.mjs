@@ -6,6 +6,7 @@ import {
   mergeArticle,
   safeRelative,
 } from "../scripts/lib/catalog.mjs"
+import { SITE_PATH, validateSite } from "../scripts/lib/site-settings.mjs"
 
 export function decodeBase64(base64) {
   return new TextDecoder("utf-8", { ignoreBOM: true }).decode(
@@ -67,7 +68,18 @@ export class GitHubLibrary {
     if (!catalogEntry) throw new Error("尚未找到发布目录，请等待网站升级部署完成。")
     const blob = await this.repo(`git/blobs/${catalogEntry.sha}`)
     const catalog = validateCatalog(JSON.parse(decodeBase64(blob.content)))
-    return { commit: ref.object.sha, tree: head.tree.sha, entries, catalog }
+    const siteEntry = entries.get(SITE_PATH)
+    if (!siteEntry) throw new Error("页面设置尚未部署，请稍后刷新。")
+    const siteBlob = await this.repo(`git/blobs/${siteEntry.sha}`)
+    const settings = validateSite(JSON.parse(decodeBase64(siteBlob.content)))
+    return {
+      commit: ref.object.sha,
+      tree: head.tree.sha,
+      entries,
+      catalog,
+      settings,
+      siteSha: siteEntry.sha,
+    }
   }
   async read(article, snapshot) {
     const entry = snapshot.entries.get(`library/${article.file}`)
@@ -102,9 +114,62 @@ export class GitHubLibrary {
       })
       changes.push({ path: "library/" + image.file, mode: "100644", type: "blob", sha: blob.sha })
     }
+    return this.commit(
+      latest,
+      changes,
+      `${edited.published ? "Publish" : "Save draft"}: ${edited.title}`,
+    )
+  }
+  async saveSettings({ openedSha, settings }) {
+    validateSite(settings)
+    const latest = await this.snapshot()
+    if (latest.siteSha !== openedSha)
+      throw new Error("页面设置已在另一端更改。请先导出当前设置，再重新载入。")
+    // Existing topic keys preserve their categories even when their display titles change.
+    for (const previous of latest.settings.topics) {
+      const next = settings.topics.find((topic) => topic.id === previous.id)
+      if (next && next.category !== previous.category)
+        throw new Error("已有专题的文章归属不能改写。")
+      if (
+        !next &&
+        latest.catalog.articles.some((article) => article.category === previous.category)
+      )
+        throw new Error(`“${previous.title}”仍有文章，请先调整文章专题。`)
+    }
+    return this.commit(
+      latest,
+      [
+        {
+          path: SITE_PATH,
+          mode: "100644",
+          type: "blob",
+          content: JSON.stringify(settings, null, 2) + "\n",
+        },
+      ],
+      "Update site layout and topics",
+    )
+  }
+  async readAsset(file, snapshot) {
+    if (!safeRelative(file) || !/^assets\/.+\.(png|jpg|jpeg|gif|webp|avif)$/i.test(file))
+      throw new Error("不支持的图片路径。")
+    const entry = snapshot.entries.get("library/" + file)
+    if (!entry) throw new Error("图片尚未上传。")
+    const blob = await this.repo(`git/blobs/${entry.sha}`)
+    const bytes = Uint8Array.from(atob(blob.content.replace(/\s/g, "")), (ch) => ch.charCodeAt(0))
+    const type = {
+      png: "image/png",
+      jpg: "image/jpeg",
+      jpeg: "image/jpeg",
+      webp: "image/webp",
+      gif: "image/gif",
+      avif: "image/avif",
+    }[file.split(".").pop().toLowerCase()]
+    return new Blob([bytes], { type })
+  }
+  async commit(latest, changes, message) {
     const tree = await this.repo("git/trees", "POST", { base_tree: latest.tree, tree: changes })
     const commit = await this.repo("git/commits", "POST", {
-      message: `${edited.published ? "Publish" : "Save draft"}: ${edited.title}`,
+      message,
       tree: tree.sha,
       parents: [latest.commit],
     })

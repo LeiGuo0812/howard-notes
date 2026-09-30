@@ -7,79 +7,67 @@
     <meta name="referrer" content="no-referrer" />
     <meta
       http-equiv="Content-Security-Policy"
-      content="default-src 'self'; script-src 'self'; style-src 'self'; connect-src https://api.github.com; img-src 'self' https: blob: data:; object-src 'none'; base-uri 'none'; form-action 'none'"
+      content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; connect-src 'self' https://api.github.com; img-src 'self' https: blob: data:; font-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'"
     />
-    <title>文章管理 · Howard</title>
+    <title>管理 · Howard</title>
     <link rel="icon" href="../static/icon.png" />
     <link rel="stylesheet" href="admin.css" />
-    <script src="admin.js" defer></script>
+    <link rel="stylesheet" href="katex/katex.min.css" />
+    <script src="admin.js" type="module"></script>
   </head>
   <body>
     <header class="topbar">
-      <a class="brand" href="../">h. <span>Howard / 文章管理</span></a>
-      <div class="account">
-        <span id="account"></span><button id="logout" hidden>退出登录</button>
-      </div>
+      <a class="brand" href="../">h. <span>Howard / 管理</span></a>
+      <div class="account"><span id="account"></span><button id="logout" hidden>退出</button></div>
     </header>
     <main>
       <section id="login-panel" class="login-panel">
-        <p class="eyebrow">写作与维护</p>
-        <h1>让笔记继续生长。</h1>
-        <p>编辑原文、上传图片，管理文章发布状态。保存后的版本可同步回 Obsidian。</p>
+        <h1>管理</h1>
         <form id="login-form">
-          <label for="token">GitHub 访问令牌</label>
-          <input
+          <label for="token">GitHub 访问令牌</label
+          ><input
             id="token"
-            name="token"
             type="password"
             autocomplete="off"
             required
-            placeholder="粘贴仅限此博客仓库的令牌"
-          />
-          <button type="submit" class="primary">登录文章管理</button>
+            placeholder="仅授权 howard-notes"
+          /><button type="submit" class="primary">登录</button>
         </form>
         <details>
-          <summary>首次使用：如何获取登录令牌</summary>
+          <summary>首次登录</summary>
           <ol>
             <li>
-              打开
+              在
               <a
                 href="https://github.com/settings/personal-access-tokens/new"
                 target="_blank"
                 rel="noopener noreferrer"
-                >GitHub 令牌设置</a
-              >，创建 Fine-grained token。
+                >GitHub</a
+              >
+              创建 Fine-grained token。
             </li>
-            <li>
-              Repository access 选择 Only select repositories，仅选择
-              <strong>howard-notes</strong>。
-            </li>
-            <li>
-              Repository permissions 中将 <strong>Contents</strong> 设为
-              <strong>Read and write</strong>，设置有效期后生成。
-            </li>
-            <li>
-              将令牌粘贴到上方登录框。本站仅在当前页面内存中使用它；刷新或退出后需要重新登录。
-            </li>
+            <li>选择 howard-notes，将 Contents 设为 Read and write。</li>
+            <li>粘贴令牌登录。刷新或退出后清除。</li>
           </ol>
+          <p class="small">公开仓库中的草稿也可被访问。</p>
+          <a href="../maintenance">维护说明</a>
         </details>
-        <p class="small">
-          文章库是公开的 GitHub 仓库。这里的“草稿 /
-          撤下”控制网站展示，已提交的原文及历史仍可在仓库查看。私人草稿请保存在本地。
-        </p>
-        <a href="../maintenance">查看维护与同步说明</a>
       </section>
+      <nav id="admin-tabs" class="admin-tabs" aria-label="管理功能" hidden>
+        <button id="tab-articles" aria-current="page">文章</button
+        ><button id="tab-settings">页面设置</button>
+      </nav>
       <div id="workspace" class="workspace" hidden>
         <aside class="article-sidebar">
           <div class="list-heading">
             <h2>文章</h2>
             <button id="new-article" class="primary">新建</button>
           </div>
-          <label for="search">查找文章</label
-          ><input id="search" type="search" placeholder="标题、专题或标签" />
-          <label for="filter">发布状态</label
+          <label for="search">搜索</label
+          ><input id="search" type="search" placeholder="标题、专题、标签" />
+          <label for="filter">状态</label
           ><select id="filter">
-            <option value="all">全部文章</option>
+            <option value="all">全部</option>
             <option value="published">已发布</option>
             <option value="draft">草稿 / 已撤下</option>
           </select>
@@ -87,75 +75,204 @@
           <div id="article-list" class="article-list"></div>
         </aside>
         <section class="editor-panel">
-          <div id="empty" class="empty">
-            <h2>选择一篇文章开始编辑</h2>
-            <p>正文与发布设置分别保存，调整专题或状态不会改写原文。</p>
-          </div>
+          <div id="empty" class="empty"><h2>选择文章</h2></div>
           <form id="editor-form" hidden>
             <div class="editor-toolbar">
               <h2 id="editor-heading">编辑文章</h2>
               <div>
-                <button id="reload" type="button">重新载入</button
-                ><button id="download" type="button">下载原文</button
-                ><button id="save" class="primary" type="submit">保存更新</button>
+                <span id="save-state" class="small" role="status">已保存</span
+                ><button id="reload" type="button">重新载入</button
+                ><button id="download" type="button">下载</button
+                ><button id="save" class="primary" type="submit">保存</button>
               </div>
             </div>
-            <div class="fields">
-              <label class="wide">文章标题<input id="title" required maxlength="250" /></label>
-              <label
-                >专题<input id="category" required list="categories" /><datalist
-                  id="categories"
-                ></datalist
-              ></label>
-              <label
-                >文章网址<input
-                  id="slug"
-                  required
-                  pattern="[a-z0-9]+(-[a-z0-9]+)*"
-                  placeholder="例如 numpy-notes"
-                /><span class="small">首次保存后固定，避免旧链接失效。</span></label
-              >
-              <label>发布日期<input id="date" type="date" required /></label>
-              <label>标签<input id="tags" placeholder="用逗号分隔" /></label>
-              <label class="wide">摘要（可选）<input id="description" maxlength="500" /></label>
-              <label
+            <label class="title-label"
+              >标题<input id="title" required maxlength="250" placeholder="文章标题"
+            /></label>
+            <div class="publish-fields">
+              <label>专题<select id="category" required></select></label
+              ><label
                 >发布状态<select id="published">
-                  <option value="false">草稿 / 从网站撤下</option>
-                  <option value="true">公开发布到网站</option>
+                  <option value="false">草稿 / 撤下</option>
+                  <option value="true">公开发布</option>
                 </select></label
-              >
-              <label class="checkbox"
-                ><input id="featured" type="checkbox" />在首页精选中展示</label
-              >
+              ><label class="checkbox"><input id="featured" type="checkbox" />精选</label>
             </div>
-            <div class="body-toolbar">
-              <strong>Markdown 原文</strong>
+            <details class="article-options">
+              <summary>文章设置</summary>
+              <div class="fields">
+                <label>网址<input id="slug" required pattern="[a-z0-9]+(-[a-z0-9]+)*" /></label
+                ><label>日期<input id="date" type="date" required /></label>
+                <label>标签<input id="tags" placeholder="逗号分隔" /></label
+                ><label>摘要<input id="description" maxlength="500" /></label>
+              </div>
+            </details>
+            <div class="writing-controls">
+              <div class="view-switch" role="group" aria-label="编辑视图">
+                <button type="button" data-view="edit" aria-pressed="false">编辑</button
+                ><button type="button" data-view="split" aria-pressed="true">并排预览</button
+                ><button type="button" data-view="preview" aria-pressed="false">预览</button>
+              </div>
               <div>
-                <label class="upload-label" for="image">插入图片</label
-                ><input
-                  id="image"
-                  type="file"
-                  accept="image/png,image/jpeg,image/gif,image/webp"
-                  hidden
-                /><button id="toggle-preview" type="button" aria-pressed="false">显示预览</button
+                <button id="focus-mode" type="button" aria-pressed="false">专注</button
                 ><a id="view-live" target="_blank" rel="noopener noreferrer">查看网页 ↗</a>
               </div>
             </div>
-            <div id="writing-area" class="writing-area">
+            <div id="format-toolbar" class="format-toolbar" role="toolbar" aria-label="文字格式">
+              <select id="heading-format" aria-label="段落格式">
+                <option value="">正文 / 标题</option>
+                <option value="paragraph">正文</option>
+                <option value="h1">一级标题</option>
+                <option value="h2">二级标题</option>
+                <option value="h3">三级标题</option>
+              </select>
+              <button type="button" data-format="bold" title="粗体 · Ctrl+B" aria-label="粗体">
+                <b>B</b></button
+              ><button type="button" data-format="italic" title="斜体 · Ctrl+I" aria-label="斜体">
+                <i>I</i></button
+              ><button type="button" data-format="strike" title="删除线" aria-label="删除线">
+                <s>S</s></button
+              ><button type="button" data-format="highlight" title="高亮" aria-label="高亮">
+                标记
+              </button>
+              <span class="toolbar-separator"></span
+              ><button type="button" data-format="h2" title="二级标题">H2</button
+              ><button type="button" data-format="quote" aria-label="引用">引用</button
+              ><button type="button" data-format="unordered" aria-label="无序列表">列表</button
+              ><button type="button" data-format="ordered" aria-label="有序列表">1.</button
+              ><button type="button" data-format="task" aria-label="任务列表">待办</button>
+              <span class="toolbar-separator"></span
+              ><button id="insert-link" type="button" title="链接 · Ctrl+K">链接</button
+              ><button id="insert-image" type="button">图片</button
+              ><input
+                id="image"
+                type="file"
+                accept="image/png,image/jpeg,image/gif,image/webp"
+                hidden
+              />
+              <button type="button" data-format="inline-code" aria-label="行内代码">
+                &lt;/&gt;</button
+              ><button type="button" data-format="code-block">代码块</button
+              ><button type="button" data-format="table">表格</button
+              ><button type="button" data-format="math-block">公式</button
+              ><button type="button" data-format="mermaid">流程图</button
+              ><button type="button" data-format="divider" aria-label="分隔线">—</button>
+              <span class="toolbar-separator"></span
+              ><button id="undo" type="button" title="撤销 · Ctrl+Z" aria-label="撤销">↶</button
+              ><button id="redo" type="button" title="重做 · Ctrl+Shift+Z" aria-label="重做">
+                ↷
+              </button>
+            </div>
+            <div id="link-fields" class="link-fields" hidden>
+              <label for="link-url">链接地址</label
+              ><input id="link-url" type="text" inputmode="url" placeholder="https://" /><button
+                id="apply-link"
+                type="button"
+              >
+                插入</button
+              ><button id="cancel-link" type="button">取消</button>
+            </div>
+            <div id="writing-area" class="writing-area" data-view="split">
               <textarea
                 id="body"
                 aria-label="Markdown 原文"
                 spellcheck="false"
-                wrap="off"
+                wrap="soft"
               ></textarea>
-              <article id="preview" class="preview" hidden aria-label="Markdown 预览"></article>
+              <article id="preview" class="preview" aria-label="实时预览"></article>
             </div>
-            <p class="small">
-              预览用于检查基础排版；双链、公式和流程图以发布后的文章为准。图片随本次保存一起提交。
-            </p>
+            <div class="writing-status">
+              <span id="word-count">0 字</span
+              ><label><input id="sync-scroll" type="checkbox" checked />同步滚动</label
+              ><span id="preview-state" aria-live="polite"></span>
+            </div>
           </form>
         </section>
       </div>
+      <section id="settings-workspace" class="settings-workspace" hidden>
+        <form id="site-form">
+          <div class="editor-toolbar">
+            <h2>页面设置</h2>
+            <div>
+              <span id="settings-state" class="small">已保存</span
+              ><button id="reload-settings" type="button">重新载入</button
+              ><button id="export-settings" type="button">导出</button
+              ><button id="save-settings" class="primary" type="submit">保存页面</button>
+            </div>
+          </div>
+          <div class="settings-grid">
+            <div class="settings-fields">
+              <fieldset>
+                <legend>首页</legend>
+                <div class="fields">
+                  <label>标题<input data-setting="home.title" required maxlength="80" /></label
+                  ><label>副标题<input data-setting="home.description" maxlength="200" /></label
+                  ><label
+                    >布局<select data-setting="home.layout">
+                      <option value="single">单栏</option>
+                      <option value="split">双栏</option>
+                    </select></label
+                  ><label
+                    >间距<select data-setting="home.density">
+                      <option value="comfortable">宽松</option>
+                      <option value="compact">紧凑</option>
+                    </select></label
+                  ><label
+                    >强调色<select data-setting="accent">
+                      <option value="green">松绿</option>
+                      <option value="blue">灰蓝</option>
+                      <option value="ochre">赭黄</option>
+                    </select></label
+                  >
+                </div>
+                <div id="section-settings" class="ordered-settings"></div>
+              </fieldset>
+              <fieldset>
+                <legend>专题标签</legend>
+                <div id="topic-settings" class="ordered-settings"></div>
+                <div class="add-topic">
+                  <label for="new-topic">新增专题</label
+                  ><input id="new-topic" placeholder="专题名称" maxlength="60" /><button
+                    id="add-topic"
+                    type="button"
+                  >
+                    添加
+                  </button>
+                </div>
+              </fieldset>
+              <fieldset>
+                <legend>文章入口</legend>
+                <div id="collection-settings" class="ordered-settings"></div>
+              </fieldset>
+              <fieldset>
+                <legend>站点与导航</legend>
+                <div class="fields">
+                  <label>站点名称<input data-setting="brand.name" maxlength="40" required /></label
+                  ><label>站点副标题<input data-setting="brand.subtitle" maxlength="60" /></label
+                  ><label>标识<input data-setting="brand.mark" maxlength="5" required /></label
+                  ><label>页脚<input data-setting="footer" maxlength="100" /></label>
+                </div>
+                <div id="navigation-settings" class="ordered-settings"></div>
+              </fieldset>
+              <fieldset>
+                <legend>关于页</legend>
+                <label>页面标题<input data-setting="about.title" maxlength="80" required /></label
+                ><label
+                  >页面内容<textarea
+                    data-setting="about.body"
+                    rows="8"
+                    maxlength="30000"
+                  ></textarea>
+                </label>
+              </fieldset>
+            </div>
+            <aside class="layout-preview-panel">
+              <div class="preview-label">首页预览</div>
+              <div id="layout-preview" class="layout-preview"></div>
+            </aside>
+          </div>
+        </form>
+      </section>
       <div id="status" role="status" aria-live="polite" hidden></div>
     </main>
   </body>

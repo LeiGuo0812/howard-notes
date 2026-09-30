@@ -3,6 +3,8 @@ import path from "node:path"
 import YAML from "yaml"
 
 const config = YAML.parse(await fs.readFile("quartz.config.yaml", "utf8")).configuration
+const settings = JSON.parse(await fs.readFile("library/site.json", "utf8"))
+config.pageTitle = `${settings.brand.name} ${settings.brand.subtitle}`.trim()
 const base = "https://" + config.baseUrl.replace(/\/$/, "")
 const escape = (value) =>
   String(value).replace(
@@ -36,7 +38,7 @@ const items = articles
   .join("\n")
 await fs.writeFile(
   "public/index.xml",
-  `<?xml version="1.0" encoding="UTF-8"?>\n<rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom"><channel><title>${escape(config.pageTitle)}</title><link>${base}/</link><description>编程、数据分析与工具使用的技术笔记</description><language>zh-CN</language><atom:link href="${base}/index.xml" rel="self" type="application/rss+xml"/>${items}</channel></rss>\n`,
+  `<?xml version="1.0" encoding="UTF-8"?>\n<rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom"><channel><title>${escape(config.pageTitle)}</title><link>${base}/</link><description>${escape(settings.home.description || settings.brand.subtitle)}</description><language>zh-CN</language><atom:link href="${base}/index.xml" rel="self" type="application/rss+xml"/>${items}</channel></rss>\n`,
 )
 await fs.writeFile("public/robots.txt", `User-agent: *\nAllow: /\nSitemap: ${base}/sitemap.xml\n`)
 console.log(`RSS: ${articles.length} articles`)

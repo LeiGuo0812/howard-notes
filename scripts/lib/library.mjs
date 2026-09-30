@@ -7,6 +7,7 @@ import remarkParse from "remark-parse"
 import { visit } from "unist-util-visit"
 import { slug } from "github-slugger"
 import { validateCatalog, safeRelative } from "./catalog.mjs"
+import { validateSite } from "./site-settings.mjs"
 
 export const hash = (bytes) => crypto.createHash("sha256").update(bytes).digest("hex")
 export const escapeHTML = (text) =>
@@ -46,12 +47,17 @@ export async function readLibrary(root) {
   const sources = new Map()
   for (const file of await walk(root))
     sources.set(path.relative(root, file).split(path.sep).join("/"), await fs.readFile(file))
+  if (sources.has("site.json")) validateSite(JSON.parse(sources.get("site.json").toString()))
   for (const article of catalog.articles)
     if (!sources.has(article.file)) throw new Error(`找不到原文：${article.file}`)
   const listed = new Set(catalog.articles.map((article) => article.file))
   for (const file of sources.keys()) {
     if (file.startsWith("notes/") && !listed.has(file)) throw new Error(`尚未登记发布设置：${file}`)
-    if (!file.startsWith("notes/") && !file.startsWith("assets/") && file !== "catalog.json")
+    if (
+      !file.startsWith("notes/") &&
+      !file.startsWith("assets/") &&
+      !["catalog.json", "site.json"].includes(file)
+    )
       throw new Error(`不支持的文库文件：${file}`)
   }
   return { catalog, sources }

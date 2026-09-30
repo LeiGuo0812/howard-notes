@@ -1,163 +1,297 @@
+import fs from "node:fs"
 import { QuartzComponent, QuartzComponentProps } from "./types"
 import { FullSlug, pathToRoot, resolveRelative, simplifySlug } from "../util/path"
 import { PageFrame } from "./frames/types"
 import { slug } from "github-slugger"
+import siteSettings from "../../library/site.json"
 
-const root = (data: QuartzComponentProps) =>
-  data.fileData.slug === "404"
-    ? new URL(`https://${data.cfg.baseUrl}`).pathname.replace(/\/$/, "")
-    : pathToRoot(data.fileData.slug!)
-const href = (data: QuartzComponentProps, slug: string) =>
-  data.fileData.slug === "404"
-    ? `${root(data)}/${simplifySlug(slug as FullSlug).replace(/^\//, "")}`
-    : resolveRelative(data.fileData.slug!, slug as FullSlug)
+type Topic = { id: string; title: string; category: string; visible: boolean; count: number }
+type Day = { date: string; count: number; level: number; inRange: boolean }
+type BlogData = {
+  settings: typeof siteSettings
+  topics: Topic[]
+  total: number
+  collections: { id: string; title: string; enabled: boolean; count: number }[]
+  activity: { asOf: string; from: string; total: number; weeks: { month: string; days: Day[] }[] }
+}
+type Listing = {
+  rows: { id: string; title: string; date: string; category: string }[]
+  page: number
+  pageCount: number
+  baseRoute: string
+  parent: string
+  parentLabel: string
+  total: number
+  topicId?: string
+}
+let cached: BlogData | undefined
+const data = () =>
+  (cached ??= JSON.parse(fs.readFileSync(".local/blog-data.json", "utf8")) as BlogData)
+const root = (props: QuartzComponentProps) =>
+  props.fileData.slug === "404"
+    ? new URL(`https://${props.cfg.baseUrl}`).pathname.replace(/\/$/, "")
+    : pathToRoot(props.fileData.slug!)
+const href = (props: QuartzComponentProps, route: string) =>
+  props.fileData.slug === "404"
+    ? `${root(props)}/${simplifySlug(route as FullSlug).replace(/^\//, "")}`
+    : resolveRelative(props.fileData.slug!, route as FullSlug)
+const navRoutes: Record<string, string> = {
+  notes: "notes/index",
+  topics: "topics/index",
+  about: "about",
+}
 
-export const BlogNav: QuartzComponent = (props) => (
-  <>
-    <a class="blog-brand internal" href={href(props, "index")}>
-      <span class="brand-mark" aria-hidden="true">
-        h.
-      </span>
-      <span>
-        Howard<span class="brand-subtitle">技术笔记</span>
-      </span>
-    </a>
-    <nav class="blog-nav" aria-label="主导航">
-      {[
-        ["notes/index", "文章"],
-        ["topics", "专题"],
-        ["about", "关于"],
-      ].map(([slug, label]) => (
-        <a
-          class="internal"
-          href={href(props, slug)}
-          aria-current={props.fileData.slug === slug ? "page" : undefined}
-        >
-          {label}
-        </a>
-      ))}
-    </nav>
-  </>
-)
-
-export const BlogHome: QuartzComponent = (props) => {
-  if (props.fileData.slug !== "index") return null
-  const articles = props.allFiles
-    .filter((file) => file.frontmatter?.type === "article")
-    .sort(
-      (a, b) =>
-        String(b.frontmatter?.date).localeCompare(String(a.frontmatter?.date)) ||
-        a.slug!.localeCompare(b.slug!),
-    )
-  const featured = articles.filter((file) => file.frontmatter?.featured === true).slice(0, 6)
-  const topics = [...new Set(articles.map((file) => String(file.frontmatter?.category)))].map(
-    (title) => [
-      title,
-      `${articles.filter((file) => file.frontmatter?.category === title).length} 篇笔记`,
-    ],
-  )
+export const BlogNav: QuartzComponent = (props) => {
+  const settings = data().settings
   return (
-    <div class="home-content">
-      <section class="home-intro" aria-labelledby="home-title">
-        <div>
-          <p class="intro-label">编程 / 数据 / 工具</p>
-          <h1 id="home-title">
-            把问题记下来，
-            <br />
-            把方法留下来。
-          </h1>
-          <p class="intro-description">
-            你好，我是
-            Howard。这里记录编程、数据分析和工具使用中的实践，也整理那些值得再查一次的知识。
-          </p>
-          <a class="browse-link internal" href={href(props, "notes/index")}>
-            浏览全部文章 <span aria-hidden="true">↗</span>
-          </a>
-        </div>
-        <a class="intro-figure library-intro internal" href={href(props, "topics")}>
-          <p class="intro-label">持续积累的知识库</p>
-          <p class="library-count">
-            {articles.length}
-            <span>篇笔记</span>
-          </p>
-          <div>
-            <span>编程、统计与科研工具</span>
-            <strong>
-              从 {topics.length} 个专题开始阅读 <span aria-hidden="true">↗</span>
-            </strong>
-          </div>
-        </a>
-      </section>
-      <section class="featured-section" aria-labelledby="featured-heading">
-        <h2 id="featured-heading">精选文章</h2>
-        <div class="featured-list">
-          {featured.map((file) => (
-            <a class="featured-entry internal" href={href(props, file.slug!)}>
-              <span class="entry-category">{String(file.frontmatter?.category)}</span>
-              <h3>{file.frontmatter?.title}</h3>
-              <p>{file.frontmatter?.description}</p>
-              <span class="entry-more">
-                阅读全文 <span aria-hidden="true">↗</span>
-              </span>
+    <>
+      <a class="blog-brand internal" href={href(props, "index")} data-no-popover="true">
+        <span class="brand-mark" aria-hidden="true">
+          {settings.brand.mark}
+        </span>
+        <span>
+          {settings.brand.name}
+          <span class="brand-subtitle">{settings.brand.subtitle}</span>
+        </span>
+      </a>
+      <nav class="blog-nav" aria-label="主导航">
+        {settings.navigation
+          .filter((item) => item.visible)
+          .map((item) => (
+            <a
+              class="internal"
+              data-no-popover="true"
+              href={href(props, navRoutes[item.id])}
+              aria-current={
+                (item.id === "notes" && props.fileData.slug?.startsWith("collections/")) ||
+                props.fileData.slug?.startsWith(navRoutes[item.id].replace("/index", ""))
+                  ? "page"
+                  : undefined
+              }
+            >
+              {item.label}
             </a>
           ))}
+      </nav>
+    </>
+  )
+}
+function TopicChips({ props }: { props: QuartzComponentProps }) {
+  return (
+    <nav class="topic-chips" aria-label="专题标签">
+      {data()
+        .topics.filter((topic) => topic.visible)
+        .map((topic) => (
+          <a
+            class="internal topic-chip"
+            data-no-popover="true"
+            id={slug(topic.category)}
+            href={href(props, `topics/${topic.id}`)}
+          >
+            <span>{topic.title}</span>
+            <small>{topic.count}</small>
+          </a>
+        ))}
+    </nav>
+  )
+}
+function CollectionChips({ props }: { props: QuartzComponentProps }) {
+  return (
+    <nav class="topic-chips collection-chips" aria-label="文章入口">
+      {data()
+        .collections.filter((item) => item.enabled)
+        .map((item) => (
+          <a
+            class="internal topic-chip"
+            data-no-popover="true"
+            href={href(props, `collections/${item.id}`)}
+          >
+            <span>{item.title}</span>
+            <small>{item.count}</small>
+            <span aria-hidden="true">↗</span>
+          </a>
+        ))}
+    </nav>
+  )
+}
+function Heatmap() {
+  const activity = data().activity
+  return (
+    <div class="activity-chart">
+      <div class="activity-summary">
+        <a href="https://github.com/LeiGuo0812/howard-notes/commits/main/">
+          {activity.total} 次提交
+        </a>
+        <span>
+          {activity.from} — {activity.asOf}
+        </span>
+      </div>
+      <div
+        class="heatmap-scroll"
+        tabIndex={0}
+        role="group"
+        aria-label={`博客仓库最近 365 天共 ${activity.total} 次提交`}
+      >
+        <div class="heatmap-weekdays" aria-hidden="true">
+          <span>一</span>
+          <span>三</span>
+          <span>五</span>
         </div>
-      </section>
-      <div class="home-bottom">
-        <section aria-labelledby="latest-heading">
-          <h2 id="latest-heading">最近发布</h2>
-          <ul class="latest-list">
-            {articles.slice(0, 10).map((file) => (
-              <li>
-                <time dateTime={String(file.frontmatter?.date)}>
-                  {String(file.frontmatter?.date).slice(5).replace("-", " / ")}
-                </time>
-                <a class="internal" href={href(props, file.slug!)}>
-                  {file.frontmatter?.title}
-                </a>
-              </li>
-            ))}
-          </ul>
-        </section>
-        <section class="topic-section" aria-labelledby="topics-heading">
-          <h2 id="topics-heading">按专题阅读</h2>
-          <ul>
-            {topics.map(([title, description]) => (
-              <li>
-                <a class="internal" href={`${href(props, "topics")}#${slug(title)}`}>
-                  <strong>{title}</strong>
-                  <span>{description}</span>
-                </a>
-              </li>
-            ))}
-          </ul>
-        </section>
+        <div class="heatmap-weeks">
+          {activity.weeks.map((week) => (
+            <div class="heatmap-week">
+              <span class="heatmap-month">{week.month}</span>
+              {week.days.map((day) => {
+                const label = `${day.date} · ${day.count} 次提交`
+                const cls = `heatmap-day level-${day.level}${day.inRange ? "" : " outside"}`
+                return day.count > 0 ? (
+                  <a
+                    class={cls}
+                    title={label}
+                    aria-label={label}
+                    data-date={day.date}
+                    data-count={day.count}
+                    href={`https://github.com/LeiGuo0812/howard-notes/commits/main/?since=${encodeURIComponent(day.date + "T00:00:00+08:00")}&until=${encodeURIComponent(day.date + "T23:59:59+08:00")}`}
+                  />
+                ) : (
+                  <span
+                    class={cls}
+                    title={day.inRange ? label : undefined}
+                    data-date={day.date}
+                    data-count={day.count}
+                    aria-hidden="true"
+                  />
+                )
+              })}
+            </div>
+          ))}
+        </div>
+      </div>
+      <div class="heatmap-legend" aria-hidden="true">
+        <span>少</span>
+        {[0, 1, 2, 3, 4].map((level) => (
+          <i class={`heatmap-day level-${level}`} />
+        ))}
+        <span>多</span>
       </div>
     </div>
   )
 }
-
+export const BlogHome: QuartzComponent = (props) => {
+  if (props.fileData.slug !== "index") return null
+  const { settings, total } = data()
+  return (
+    <div class={`home-workspace layout-${settings.home.layout} density-${settings.home.density}`}>
+      <div class="home-heading">
+        <h1>{settings.home.title}</h1>
+        <span>{total} 篇</span>
+      </div>
+      {settings.home.description && <p class="home-description">{settings.home.description}</p>}
+      <div class="home-modules">
+        {settings.home.sections
+          .filter((section) => section.enabled)
+          .map((section) => (
+            <section
+              class={`home-module module-${section.id}`}
+              aria-labelledby={`section-${section.id}`}
+            >
+              <h2 id={`section-${section.id}`}>{section.title}</h2>
+              {section.id === "topics" ? (
+                <TopicChips props={props} />
+              ) : section.id === "collections" ? (
+                <CollectionChips props={props} />
+              ) : (
+                <Heatmap />
+              )}
+            </section>
+          ))}
+      </div>
+    </div>
+  )
+}
+function ListingPage({ props, listing }: { props: QuartzComponentProps; listing: Listing }) {
+  const pageHref = (page: number) => href(props, listing.baseRoute + (page > 1 ? `-p${page}` : ""))
+  return (
+    <section class="listing-page" aria-label="文章列表">
+      <div class="listing-summary">
+        <a class="internal" data-no-popover="true" href={href(props, listing.parent)}>
+          ← {listing.parentLabel}
+        </a>
+        <span>{listing.total} 篇</span>
+      </div>
+      {listing.rows.length ? (
+        <ol class="article-rows" start={(listing.page - 1) * 24 + 1}>
+          {listing.rows.map((row) => (
+            <li>
+              <a
+                class="internal article-row"
+                data-no-popover="true"
+                href={href(props, `notes/${row.id}`)}
+              >
+                <span>{row.title}</span>
+                <div>
+                  {!listing.topicId && <small>{row.category}</small>}
+                  <time dateTime={row.date}>{row.date}</time>
+                </div>
+              </a>
+            </li>
+          ))}
+        </ol>
+      ) : (
+        <p class="empty-list">暂无文章</p>
+      )}
+      {listing.pageCount > 1 && (
+        <nav class="pagination" aria-label="列表分页">
+          {listing.page > 1 && (
+            <a class="internal" data-no-popover="true" href={pageHref(listing.page - 1)}>
+              上一页
+            </a>
+          )}
+          {Array.from({ length: listing.pageCount }, (_, i) => i + 1).map((page) => (
+            <a
+              class="internal"
+              data-no-popover="true"
+              href={pageHref(page)}
+              aria-current={page === listing.page ? "page" : undefined}
+            >
+              {page}
+            </a>
+          ))}
+          {listing.page < listing.pageCount && (
+            <a class="internal" data-no-popover="true" href={pageHref(listing.page + 1)}>
+              下一页
+            </a>
+          )}
+        </nav>
+      )}
+    </section>
+  )
+}
 export const BlogFooter: QuartzComponent = (props) => (
   <footer class="blog-footer">
-    <span>Howard 的技术笔记</span>
+    <span>{data().settings.footer}</span>
     <div>
-      <a href={`${root(props)}/index.xml`}>RSS</a>
+      <a href={`${root(props)}/index.xml`} data-router-ignore>
+        RSS
+      </a>
       <a href={`${root(props)}/admin/`} data-router-ignore>
-        文章管理
+        管理
       </a>
       <a href="https://github.com/LeiGuo0812/howard-notes">GitHub</a>
-      <a href="https://quartz.jzhao.xyz/">Quartz</a>
     </div>
   </footer>
 )
-
 export const BlogFrame: PageFrame = {
   name: "blog",
   render({ componentData, header, beforeBody, pageBody: Content, afterBody, right, footer }) {
     const home = componentData.fileData.slug === "index"
-    const article = componentData.fileData.frontmatter?.type === "article"
+    const type = componentData.fileData.frontmatter?.type
+    const article = type === "article",
+      hub = type === "topic-hub" || type === "collection-hub",
+      listing = type === "listing"
+    const listingData = componentData.fileData.frontmatter?.listing as Listing | undefined
     return (
-      <>
+      <div class={`site-surface accent-${data().settings.accent}`}>
         <a class="skip-link" href="#main-content">
           跳到正文
         </a>
@@ -166,7 +300,9 @@ export const BlogFrame: PageFrame = {
             <Component {...componentData} />
           ))}
         </header>
-        <div class={`blog-layout ${home ? "is-home" : ""} ${article ? "is-article" : ""}`}>
+        <div
+          class={`blog-layout ${home ? "is-home" : ""} ${article ? "is-article" : ""} ${hub || listing ? "is-directory" : ""}`}
+        >
           <main class="center" id="main-content">
             <div class="page-header">
               <div class="popover-hint">
@@ -175,12 +311,23 @@ export const BlogFrame: PageFrame = {
                 ))}
               </div>
             </div>
-            {!home && <Content {...componentData} />}
-            <div class="page-footer">
-              {afterBody.map((Component) => (
-                <Component {...componentData} />
+            {!home &&
+              (type === "topic-hub" ? (
+                <TopicChips props={componentData} />
+              ) : type === "collection-hub" ? (
+                <CollectionChips props={componentData} />
+              ) : listing && listingData ? (
+                <ListingPage props={componentData} listing={listingData} />
+              ) : (
+                <Content {...componentData} />
               ))}
-            </div>
+            {article && (
+              <div class="page-footer">
+                {afterBody.map((Component) => (
+                  <Component {...componentData} />
+                ))}
+              </div>
+            )}
           </main>
           {article && (
             <aside class="right sidebar" aria-label="文章导航">
@@ -193,7 +340,7 @@ export const BlogFrame: PageFrame = {
         {footer.map((Component) => (
           <Component {...componentData} />
         ))}
-      </>
+      </div>
     )
   },
 }

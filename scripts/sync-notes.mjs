@@ -5,6 +5,7 @@ import { execFileSync } from "node:child_process"
 import { walk, hash, splitNote, renderLibrary } from "./lib/library.mjs"
 import { validateCatalog, safeRelative } from "./lib/catalog.mjs"
 import { planSync } from "./lib/sync-plan.mjs"
+import { validateSite } from "./lib/site-settings.mjs"
 
 const project = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..")
 process.chdir(project)
@@ -44,7 +45,11 @@ async function writeTree(root, before, after, backup) {
   for (const file of new Set([...before.keys(), ...after.keys()])) {
     if (
       !safeRelative(file) ||
-      !(file === "catalog.json" || file.startsWith("notes/") || file.startsWith("assets/"))
+      !(
+        ["catalog.json", "site.json"].includes(file) ||
+        file.startsWith("notes/") ||
+        file.startsWith("assets/")
+      )
     )
       throw new Error(`不支持的同步文件：${file}`)
     const target = path.join(root, file),
@@ -144,6 +149,21 @@ async function main() {
   }
   if (additions.length)
     merged.set("catalog.json", Buffer.from(JSON.stringify(catalog, null, 2) + "\n"))
+  // Keep the update list accurate for Obsidian edits without writing metadata into Markdown.
+  let changedDates = false
+  const today = new Intl.DateTimeFormat("sv-SE", { timeZone: "Asia/Shanghai" }).format(new Date())
+  for (const article of catalog.articles) {
+    const bytes = merged.get(article.file)
+    if (
+      bytes &&
+      !bytes.equals(remote.get(article.file) || Buffer.alloc(0)) &&
+      article.modified !== today
+    ) {
+      article.modified = today
+      changedDates = true
+    }
+  }
+  if (changedDates) merged.set("catalog.json", Buffer.from(JSON.stringify(catalog, null, 2) + "\n"))
   // Explicit deletion also removes the corresponding catalog entry. Cross-links remain visible as unavailable references.
   const missing = catalog.articles.filter((article) => !merged.has(article.file))
   if (missing.length && args.has("--allow-delete")) {
@@ -157,12 +177,13 @@ async function main() {
     if (
       !safeRelative(file) ||
       !(
-        file === "catalog.json" ||
+        ["catalog.json", "site.json"].includes(file) ||
         /^notes\/.+\.md$/.test(file) ||
         /^assets\/.+\.(png|jpe?g|gif|webp|avif|svg|pdf)$/i.test(file)
       )
     )
       throw new Error(`不支持的同步文件：${file}`)
+  if (merged.has("site.json")) validateSite(JSON.parse(merged.get("site.json").toString()))
   renderLibrary(catalog, merged)
   console.log(
     JSON.stringify(

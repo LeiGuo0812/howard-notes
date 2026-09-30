@@ -68,6 +68,8 @@ test("sync initializes exact copies, merges independent edits and preserves file
       published: true,
     }))
     await write(project, "library/catalog.json", JSON.stringify({ version: 2, articles }))
+    const siteSettings = JSON.parse(await fs.readFile("library/site.json", "utf8"))
+    await write(project, "library/site.json", JSON.stringify(siteSettings))
     await write(project, "library/notes/a.md", "原文 A\r\n")
     await write(project, "library/notes/b.md", "原文 B\r\n")
     git(project, "add", ".")
@@ -87,11 +89,22 @@ test("sync initializes exact copies, merges independent edits and preserves file
       git(web, "push", "origin", "main")
     }
     await write(mirror, "notes/a.md", "本地更新 A\r\n")
+    siteSettings.footer = "网页页脚"
+    await write(web, "library/site.json", JSON.stringify(siteSettings))
     await webEdit("网页更新 B\r\n")
     sync("--apply")
     assert.equal(await read(mirror, "notes/a.md"), "本地更新 A\r\n")
     assert.equal(await read(mirror, "notes/b.md"), "网页更新 B\r\n")
     assert.equal(git(project, "show", "origin/main:library/notes/a.md"), "本地更新 A\r\n")
+    assert.equal(JSON.parse(await read(mirror, "site.json")).footer, "网页页脚")
+    siteSettings.home.layout = "split"
+    await write(mirror, "site.json", JSON.stringify(siteSettings))
+    sync("--apply")
+    assert.equal(
+      JSON.parse(git(project, "show", "origin/main:library/site.json")).home.layout,
+      "split",
+    )
+    assert.equal(await read(mirror, "notes/a.md"), "本地更新 A\r\n")
     assert.match(sync(), /"changes": \[\]/)
     git(web, "pull", "--ff-only")
     await webEdit("网页冲突 B\r\n")
