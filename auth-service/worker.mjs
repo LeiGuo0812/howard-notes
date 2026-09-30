@@ -189,7 +189,8 @@ export async function handle(request, env, fetcher = (...args) => fetch(...args)
         callback_urls: [`${url.origin}/oauth/callback`],
         setup_url: `${url.origin}/ready`,
         public: false,
-        hook_attributes: { active: false },
+        // GitHub requires a URL even when webhook delivery is disabled.
+        hook_attributes: { url: `${url.origin}/github/events`, active: false },
         default_permissions: { contents: "write", metadata: "read" },
         default_events: [],
         request_oauth_on_install: false,

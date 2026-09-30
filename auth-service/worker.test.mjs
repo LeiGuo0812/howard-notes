@@ -182,6 +182,7 @@ test("setup requires a secret and same origin before creating a GitHub manifest"
   assert.ok(body.includes("contents&quot;:&quot;write"))
   assert.ok(!body.includes(env.SETUP_KEY))
   assert.ok(body.includes("public&quot;:false"))
+  assert.ok(body.includes("/github/events&quot;,&quot;active&quot;:false"))
 })
 test("manifest setup stores only encrypted credentials, checks ownership and cannot replace an app", async () => {
   for (const owner of [1234, 50766698]) {
