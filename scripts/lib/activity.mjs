@@ -1,19 +1,29 @@
-import { execFileSync } from "node:child_process"
-import fs from "node:fs"
+import { createdDay, modifiedDay, validDay } from "./note-dates.mjs"
 
 const dayMs = 86400000
-export function chinaDate(date) {
-  return new Intl.DateTimeFormat("sv-SE", { timeZone: "Asia/Shanghai" }).format(date)
-}
-export function buildActivity(timestamps, now = new Date()) {
-  const today = chinaDate(now),
-    end = Date.parse(today + "T00:00:00Z"),
-    start = end - 364 * dayMs
+export const chinaDate = (date) =>
+  new Intl.DateTimeFormat("sv-SE", { timeZone: "Asia/Shanghai" }).format(date)
+
+// One note contributes once per day, even if created and modified on that same day.
+// These are recorded creation/latest-modification dates, not historical edit counts.
+export function buildActivity(articles, now = new Date(), year) {
+  const today = chinaDate(now)
+  const end = year ? Date.parse(`${year}-12-31T00:00:00Z`) : Date.parse(today + "T00:00:00Z")
+  const start = year ? Date.parse(`${year}-01-01T00:00:00Z`) : end - 364 * dayMs
   const counts = new Map()
-  for (const timestamp of timestamps) {
-    const date = chinaDate(new Date(Number(timestamp) * 1000))
-    const instant = Date.parse(date + "T00:00:00Z")
-    if (instant >= start && instant <= end) counts.set(date, (counts.get(date) || 0) + 1)
+  for (const article of articles.filter((item) => item.published)) {
+    const created = createdDay(article),
+      modified = modifiedDay(article)
+    for (const date of new Set([created, modified])) {
+      if (!validDay(date) || date > today) continue
+      const instant = Date.parse(date + "T00:00:00Z")
+      if (instant < start || instant > end) continue
+      const day = counts.get(date) || { count: 0, created: 0, modified: 0 }
+      day.count++
+      if (date === created) day.created++
+      if (date === modified && date !== created) day.modified++
+      counts.set(date, day)
+    }
   }
   const first = start - new Date(start).getUTCDay() * dayMs
   const last = end + (6 - new Date(end).getUTCDay()) * dayMs
@@ -23,10 +33,11 @@ export function buildActivity(timestamps, now = new Date()) {
     for (let d = 0; d < 7; d++) {
       const instant = week + d * dayMs,
         date = new Date(instant).toISOString().slice(0, 10),
-        count = counts.get(date) || 0
+        values = counts.get(date) || { count: 0, created: 0, modified: 0 }
+      const count = values.count
       days.push({
         date,
-        count,
+        ...values,
         inRange: instant >= start && instant <= end,
         level: count === 0 ? 0 : count <= 2 ? 1 : count <= 5 ? 2 : count <= 9 ? 3 : 4,
       })
@@ -35,38 +46,31 @@ export function buildActivity(timestamps, now = new Date()) {
     weeks.push({ month: firstOfMonth ? `${Number(firstOfMonth.date.slice(5, 7))}月` : "", days })
   }
   return {
-    asOf: today,
+    asOf: new Date(end).toISOString().slice(0, 10),
     from: new Date(start).toISOString().slice(0, 10),
-    total: [...counts.values()].reduce((a, b) => a + b, 0),
+    total: [...counts.values()].reduce((sum, day) => sum + day.count, 0),
     weeks,
   }
 }
-export function readActivity() {
-  const shallow = execFileSync("git", ["rev-parse", "--is-shallow-repository"], {
-    encoding: "utf8",
-  }).trim()
-  if (shallow === "true") {
-    const shallowFile = execFileSync("git", ["rev-parse", "--git-path", "shallow"], {
-      encoding: "utf8",
-    }).trim()
-    const reachable = new Set(
-      execFileSync("git", ["rev-list", "HEAD"], { encoding: "utf8" }).trim().split("\n"),
-    )
-    if (
-      fs
-        .readFileSync(shallowFile, "utf8")
-        .trim()
-        .split("\n")
-        .some((commit) => reachable.has(commit))
-    )
-      throw new Error("提交热图需要完整 Git 历史，请先运行 git fetch --unshallow。")
+
+export function readActivity(articles, now = new Date()) {
+  const today = chinaDate(now)
+  const years = [
+    ...new Set(
+      articles
+        .filter((a) => a.published)
+        .flatMap((a) => [createdDay(a), modifiedDay(a)])
+        .filter((date) => validDay(date) && date <= today)
+        .map((date) => date.slice(0, 4)),
+    ),
+  ]
+    .sort()
+    .reverse()
+  return {
+    selected: "recent",
+    periods: [
+      { id: "recent", label: "近一年", ...buildActivity(articles, now) },
+      ...years.map((year) => ({ id: year, label: year, ...buildActivity(articles, now, year) })),
+    ],
   }
-  const timestamps = execFileSync("git", ["log", "HEAD", "--format=%ct"], {
-    encoding: "utf8",
-    maxBuffer: 16 * 1024 * 1024,
-  })
-    .trim()
-    .split("\n")
-    .filter(Boolean)
-  return buildActivity(timestamps)
 }

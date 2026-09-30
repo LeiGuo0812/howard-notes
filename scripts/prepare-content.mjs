@@ -9,7 +9,7 @@ const { output, warnings, records } = renderLibrary(catalog, sources)
 for (const file of await walk("site"))
   if (file.endsWith(".md")) output.set(path.relative("site", file), await fs.readFile(file))
 const settings = JSON.parse(sources.get("site.json").toString())
-const pages = generateSitePages(settings, catalog, readActivity())
+const pages = generateSitePages(settings, catalog, readActivity(catalog.articles), 24, sources)
 for (const [file, bytes] of pages.output) output.set(file, bytes)
 // content is generated and ignored. The original bytes live exclusively in library.
 await fs.mkdir("content", { recursive: true })

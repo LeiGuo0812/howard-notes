@@ -28,6 +28,25 @@ export function splitNote(text) {
   return { data, body: text.slice(match[0].length) }
 }
 
+export function extractNoteTags(text) {
+  const { body, data } = splitNote(text)
+  const tags = new Set(
+    Array.isArray(data.tags) ? data.tags.filter((tag) => typeof tag === "string") : [],
+  )
+  const tree = unified().use(remarkParse).parse(body)
+  function inspect(node) {
+    if (
+      ["code", "inlineCode", "html", "link", "definition", "image", "heading"].includes(node.type)
+    )
+      return
+    if (node.type === "text")
+      for (const match of node.value.matchAll(/(?:^|\s)#([\p{L}\p{N}_/-]+)/gu)) tags.add(match[1])
+    for (const child of node.children || []) inspect(child)
+  }
+  inspect(tree)
+  return [...tags].map((tag) => tag.trim()).filter(Boolean)
+}
+
 export async function walk(root) {
   const files = []
   for (const item of await fs.readdir(root, { withFileTypes: true })) {

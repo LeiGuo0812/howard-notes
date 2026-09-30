@@ -1,6 +1,6 @@
 import test from "node:test"
 import assert from "node:assert/strict"
-import { renderLibrary, splitNote, hash } from "./lib/library.mjs"
+import { renderLibrary, splitNote, hash, extractNoteTags } from "./lib/library.mjs"
 import { validateCatalog, mergeArticle } from "./lib/catalog.mjs"
 
 const entry = (id, extra = {}) => ({
@@ -12,6 +12,27 @@ const entry = (id, extra = {}) => ({
   tags: [],
   published: true,
   ...extra,
+})
+test("note tags include metadata and prose but exclude code, links and headings", () => {
+  const text = [
+    "---",
+    "tags: [Python, 统计]",
+    "---",
+    "# Heading",
+    "",
+    "#Python #学习/方法 #统计",
+    "",
+    "```python",
+    "# comment",
+    "url = 'https://example.test/#fragment'",
+    "```",
+    "",
+    "`#inline` [#link](https://example.test/#anchor) <https://example.test/#url>",
+    "<!-- #hidden -->",
+    "",
+    "正文 **#脑影像**",
+  ].join("\n")
+  assert.deepEqual(extractNoteTags(text), ["Python", "统计", "学习/方法", "脑影像"])
 })
 test("original bytes, comments, code and line endings are never mutated", () => {
   const bytes = Buffer.from(

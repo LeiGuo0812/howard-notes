@@ -11,22 +11,29 @@
       ],
       "date": "2026-09-30",
       "published": true,
-      "featured": false
+      "featured": false,
+      "created": "2024-10-21",
+      "modified": "2025-04-06",
+      "dateOrigin": {
+        "created": "first-record",
+        "modified": "vault-history"
+      }
     },
     {
       "id": "note-2e2fe192fbe9",
       "file": "notes/Docker/Docker WSL2 启动错误.md",
       "title": "Docker WSL2 启动错误",
       "category": "系统与开发环境",
-      "tags": [
-        "7039",
-        "13845",
-        "6415",
-        "5092"
-      ],
+      "tags": [],
       "date": "2026-09-30",
       "published": true,
-      "featured": false
+      "featured": false,
+      "created": "2024-10-21",
+      "modified": "2025-04-06",
+      "dateOrigin": {
+        "created": "first-record",
+        "modified": "vault-history"
+      }
     },
     {
       "id": "docker-log-rotation",
@@ -37,7 +44,12 @@
       "date": "2026-09-30",
       "published": true,
       "featured": true,
-      "created": "2024-04-08"
+      "created": "2024-04-08",
+      "modified": "2025-04-06",
+      "dateOrigin": {
+        "created": "frontmatter",
+        "modified": "vault-history"
+      }
     },
     {
       "id": "note-956373b1ce94",
@@ -48,7 +60,12 @@
       "date": "2026-09-30",
       "published": true,
       "featured": false,
-      "created": "2024-07-12"
+      "created": "2024-07-12",
+      "modified": "2025-04-06",
+      "dateOrigin": {
+        "created": "frontmatter",
+        "modified": "vault-history"
+      }
     },
     {
       "id": "docker-save-export",
@@ -61,7 +78,12 @@
       "date": "2026-09-30",
       "published": true,
       "featured": false,
-      "created": "2024-03-09"
+      "created": "2024-03-09",
+      "modified": "2025-04-06",
+      "dateOrigin": {
+        "created": "frontmatter",
+        "modified": "vault-history"
+      }
     },
     {
       "id": "note-ad5c326e05f1",
@@ -72,7 +94,12 @@
       "date": "2026-09-30",
       "published": true,
       "featured": false,
-      "created": "2024-12-12"
+      "created": "2024-12-12",
+      "modified": "2024-12-21",
+      "dateOrigin": {
+        "created": "frontmatter",
+        "modified": "filesystem"
+      }
     },
     {
       "id": "note-08ff42465e0e",
@@ -82,7 +109,13 @@
       "tags": [],
       "date": "2026-09-30",
       "published": true,
-      "featured": false
+      "featured": false,
+      "created": "2024-10-21",
+      "modified": "2025-04-06",
+      "dateOrigin": {
+        "created": "first-record",
+        "modified": "vault-history"
+      }
     },
     {
       "id": "note-ba495b4f2cd3",
@@ -93,7 +126,12 @@
       "date": "2026-09-30",
       "published": true,
       "featured": false,
-      "created": "2024-12-21"
+      "created": "2024-12-21",
+      "modified": "2024-12-21",
+      "dateOrigin": {
+        "created": "frontmatter",
+        "modified": "frontmatter"
+      }
     },
     {
       "id": "note-640bab5cca36",
@@ -105,7 +143,13 @@
       ],
       "date": "2026-09-30",
       "published": true,
-      "featured": false
+      "featured": false,
+      "created": "2024-12-21",
+      "modified": "2024-12-21",
+      "dateOrigin": {
+        "created": "first-record",
+        "modified": "filesystem"
+      }
     },
     {
       "id": "note-7bf181628e9e",
@@ -118,7 +162,13 @@
       ],
       "date": "2026-09-30",
       "published": true,
-      "featured": false
+      "featured": false,
+      "created": "2024-10-21",
+      "modified": "2025-04-06",
+      "dateOrigin": {
+        "created": "first-record",
+        "modified": "vault-history"
+      }
     },
     {
       "id": "note-0acc2a3cee2a",
@@ -128,7 +178,13 @@
       "tags": [],
       "date": "2026-09-30",
       "published": true,
-      "featured": false
+      "featured": false,
+      "created": "2026-06-08",
+      "modified": "2026-06-08",
+      "dateOrigin": {
+        "created": "first-record",
+        "modified": "filesystem"
+      }
     },
     {
       "id": "note-edffe52be73e",
@@ -138,7 +194,13 @@
       "tags": [],
       "date": "2026-09-30",
       "published": true,
-      "featured": false
+      "featured": false,
+      "created": "2026-06-07",
+      "modified": "2026-06-07",
+      "dateOrigin": {
+        "created": "first-record",
+        "modified": "filesystem"
+      }
     },
     {
       "id": "note-1ee71fbe97fc",
@@ -148,7 +210,13 @@
       "tags": [],
       "date": "2026-09-30",
       "published": true,
-      "featured": false
+      "featured": false,
+      "created": "2026-06-08",
+      "modified": "2026-06-08",
+      "dateOrigin": {
+        "created": "first-record",
+        "modified": "filesystem"
+      }
     },
     {
       "id": "note-237be026b022",
@@ -161,7 +229,13 @@
       ],
       "date": "2026-09-30",
       "published": true,
-      "featured": false
+      "featured": false,
+      "created": "2024-10-21",
+      "modified": "2025-04-06",
+      "dateOrigin": {
+        "created": "first-record",
+        "modified": "vault-history"
+      }
     },
     {
       "id": "note-23d8b4348473",
@@ -170,13 +244,17 @@
       "category": "系统与开发环境",
       "tags": [
         "linux",
-        "软件",
-        "1026"
+        "软件"
       ],
       "date": "2026-09-30",
       "published": true,
       "featured": false,
-      "created": "2023-03-08"
+      "created": "2023-03-08",
+      "modified": "2024-12-21",
+      "dateOrigin": {
+        "created": "frontmatter",
+        "modified": "filesystem"
+      }
     },
     {
       "id": "note-f409a0b5fe6c",
@@ -186,7 +264,13 @@
       "tags": [],
       "date": "2026-09-30",
       "published": true,
-      "featured": false
+      "featured": false,
+      "created": "2025-12-07",
+      "modified": "2025-12-07",
+      "dateOrigin": {
+        "created": "first-record",
+        "modified": "filesystem"
+      }
     },
     {
       "id": "note-096f201e5c7c",
@@ -199,7 +283,13 @@
       ],
       "date": "2026-09-30",
       "published": true,
-      "featured": false
+      "featured": false,
+      "created": "2024-10-21",
+      "modified": "2025-04-06",
+      "dateOrigin": {
+        "created": "first-record",
+        "modified": "vault-history"
+      }
     },
     {
       "id": "note-c8fc63a344b1",
@@ -212,7 +302,13 @@
       ],
       "date": "2026-09-30",
       "published": true,
-      "featured": false
+      "featured": false,
+      "created": "2024-10-21",
+      "modified": "2025-04-06",
+      "dateOrigin": {
+        "created": "first-record",
+        "modified": "vault-history"
+      }
     },
     {
       "id": "note-400136240d68",
@@ -221,13 +317,17 @@
       "category": "系统与开发环境",
       "tags": [
         "linux",
-        "编程",
-        "如果正则表达式中使用了括号进行分组匹配"
+        "编程"
       ],
       "date": "2026-09-30",
       "published": true,
       "featured": false,
-      "created": "2022-11-03"
+      "created": "2022-11-03",
+      "modified": "2025-04-06",
+      "dateOrigin": {
+        "created": "frontmatter",
+        "modified": "vault-history"
+      }
     },
     {
       "id": "note-eb4ecc53c575",
@@ -240,7 +340,13 @@
       ],
       "date": "2026-09-30",
       "published": true,
-      "featured": false
+      "featured": false,
+      "created": "2024-10-21",
+      "modified": "2025-10-07",
+      "dateOrigin": {
+        "created": "first-record",
+        "modified": "vault-history"
+      }
     },
     {
       "id": "note-85470b3b1694",
@@ -253,7 +359,13 @@
       ],
       "date": "2026-09-30",
       "published": true,
-      "featured": false
+      "featured": false,
+      "created": "2024-10-21",
+      "modified": "2025-04-06",
+      "dateOrigin": {
+        "created": "first-record",
+        "modified": "vault-history"
+      }
     },
     {
       "id": "note-f5780fd12ac2",
@@ -266,7 +378,13 @@
       ],
       "date": "2026-09-30",
       "published": true,
-      "featured": false
+      "featured": false,
+      "created": "2024-10-21",
+      "modified": "2025-04-06",
+      "dateOrigin": {
+        "created": "first-record",
+        "modified": "vault-history"
+      }
     },
     {
       "id": "markdown-math-mermaid",
@@ -278,7 +396,13 @@
       ],
       "date": "2026-09-30",
       "published": true,
-      "featured": false
+      "featured": false,
+      "created": "2024-10-21",
+      "modified": "2025-04-06",
+      "dateOrigin": {
+        "created": "first-record",
+        "modified": "vault-history"
+      }
     },
     {
       "id": "note-98e7b8966e0e",
@@ -290,7 +414,13 @@
       ],
       "date": "2026-09-30",
       "published": true,
-      "featured": false
+      "featured": false,
+      "created": "2024-10-21",
+      "modified": "2025-04-06",
+      "dateOrigin": {
+        "created": "first-record",
+        "modified": "vault-history"
+      }
     },
     {
       "id": "note-7bc6a4a2984b",
@@ -304,7 +434,13 @@
       ],
       "date": "2026-09-30",
       "published": true,
-      "featured": false
+      "featured": false,
+      "created": "2024-10-21",
+      "modified": "2025-04-06",
+      "dateOrigin": {
+        "created": "first-record",
+        "modified": "vault-history"
+      }
     },
     {
       "id": "note-a1049cf071aa",
@@ -315,7 +451,12 @@
       "date": "2026-09-30",
       "published": true,
       "featured": false,
-      "created": "2024-04-02"
+      "created": "2024-04-02",
+      "modified": "2025-04-06",
+      "dateOrigin": {
+        "created": "frontmatter",
+        "modified": "vault-history"
+      }
     },
     {
       "id": "note-65fe84d4b2df",
@@ -325,7 +466,13 @@
       "tags": [],
       "date": "2026-09-30",
       "published": true,
-      "featured": false
+      "featured": false,
+      "created": "2025-10-03",
+      "modified": "2026-03-23",
+      "dateOrigin": {
+        "created": "first-record",
+        "modified": "vault-history"
+      }
     },
     {
       "id": "note-d2c69b8e2329",
@@ -335,7 +482,13 @@
       "tags": [],
       "date": "2026-09-30",
       "published": true,
-      "featured": false
+      "featured": false,
+      "created": "2025-10-27",
+      "modified": "2025-10-27",
+      "dateOrigin": {
+        "created": "first-record",
+        "modified": "filesystem"
+      }
     },
     {
       "id": "note-93fc23ce578a",
@@ -346,7 +499,12 @@
       "date": "2026-09-30",
       "published": true,
       "featured": false,
-      "created": "2024-12-19"
+      "created": "2024-12-19",
+      "modified": "2024-12-19",
+      "dateOrigin": {
+        "created": "frontmatter",
+        "modified": "frontmatter"
+      }
     },
     {
       "id": "note-3e1310e5fd86",
@@ -362,7 +520,12 @@
       "date": "2026-09-30",
       "published": true,
       "featured": false,
-      "created": "2024-01-22"
+      "created": "2024-01-22",
+      "modified": "2025-04-06",
+      "dateOrigin": {
+        "created": "frontmatter",
+        "modified": "vault-history"
+      }
     },
     {
       "id": "note-0b4a80bf641c",
@@ -373,7 +536,12 @@
       "date": "2026-09-30",
       "published": true,
       "featured": false,
-      "created": "2024-12-08"
+      "created": "2024-12-08",
+      "modified": "2024-12-08",
+      "dateOrigin": {
+        "created": "frontmatter",
+        "modified": "frontmatter"
+      }
     },
     {
       "id": "note-d76329efd0a8",
@@ -384,7 +552,12 @@
       "date": "2026-09-30",
       "published": true,
       "featured": false,
-      "created": "2025-01-22"
+      "created": "2025-01-22",
+      "modified": "2025-01-24",
+      "dateOrigin": {
+        "created": "frontmatter",
+        "modified": "vault-history"
+      }
     },
     {
       "id": "note-d27f9884c7d6",
@@ -395,7 +568,12 @@
       "date": "2026-09-30",
       "published": true,
       "featured": false,
-      "created": "2024-12-08"
+      "created": "2024-12-08",
+      "modified": "2024-12-21",
+      "dateOrigin": {
+        "created": "frontmatter",
+        "modified": "filesystem"
+      }
     },
     {
       "id": "note-93e68234bf5b",
@@ -406,7 +584,12 @@
       "date": "2026-09-30",
       "published": true,
       "featured": false,
-      "created": "2023-03-08"
+      "created": "2023-03-08",
+      "modified": "2025-04-06",
+      "dateOrigin": {
+        "created": "frontmatter",
+        "modified": "vault-history"
+      }
     },
     {
       "id": "note-29f567641b60",
@@ -420,7 +603,12 @@
       "date": "2026-09-30",
       "published": true,
       "featured": false,
-      "created": "2023-05-03"
+      "created": "2023-05-03",
+      "modified": "2025-04-06",
+      "dateOrigin": {
+        "created": "frontmatter",
+        "modified": "vault-history"
+      }
     },
     {
       "id": "note-278996eda027",
@@ -431,7 +619,12 @@
       "date": "2026-09-30",
       "published": true,
       "featured": false,
-      "created": "2025-01-04"
+      "created": "2025-01-04",
+      "modified": "2025-01-04",
+      "dateOrigin": {
+        "created": "frontmatter",
+        "modified": "frontmatter"
+      }
     },
     {
       "id": "note-39731289c301",
@@ -444,7 +637,13 @@
       ],
       "date": "2026-09-30",
       "published": true,
-      "featured": false
+      "featured": false,
+      "created": "2024-10-21",
+      "modified": "2025-04-06",
+      "dateOrigin": {
+        "created": "first-record",
+        "modified": "vault-history"
+      }
     },
     {
       "id": "note-20b327246d1b",
@@ -456,7 +655,13 @@
       ],
       "date": "2026-09-30",
       "published": true,
-      "featured": false
+      "featured": false,
+      "created": "2024-10-21",
+      "modified": "2025-04-06",
+      "dateOrigin": {
+        "created": "first-record",
+        "modified": "vault-history"
+      }
     },
     {
       "id": "note-e576e809b221",
@@ -466,7 +671,13 @@
       "tags": [],
       "date": "2026-09-30",
       "published": true,
-      "featured": false
+      "featured": false,
+      "created": "2025-03-08",
+      "modified": "2025-03-08",
+      "dateOrigin": {
+        "created": "first-record",
+        "modified": "filesystem"
+      }
     },
     {
       "id": "note-0d47bba1f5a1",
@@ -475,16 +686,17 @@
       "category": "数据可视化",
       "tags": [
         "R语言",
-        "可视化",
-        "注意此处对geom_segment映射的定义",
-        "Create",
-        "plot",
-        "添加一个散点图层"
+        "可视化"
       ],
       "date": "2026-09-30",
       "published": true,
       "featured": false,
-      "created": "2024-01-23"
+      "created": "2024-01-23",
+      "modified": "2024-11-24",
+      "dateOrigin": {
+        "created": "frontmatter",
+        "modified": "filesystem"
+      }
     },
     {
       "id": "note-77873c066214",
@@ -495,20 +707,28 @@
       "date": "2026-09-30",
       "published": true,
       "featured": false,
-      "created": "2024-04-01"
+      "created": "2024-04-01",
+      "modified": "2025-04-06",
+      "dateOrigin": {
+        "created": "frontmatter",
+        "modified": "vault-history"
+      }
     },
     {
       "id": "note-71a9f38ba29f",
       "file": "notes/R/绘图相关/给ggplot2添加统计图形.md",
       "title": "给ggplot2添加统计图形",
       "category": "数据可视化",
-      "tags": [
-        "104"
-      ],
+      "tags": [],
       "date": "2026-09-30",
       "published": true,
       "featured": false,
-      "created": "2024-11-19"
+      "created": "2024-11-19",
+      "modified": "2024-11-30",
+      "dateOrigin": {
+        "created": "frontmatter",
+        "modified": "vault-history"
+      }
     },
     {
       "id": "note-59aac0c60283",
@@ -523,7 +743,12 @@
       "date": "2026-09-30",
       "published": true,
       "featured": false,
-      "created": "2023-03-08"
+      "created": "2023-03-08",
+      "modified": "2025-04-06",
+      "dateOrigin": {
+        "created": "frontmatter",
+        "modified": "vault-history"
+      }
     },
     {
       "id": "note-5867570d8df7",
@@ -532,23 +757,17 @@
       "category": "数据可视化",
       "tags": [
         "R语言",
-        "绘图",
-        "默认按照n的值",
-        "注意",
-        "使用des",
-        "使用中位数",
-        "使用样本量",
-        "定义标题相对于图例的总体位置",
-        "定义标题相对于图例的具体位置",
-        "定义图例的行数",
-        "计算每组的样本量",
-        "虽然data和sample_size长度不一",
-        "产生新的字符串作为x轴的映射",
-        "重点在此处"
+        "绘图"
       ],
       "date": "2026-09-30",
       "published": true,
-      "featured": false
+      "featured": false,
+      "created": "2024-10-21",
+      "modified": "2024-11-24",
+      "dateOrigin": {
+        "created": "first-record",
+        "modified": "filesystem"
+      }
     },
     {
       "id": "note-0a2fc8171317",
@@ -560,7 +779,13 @@
       ],
       "date": "2026-09-30",
       "published": true,
-      "featured": false
+      "featured": false,
+      "created": "2024-10-21",
+      "modified": "2025-04-06",
+      "dateOrigin": {
+        "created": "first-record",
+        "modified": "vault-history"
+      }
     },
     {
       "id": "note-66b37f332f1f",
@@ -571,7 +796,12 @@
       "date": "2026-09-30",
       "published": true,
       "featured": false,
-      "created": "2024-07-09"
+      "created": "2024-07-10",
+      "modified": "2025-04-06",
+      "dateOrigin": {
+        "created": "frontmatter",
+        "modified": "vault-history"
+      }
     },
     {
       "id": "note-78e313e42d80",
@@ -585,7 +815,12 @@
       "date": "2026-09-30",
       "published": true,
       "featured": false,
-      "created": "2023-04-23"
+      "created": "2023-04-23",
+      "modified": "2025-04-06",
+      "dateOrigin": {
+        "created": "frontmatter",
+        "modified": "vault-history"
+      }
     },
     {
       "id": "note-baa095c7d4a6",
@@ -596,7 +831,12 @@
       "date": "2026-09-30",
       "published": true,
       "featured": false,
-      "created": "2024-08-10"
+      "created": "2024-08-10",
+      "modified": "2025-04-06",
+      "dateOrigin": {
+        "created": "frontmatter",
+        "modified": "vault-history"
+      }
     },
     {
       "id": "note-31ebc8bf40b4",
@@ -608,7 +848,13 @@
       ],
       "date": "2026-09-30",
       "published": true,
-      "featured": false
+      "featured": false,
+      "created": "2024-10-21",
+      "modified": "2025-04-06",
+      "dateOrigin": {
+        "created": "first-record",
+        "modified": "vault-history"
+      }
     },
     {
       "id": "note-5b6c13435057",
@@ -618,7 +864,13 @@
       "tags": [],
       "date": "2026-09-30",
       "published": true,
-      "featured": false
+      "featured": false,
+      "created": "2025-06-12",
+      "modified": "2025-06-12",
+      "dateOrigin": {
+        "created": "first-record",
+        "modified": "filesystem"
+      }
     },
     {
       "id": "note-f129b805bd95",
@@ -630,7 +882,13 @@
       ],
       "date": "2026-09-30",
       "published": true,
-      "featured": false
+      "featured": false,
+      "created": "2024-10-21",
+      "modified": "2025-04-06",
+      "dateOrigin": {
+        "created": "first-record",
+        "modified": "vault-history"
+      }
     },
     {
       "id": "note-2d84feb6a97b",
@@ -638,12 +896,17 @@
       "title": "conda修改虚拟环境默认路径",
       "category": "编程与数据处理",
       "tags": [
-        "Conda",
-        "conda"
+        "Conda"
       ],
       "date": "2026-09-30",
       "published": true,
-      "featured": false
+      "featured": false,
+      "created": "2024-10-21",
+      "modified": "2025-04-06",
+      "dateOrigin": {
+        "created": "first-record",
+        "modified": "vault-history"
+      }
     },
     {
       "id": "note-d9336875f2b0",
@@ -651,12 +914,17 @@
       "title": "conda安装包时出现HTTP error",
       "category": "编程与数据处理",
       "tags": [
-        "Conda",
-        "11982"
+        "Conda"
       ],
       "date": "2026-09-30",
       "published": true,
-      "featured": false
+      "featured": false,
+      "created": "2024-10-21",
+      "modified": "2025-04-06",
+      "dateOrigin": {
+        "created": "first-record",
+        "modified": "vault-history"
+      }
     },
     {
       "id": "note-cd049bfab208",
@@ -668,7 +936,13 @@
       ],
       "date": "2026-09-30",
       "published": true,
-      "featured": false
+      "featured": false,
+      "created": "2024-10-21",
+      "modified": "2025-04-06",
+      "dateOrigin": {
+        "created": "first-record",
+        "modified": "vault-history"
+      }
     },
     {
       "id": "note-30b9235d4532",
@@ -681,7 +955,13 @@
       ],
       "date": "2026-09-30",
       "published": true,
-      "featured": false
+      "featured": false,
+      "created": "2024-10-21",
+      "modified": "2025-04-06",
+      "dateOrigin": {
+        "created": "first-record",
+        "modified": "vault-history"
+      }
     },
     {
       "id": "note-31f03259e167",
@@ -695,7 +975,12 @@
       "date": "2026-09-30",
       "published": true,
       "featured": false,
-      "created": "2023-08-29"
+      "created": "2023-08-29",
+      "modified": "2025-04-06",
+      "dateOrigin": {
+        "created": "frontmatter",
+        "modified": "vault-history"
+      }
     },
     {
       "id": "note-531d72d60628",
@@ -704,13 +989,17 @@
       "category": "编程与数据处理",
       "tags": [
         "Python",
-        "编程",
-        "获取环境变量方法2"
+        "编程"
       ],
       "date": "2026-09-30",
       "published": true,
       "featured": false,
-      "created": "2024-01-11"
+      "created": "2024-01-11",
+      "modified": "2025-04-06",
+      "dateOrigin": {
+        "created": "frontmatter",
+        "modified": "vault-history"
+      }
     },
     {
       "id": "note-234a2f2f535e",
@@ -724,7 +1013,12 @@
       "date": "2026-09-30",
       "published": true,
       "featured": false,
-      "created": "2023-10-17"
+      "created": "2023-10-17",
+      "modified": "2025-04-06",
+      "dateOrigin": {
+        "created": "frontmatter",
+        "modified": "vault-history"
+      }
     },
     {
       "id": "note-a15abe55e07f",
@@ -738,7 +1032,12 @@
       "date": "2026-09-30",
       "published": true,
       "featured": false,
-      "created": "2024-01-01"
+      "created": "2024-01-01",
+      "modified": "2025-04-06",
+      "dateOrigin": {
+        "created": "frontmatter",
+        "modified": "vault-history"
+      }
     },
     {
       "id": "note-c19798f08cf5",
@@ -752,7 +1051,12 @@
       "date": "2026-09-30",
       "published": true,
       "featured": false,
-      "created": "2023-12-03"
+      "created": "2023-12-03",
+      "modified": "2025-04-06",
+      "dateOrigin": {
+        "created": "frontmatter",
+        "modified": "vault-history"
+      }
     },
     {
       "id": "note-cbdb3990c507",
@@ -766,20 +1070,28 @@
       "date": "2026-09-30",
       "published": true,
       "featured": false,
-      "created": "2023-11-28"
+      "created": "2023-11-28",
+      "modified": "2025-04-06",
+      "dateOrigin": {
+        "created": "frontmatter",
+        "modified": "vault-history"
+      }
     },
     {
       "id": "note-163710e060dc",
       "file": "notes/python/数据分析/TabPFN.md",
       "title": "TabPFN",
       "category": "编程与数据处理",
-      "tags": [
-        "154"
-      ],
+      "tags": [],
       "date": "2026-09-30",
       "published": true,
       "featured": false,
-      "created": "2025-01-24"
+      "created": "2025-01-24",
+      "modified": "2025-01-24",
+      "dateOrigin": {
+        "created": "frontmatter",
+        "modified": "frontmatter"
+      }
     },
     {
       "id": "numpy-reshape",
@@ -792,7 +1104,13 @@
       ],
       "date": "2026-09-30",
       "published": true,
-      "featured": true
+      "featured": true,
+      "created": "2024-10-21",
+      "modified": "2025-04-06",
+      "dateOrigin": {
+        "created": "first-record",
+        "modified": "vault-history"
+      }
     },
     {
       "id": "note-03d05a6b6bd8",
@@ -803,7 +1121,12 @@
       "date": "2026-09-30",
       "published": true,
       "featured": false,
-      "created": "2024-04-16"
+      "created": "2024-04-16",
+      "modified": "2025-04-06",
+      "dateOrigin": {
+        "created": "frontmatter",
+        "modified": "vault-history"
+      }
     },
     {
       "id": "note-122f78ebfbcc",
@@ -817,7 +1140,12 @@
       "date": "2026-09-30",
       "published": true,
       "featured": false,
-      "created": "2023-12-12"
+      "created": "2023-12-12",
+      "modified": "2025-04-06",
+      "dateOrigin": {
+        "created": "frontmatter",
+        "modified": "vault-history"
+      }
     },
     {
       "id": "note-8e159d47169b",
@@ -830,7 +1158,13 @@
       ],
       "date": "2026-09-30",
       "published": true,
-      "featured": false
+      "featured": false,
+      "created": "2024-10-21",
+      "modified": "2025-04-06",
+      "dateOrigin": {
+        "created": "first-record",
+        "modified": "vault-history"
+      }
     },
     {
       "id": "note-289f13393689",
@@ -844,7 +1178,12 @@
       "date": "2026-09-30",
       "published": true,
       "featured": false,
-      "created": "2023-12-11"
+      "created": "2023-12-11",
+      "modified": "2025-04-06",
+      "dateOrigin": {
+        "created": "frontmatter",
+        "modified": "vault-history"
+      }
     },
     {
       "id": "matplotlib-chinese-fonts",
@@ -853,14 +1192,17 @@
       "category": "数据可视化",
       "tags": [
         "Python",
-        "matplotlib",
-        "用来正常显示中文标签",
-        "用来正常显示负号"
+        "matplotlib"
       ],
       "date": "2026-09-30",
       "published": true,
       "featured": true,
-      "created": "2023-08-28"
+      "created": "2023-08-28",
+      "modified": "2025-04-06",
+      "dateOrigin": {
+        "created": "frontmatter",
+        "modified": "vault-history"
+      }
     },
     {
       "id": "note-ba9839021940",
@@ -874,7 +1216,12 @@
       "date": "2026-09-30",
       "published": true,
       "featured": false,
-      "created": "2023-12-12"
+      "created": "2023-12-12",
+      "modified": "2025-04-06",
+      "dateOrigin": {
+        "created": "frontmatter",
+        "modified": "vault-history"
+      }
     },
     {
       "id": "note-c187dfda018f",
@@ -888,7 +1235,12 @@
       "date": "2026-09-30",
       "published": true,
       "featured": false,
-      "created": "2023-12-12"
+      "created": "2023-12-12",
+      "modified": "2025-04-06",
+      "dateOrigin": {
+        "created": "frontmatter",
+        "modified": "vault-history"
+      }
     },
     {
       "id": "note-09a8496fe166",
@@ -903,7 +1255,12 @@
       "date": "2026-09-30",
       "published": true,
       "featured": false,
-      "created": "2023-09-26"
+      "created": "2023-09-26",
+      "modified": "2025-04-06",
+      "dateOrigin": {
+        "created": "frontmatter",
+        "modified": "vault-history"
+      }
     },
     {
       "id": "note-067d726efd11",
@@ -918,7 +1275,12 @@
       "date": "2026-09-30",
       "published": true,
       "featured": false,
-      "created": "2023-10-29"
+      "created": "2023-10-29",
+      "modified": "2025-04-06",
+      "dateOrigin": {
+        "created": "frontmatter",
+        "modified": "vault-history"
+      }
     },
     {
       "id": "note-18807a844bee",
@@ -933,20 +1295,28 @@
       "date": "2026-09-30",
       "published": true,
       "featured": false,
-      "created": "2023-10-30"
+      "created": "2023-10-30",
+      "modified": "2025-04-06",
+      "dateOrigin": {
+        "created": "frontmatter",
+        "modified": "vault-history"
+      }
     },
     {
       "id": "note-d6fb16475358",
       "file": "notes/windows/WSL/同步外部网络代理到wsl.md",
       "title": "同步外部网络代理到wsl",
       "category": "系统与开发环境",
-      "tags": [
-        "10753"
-      ],
+      "tags": [],
       "date": "2026-09-30",
       "published": true,
       "featured": false,
-      "created": "2024-12-10"
+      "created": "2024-12-10",
+      "modified": "2024-12-21",
+      "dateOrigin": {
+        "created": "frontmatter",
+        "modified": "filesystem"
+      }
     },
     {
       "id": "note-6e2fbdc74d8a",
@@ -958,7 +1328,13 @@
       ],
       "date": "2026-09-30",
       "published": true,
-      "featured": false
+      "featured": false,
+      "created": "2024-10-21",
+      "modified": "2025-04-06",
+      "dateOrigin": {
+        "created": "first-record",
+        "modified": "vault-history"
+      }
     },
     {
       "id": "note-03584c6d79df",
@@ -971,7 +1347,12 @@
       "date": "2026-09-30",
       "published": true,
       "featured": false,
-      "created": "2023-09-24"
+      "created": "2023-09-24",
+      "modified": "2025-04-06",
+      "dateOrigin": {
+        "created": "frontmatter",
+        "modified": "vault-history"
+      }
     },
     {
       "id": "note-da0d66ad75f8",
@@ -983,7 +1364,13 @@
       ],
       "date": "2026-09-30",
       "published": true,
-      "featured": false
+      "featured": false,
+      "created": "2024-10-21",
+      "modified": "2025-04-06",
+      "dateOrigin": {
+        "created": "first-record",
+        "modified": "vault-history"
+      }
     },
     {
       "id": "note-5c3eacd9ebdd",
@@ -995,7 +1382,13 @@
       ],
       "date": "2026-09-30",
       "published": true,
-      "featured": false
+      "featured": false,
+      "created": "2024-10-21",
+      "modified": "2025-04-06",
+      "dateOrigin": {
+        "created": "first-record",
+        "modified": "vault-history"
+      }
     },
     {
       "id": "note-676600c7e1f7",
@@ -1008,7 +1401,12 @@
       "date": "2026-09-30",
       "published": true,
       "featured": false,
-      "created": "2023-09-10"
+      "created": "2023-09-10",
+      "modified": "2025-04-06",
+      "dateOrigin": {
+        "created": "frontmatter",
+        "modified": "vault-history"
+      }
     },
     {
       "id": "note-4ceb2b57b604",
@@ -1019,24 +1417,28 @@
       "date": "2026-09-30",
       "published": true,
       "featured": false,
-      "created": "2024-04-30"
+      "created": "2024-04-30",
+      "modified": "2025-04-06",
+      "dateOrigin": {
+        "created": "frontmatter",
+        "modified": "vault-history"
+      }
     },
     {
       "id": "note-183d82b1d181",
       "file": "notes/windows/系统设置/windows 的cmd设置代理方法.md",
       "title": "windows 的cmd设置代理方法",
       "category": "系统与开发环境",
-      "tags": [
-        "一些参数解释",
-        "-v",
-        "-vv",
-        "-vvv",
-        "-k",
-        "更多配置命令"
-      ],
+      "tags": [],
       "date": "2026-09-30",
       "published": true,
-      "featured": false
+      "featured": false,
+      "created": "2025-11-09",
+      "modified": "2025-11-09",
+      "dateOrigin": {
+        "created": "first-record",
+        "modified": "filesystem"
+      }
     },
     {
       "id": "note-9c97bfb45413",
@@ -1047,7 +1449,12 @@
       "date": "2026-09-30",
       "published": true,
       "featured": false,
-      "created": "2024-10-20"
+      "created": "2024-10-20",
+      "modified": "2024-10-20",
+      "dateOrigin": {
+        "created": "frontmatter",
+        "modified": "frontmatter"
+      }
     },
     {
       "id": "note-24b38f28478b",
@@ -1059,7 +1466,13 @@
       ],
       "date": "2026-09-30",
       "published": true,
-      "featured": false
+      "featured": false,
+      "created": "2024-10-21",
+      "modified": "2025-04-06",
+      "dateOrigin": {
+        "created": "first-record",
+        "modified": "vault-history"
+      }
     },
     {
       "id": "note-a12349765b1c",
@@ -1070,7 +1483,12 @@
       "date": "2026-09-30",
       "published": true,
       "featured": false,
-      "created": "2024-11-09"
+      "created": "2024-11-09",
+      "modified": "2024-11-13",
+      "dateOrigin": {
+        "created": "frontmatter",
+        "modified": "filesystem"
+      }
     },
     {
       "id": "note-7a487b69a350",
@@ -1083,7 +1501,12 @@
       "date": "2026-09-30",
       "published": true,
       "featured": false,
-      "created": "2023-11-26"
+      "created": "2023-11-26",
+      "modified": "2025-04-06",
+      "dateOrigin": {
+        "created": "frontmatter",
+        "modified": "vault-history"
+      }
     },
     {
       "id": "note-54c2903271f4",
@@ -1094,7 +1517,12 @@
       "date": "2026-09-30",
       "published": true,
       "featured": false,
-      "created": "2024-09-14"
+      "created": "2024-09-14",
+      "modified": "2025-04-06",
+      "dateOrigin": {
+        "created": "frontmatter",
+        "modified": "vault-history"
+      }
     },
     {
       "id": "note-7d6d8b6fd27e",
@@ -1106,7 +1534,13 @@
       ],
       "date": "2026-09-30",
       "published": true,
-      "featured": false
+      "featured": false,
+      "created": "2024-10-21",
+      "modified": "2025-04-06",
+      "dateOrigin": {
+        "created": "first-record",
+        "modified": "vault-history"
+      }
     },
     {
       "id": "note-2174ca35f56e",
@@ -1119,7 +1553,12 @@
       "date": "2026-09-30",
       "published": true,
       "featured": false,
-      "created": "2024-06-22"
+      "created": "2024-06-22",
+      "modified": "2025-04-06",
+      "dateOrigin": {
+        "created": "frontmatter",
+        "modified": "vault-history"
+      }
     },
     {
       "id": "note-1af5eedaaecc",
@@ -1131,7 +1570,13 @@
       ],
       "date": "2026-09-30",
       "published": true,
-      "featured": false
+      "featured": false,
+      "created": "2024-10-21",
+      "modified": "2025-04-06",
+      "dateOrigin": {
+        "created": "first-record",
+        "modified": "vault-history"
+      }
     },
     {
       "id": "note-8743ef665044",
@@ -1143,17 +1588,17 @@
         "数据处理",
         "预处理",
         "ANTS",
-        "linux",
-        "变形关系1",
-        "这一步比较快",
-        "变形关系2和3",
-        "应用变形关系",
-        "将标准脑配准到个体空间T1脑",
-        "将标准脑到个体T1的变换关系"
+        "linux"
       ],
       "date": "2026-09-30",
       "published": true,
-      "featured": false
+      "featured": false,
+      "created": "2024-10-21",
+      "modified": "2025-04-06",
+      "dateOrigin": {
+        "created": "first-record",
+        "modified": "vault-history"
+      }
     },
     {
       "id": "note-82e3139ce79f",
@@ -1165,7 +1610,13 @@
       ],
       "date": "2026-09-30",
       "published": true,
-      "featured": false
+      "featured": false,
+      "created": "2024-10-21",
+      "modified": "2025-04-06",
+      "dateOrigin": {
+        "created": "first-record",
+        "modified": "vault-history"
+      }
     },
     {
       "id": "note-765f56b8e1ad",
@@ -1178,7 +1629,13 @@
       ],
       "date": "2026-09-30",
       "published": true,
-      "featured": false
+      "featured": false,
+      "created": "2024-10-21",
+      "modified": "2025-04-06",
+      "dateOrigin": {
+        "created": "first-record",
+        "modified": "vault-history"
+      }
     },
     {
       "id": "note-4ae6dbeb8e8c",
@@ -1192,7 +1649,13 @@
       ],
       "date": "2026-09-30",
       "published": true,
-      "featured": false
+      "featured": false,
+      "created": "2024-10-21",
+      "modified": "2025-04-06",
+      "dateOrigin": {
+        "created": "first-record",
+        "modified": "vault-history"
+      }
     },
     {
       "id": "note-bf071f6b801f",
@@ -1203,7 +1666,12 @@
       "date": "2026-09-30",
       "published": true,
       "featured": false,
-      "created": "2024-12-14"
+      "created": "2024-12-14",
+      "modified": "2024-12-21",
+      "dateOrigin": {
+        "created": "frontmatter",
+        "modified": "filesystem"
+      }
     },
     {
       "id": "note-9d80148006f2",
@@ -1212,13 +1680,17 @@
       "category": "脑影像分析",
       "tags": [
         "影像",
-        "统计学",
-        "2544"
+        "统计学"
       ],
       "date": "2026-09-30",
       "published": true,
       "featured": false,
-      "created": "2023-12-09"
+      "created": "2023-12-09",
+      "modified": "2025-04-06",
+      "dateOrigin": {
+        "created": "frontmatter",
+        "modified": "vault-history"
+      }
     },
     {
       "id": "note-d438154ca50f",
@@ -1232,7 +1704,13 @@
       ],
       "date": "2026-09-30",
       "published": true,
-      "featured": false
+      "featured": false,
+      "created": "2024-10-21",
+      "modified": "2025-04-06",
+      "dateOrigin": {
+        "created": "first-record",
+        "modified": "vault-history"
+      }
     },
     {
       "id": "note-3e7a6aac26a3",
@@ -1248,7 +1726,12 @@
       "date": "2026-09-30",
       "published": true,
       "featured": false,
-      "created": "2023-12-06"
+      "created": "2023-12-06",
+      "modified": "2025-04-06",
+      "dateOrigin": {
+        "created": "frontmatter",
+        "modified": "vault-history"
+      }
     },
     {
       "id": "note-72e6f4754c09",
@@ -1262,7 +1745,13 @@
       ],
       "date": "2026-09-30",
       "published": true,
-      "featured": false
+      "featured": false,
+      "created": "2024-10-21",
+      "modified": "2025-04-06",
+      "dateOrigin": {
+        "created": "first-record",
+        "modified": "vault-history"
+      }
     },
     {
       "id": "note-47c3786feea7",
@@ -1277,7 +1766,12 @@
       "date": "2026-09-30",
       "published": true,
       "featured": false,
-      "created": "2023-04-15"
+      "created": "2023-04-15",
+      "modified": "2025-04-06",
+      "dateOrigin": {
+        "created": "frontmatter",
+        "modified": "vault-history"
+      }
     },
     {
       "id": "note-c26df60f72ad",
@@ -1291,19 +1785,29 @@
       ],
       "date": "2026-09-30",
       "published": true,
-      "featured": false
+      "featured": false,
+      "created": "2024-10-21",
+      "modified": "2025-04-06",
+      "dateOrigin": {
+        "created": "first-record",
+        "modified": "vault-history"
+      }
     },
     {
       "id": "note-3ace3de65b46",
       "file": "notes/技术学习/核磁/功能磁共振（fMRI）/AFNI/AFNI 1 预处理.md",
       "title": "AFNI 1 预处理",
       "category": "脑影像分析",
-      "tags": [
-        "设置第一个参数为"
-      ],
+      "tags": [],
       "date": "2026-09-30",
       "published": true,
-      "featured": false
+      "featured": false,
+      "created": "2024-10-21",
+      "modified": "2025-04-06",
+      "dateOrigin": {
+        "created": "first-record",
+        "modified": "vault-history"
+      }
     },
     {
       "id": "note-fea82f4be70e",
@@ -1313,7 +1817,13 @@
       "tags": [],
       "date": "2026-09-30",
       "published": true,
-      "featured": false
+      "featured": false,
+      "created": "2024-10-21",
+      "modified": "2025-04-06",
+      "dateOrigin": {
+        "created": "first-record",
+        "modified": "vault-history"
+      }
     },
     {
       "id": "note-34b7e81ec6d2",
@@ -1323,7 +1833,13 @@
       "tags": [],
       "date": "2026-09-30",
       "published": true,
-      "featured": false
+      "featured": false,
+      "created": "2024-10-21",
+      "modified": "2025-04-06",
+      "dateOrigin": {
+        "created": "first-record",
+        "modified": "vault-history"
+      }
     },
     {
       "id": "note-701abc3e6873",
@@ -1337,7 +1853,13 @@
       ],
       "date": "2026-09-30",
       "published": true,
-      "featured": false
+      "featured": false,
+      "created": "2024-10-21",
+      "modified": "2025-04-06",
+      "dateOrigin": {
+        "created": "first-record",
+        "modified": "vault-history"
+      }
     },
     {
       "id": "note-519dc3d9c273",
@@ -1351,7 +1873,13 @@
       ],
       "date": "2026-09-30",
       "published": true,
-      "featured": false
+      "featured": false,
+      "created": "2024-10-21",
+      "modified": "2025-04-06",
+      "dateOrigin": {
+        "created": "first-record",
+        "modified": "vault-history"
+      }
     },
     {
       "id": "note-12f5dc729005",
@@ -1363,7 +1891,13 @@
       ],
       "date": "2026-09-30",
       "published": true,
-      "featured": false
+      "featured": false,
+      "created": "2024-10-21",
+      "modified": "2025-04-06",
+      "dateOrigin": {
+        "created": "first-record",
+        "modified": "vault-history"
+      }
     },
     {
       "id": "note-f6077ff7be00",
@@ -1378,7 +1912,12 @@
       "date": "2026-09-30",
       "published": true,
       "featured": false,
-      "created": "2025-03-28"
+      "created": "2025-03-28",
+      "modified": "2025-04-17",
+      "dateOrigin": {
+        "created": "frontmatter",
+        "modified": "vault-history"
+      }
     },
     {
       "id": "note-3a80b748fd67",
@@ -1391,7 +1930,13 @@
       ],
       "date": "2026-09-30",
       "published": true,
-      "featured": false
+      "featured": false,
+      "created": "2024-10-21",
+      "modified": "2025-04-06",
+      "dateOrigin": {
+        "created": "first-record",
+        "modified": "vault-history"
+      }
     },
     {
       "id": "note-49edee68ba9c",
@@ -1405,7 +1950,13 @@
       ],
       "date": "2026-09-30",
       "published": true,
-      "featured": false
+      "featured": false,
+      "created": "2024-10-21",
+      "modified": "2025-04-06",
+      "dateOrigin": {
+        "created": "first-record",
+        "modified": "vault-history"
+      }
     },
     {
       "id": "note-190b96be8889",
@@ -1419,7 +1970,13 @@
       ],
       "date": "2026-09-30",
       "published": true,
-      "featured": false
+      "featured": false,
+      "created": "2024-10-21",
+      "modified": "2025-04-06",
+      "dateOrigin": {
+        "created": "first-record",
+        "modified": "vault-history"
+      }
     },
     {
       "id": "note-81d0e0e3c3d0",
@@ -1432,7 +1989,13 @@
       ],
       "date": "2026-09-30",
       "published": true,
-      "featured": false
+      "featured": false,
+      "created": "2024-10-21",
+      "modified": "2025-04-06",
+      "dateOrigin": {
+        "created": "first-record",
+        "modified": "vault-history"
+      }
     },
     {
       "id": "note-42c78d328863",
@@ -1447,7 +2010,13 @@
       ],
       "date": "2026-09-30",
       "published": true,
-      "featured": false
+      "featured": false,
+      "created": "2024-10-21",
+      "modified": "2025-04-06",
+      "dateOrigin": {
+        "created": "first-record",
+        "modified": "vault-history"
+      }
     },
     {
       "id": "note-bbda8110a097",
@@ -1456,12 +2025,17 @@
       "category": "脑影像分析",
       "tags": [
         "DWI",
-        "影像",
-        "102"
+        "影像"
       ],
       "date": "2026-09-30",
       "published": true,
-      "featured": false
+      "featured": false,
+      "created": "2024-10-21",
+      "modified": "2025-04-06",
+      "dateOrigin": {
+        "created": "first-record",
+        "modified": "vault-history"
+      }
     },
     {
       "id": "note-35abcb4bf129",
@@ -1475,7 +2049,13 @@
       ],
       "date": "2026-09-30",
       "published": true,
-      "featured": false
+      "featured": false,
+      "created": "2024-10-21",
+      "modified": "2025-04-06",
+      "dateOrigin": {
+        "created": "first-record",
+        "modified": "vault-history"
+      }
     },
     {
       "id": "note-5f1bb5f2481c",
@@ -1488,7 +2068,13 @@
       ],
       "date": "2026-09-30",
       "published": true,
-      "featured": false
+      "featured": false,
+      "created": "2024-10-21",
+      "modified": "2025-04-06",
+      "dateOrigin": {
+        "created": "first-record",
+        "modified": "vault-history"
+      }
     },
     {
       "id": "note-836ad55150ef",
@@ -1502,7 +2088,13 @@
       ],
       "date": "2026-09-30",
       "published": true,
-      "featured": false
+      "featured": false,
+      "created": "2024-10-21",
+      "modified": "2025-04-06",
+      "dateOrigin": {
+        "created": "first-record",
+        "modified": "vault-history"
+      }
     },
     {
       "id": "note-05b8c5b3e6df",
@@ -1515,7 +2107,13 @@
       ],
       "date": "2026-09-30",
       "published": true,
-      "featured": false
+      "featured": false,
+      "created": "2024-10-21",
+      "modified": "2025-04-06",
+      "dateOrigin": {
+        "created": "first-record",
+        "modified": "vault-history"
+      }
     },
     {
       "id": "note-b2233b5a6b44",
@@ -1527,20 +2125,29 @@
       ],
       "date": "2026-09-30",
       "published": true,
-      "featured": false
+      "featured": false,
+      "created": "2024-10-21",
+      "modified": "2025-04-06",
+      "dateOrigin": {
+        "created": "first-record",
+        "modified": "vault-history"
+      }
     },
     {
       "id": "note-4e89eec77fec",
       "file": "notes/技术学习/核磁/神经解码 Neurosynth decoder.md",
       "title": "神经解码 Neurosynth decoder",
       "category": "脑影像分析",
-      "tags": [
-        "105"
-      ],
+      "tags": [],
       "date": "2026-09-30",
       "published": true,
       "featured": false,
-      "created": "2024-09-16"
+      "created": "2024-09-17",
+      "modified": "2025-04-06",
+      "dateOrigin": {
+        "created": "frontmatter",
+        "modified": "vault-history"
+      }
     },
     {
       "id": "note-7f66296c41f9",
@@ -1551,7 +2158,12 @@
       "date": "2026-09-30",
       "published": true,
       "featured": false,
-      "created": "2024-08-12"
+      "created": "2024-08-12",
+      "modified": "2025-04-06",
+      "dateOrigin": {
+        "created": "frontmatter",
+        "modified": "vault-history"
+      }
     },
     {
       "id": "note-b18944125d45",
@@ -1566,7 +2178,12 @@
       "date": "2026-09-30",
       "published": true,
       "featured": false,
-      "created": "2024-02-12"
+      "created": "2024-02-12",
+      "modified": "2026-07-10",
+      "dateOrigin": {
+        "created": "frontmatter",
+        "modified": "vault-history"
+      }
     },
     {
       "id": "note-6ffe817be78d",
@@ -1580,7 +2197,13 @@
       ],
       "date": "2026-09-30",
       "published": true,
-      "featured": false
+      "featured": false,
+      "created": "2024-10-21",
+      "modified": "2025-04-06",
+      "dateOrigin": {
+        "created": "first-record",
+        "modified": "vault-history"
+      }
     },
     {
       "id": "note-097a3bce167e",
@@ -1590,7 +2213,13 @@
       "tags": [],
       "date": "2026-09-30",
       "published": true,
-      "featured": false
+      "featured": false,
+      "created": "2025-09-14",
+      "modified": "2025-09-21",
+      "dateOrigin": {
+        "created": "first-record",
+        "modified": "vault-history"
+      }
     },
     {
       "id": "note-d77d413357be",
@@ -1605,7 +2234,12 @@
       "date": "2026-09-30",
       "published": true,
       "featured": false,
-      "created": "2023-03-08"
+      "created": "2023-03-08",
+      "modified": "2025-04-06",
+      "dateOrigin": {
+        "created": "frontmatter",
+        "modified": "vault-history"
+      }
     },
     {
       "id": "note-0107bd61cc52",
@@ -1619,7 +2253,13 @@
       ],
       "date": "2026-09-30",
       "published": true,
-      "featured": false
+      "featured": false,
+      "created": "2024-10-21",
+      "modified": "2025-04-06",
+      "dateOrigin": {
+        "created": "first-record",
+        "modified": "vault-history"
+      }
     },
     {
       "id": "note-1ccea3dba474",
@@ -1629,7 +2269,13 @@
       "tags": [],
       "date": "2026-09-30",
       "published": true,
-      "featured": false
+      "featured": false,
+      "created": "2024-10-21",
+      "modified": "2025-04-06",
+      "dateOrigin": {
+        "created": "first-record",
+        "modified": "vault-history"
+      }
     },
     {
       "id": "note-380313a37235",
@@ -1643,7 +2289,13 @@
       ],
       "date": "2026-09-30",
       "published": true,
-      "featured": false
+      "featured": false,
+      "created": "2024-10-21",
+      "modified": "2025-04-06",
+      "dateOrigin": {
+        "created": "first-record",
+        "modified": "vault-history"
+      }
     },
     {
       "id": "note-6fe1ccf82ca6",
@@ -1655,7 +2307,13 @@
       ],
       "date": "2026-09-30",
       "published": true,
-      "featured": false
+      "featured": false,
+      "created": "2024-10-21",
+      "modified": "2025-04-06",
+      "dateOrigin": {
+        "created": "first-record",
+        "modified": "vault-history"
+      }
     },
     {
       "id": "note-0223b6c85749",
@@ -1667,19 +2325,29 @@
       ],
       "date": "2026-09-30",
       "published": true,
-      "featured": false
+      "featured": false,
+      "created": "2024-10-21",
+      "modified": "2025-04-06",
+      "dateOrigin": {
+        "created": "first-record",
+        "modified": "vault-history"
+      }
     },
     {
       "id": "note-6a78ba375666",
       "file": "notes/技术学习/电场仿真/Simnibs 4.0.md",
       "title": "Simnibs 4.0",
       "category": "科研方法与工具",
-      "tags": [
-        "308"
-      ],
+      "tags": [],
       "date": "2026-09-30",
       "published": true,
-      "featured": false
+      "featured": false,
+      "created": "2024-10-21",
+      "modified": "2025-04-06",
+      "dateOrigin": {
+        "created": "first-record",
+        "modified": "vault-history"
+      }
     },
     {
       "id": "note-d5e958bcf1e1",
@@ -1692,7 +2360,13 @@
       ],
       "date": "2026-09-30",
       "published": true,
-      "featured": false
+      "featured": false,
+      "created": "2024-10-21",
+      "modified": "2025-07-29",
+      "dateOrigin": {
+        "created": "first-record",
+        "modified": "vault-history"
+      }
     },
     {
       "id": "note-a1c0fde81b64",
@@ -1703,7 +2377,12 @@
       "date": "2026-09-30",
       "published": true,
       "featured": false,
-      "created": "2025-06-08"
+      "created": "2025-06-08",
+      "modified": "2025-06-08",
+      "dateOrigin": {
+        "created": "frontmatter",
+        "modified": "frontmatter"
+      }
     },
     {
       "id": "note-63c5b29108c3",
@@ -1716,7 +2395,12 @@
       "date": "2026-09-30",
       "published": true,
       "featured": false,
-      "created": "2023-08-05"
+      "created": "2023-08-05",
+      "modified": "2025-04-06",
+      "dateOrigin": {
+        "created": "frontmatter",
+        "modified": "vault-history"
+      }
     },
     {
       "id": "note-ed58a8b2f4c9",
@@ -1729,7 +2413,13 @@
       ],
       "date": "2026-09-30",
       "published": true,
-      "featured": false
+      "featured": false,
+      "created": "2024-10-21",
+      "modified": "2025-04-06",
+      "dateOrigin": {
+        "created": "first-record",
+        "modified": "vault-history"
+      }
     },
     {
       "id": "note-94c0b340b0d3",
@@ -1742,7 +2432,13 @@
       ],
       "date": "2026-09-30",
       "published": true,
-      "featured": false
+      "featured": false,
+      "created": "2024-10-21",
+      "modified": "2025-04-06",
+      "dateOrigin": {
+        "created": "first-record",
+        "modified": "vault-history"
+      }
     },
     {
       "id": "note-e963d699956c",
@@ -1757,7 +2453,12 @@
       "date": "2026-09-30",
       "published": true,
       "featured": false,
-      "created": "2023-11-28"
+      "created": "2023-11-28",
+      "modified": "2025-03-16",
+      "dateOrigin": {
+        "created": "frontmatter",
+        "modified": "filesystem"
+      }
     },
     {
       "id": "note-97b0e30cc925",
@@ -1772,7 +2473,12 @@
       "date": "2026-09-30",
       "published": true,
       "featured": false,
-      "created": "2023-12-16"
+      "created": "2023-12-16",
+      "modified": "2025-04-06",
+      "dateOrigin": {
+        "created": "frontmatter",
+        "modified": "vault-history"
+      }
     },
     {
       "id": "note-8e38f3dabc80",
@@ -1786,24 +2492,29 @@
       ],
       "date": "2026-09-30",
       "published": true,
-      "featured": false
+      "featured": false,
+      "created": "2024-10-21",
+      "modified": "2025-04-06",
+      "dateOrigin": {
+        "created": "first-record",
+        "modified": "vault-history"
+      }
     },
     {
       "id": "note-7d62a9beb064",
       "file": "notes/技术学习/脑电/MNE/MNE在MNI152模板上溯源.md",
       "title": "MNE在MNI152模板上溯源",
       "category": "脑电分析",
-      "tags": [
-        "10410",
-        "6278",
-        "6155",
-        "7639",
-        "7003"
-      ],
+      "tags": [],
       "date": "2026-09-30",
       "published": true,
       "featured": false,
-      "created": "2024-01-11"
+      "created": "2024-01-11",
+      "modified": "2025-04-06",
+      "dateOrigin": {
+        "created": "frontmatter",
+        "modified": "vault-history"
+      }
     },
     {
       "id": "note-ffb45913753b",
@@ -1813,20 +2524,29 @@
       "tags": [],
       "date": "2026-09-30",
       "published": true,
-      "featured": false
+      "featured": false,
+      "created": "2024-10-21",
+      "modified": "2025-04-06",
+      "dateOrigin": {
+        "created": "first-record",
+        "modified": "vault-history"
+      }
     },
     {
       "id": "note-21c5581afd89",
       "file": "notes/技术学习/脑电/MNE/MNE的默认单位：V.md",
       "title": "MNE的默认单位：V",
       "category": "脑电分析",
-      "tags": [
-        "8694"
-      ],
+      "tags": [],
       "date": "2026-09-30",
       "published": true,
       "featured": false,
-      "created": "2023-12-02"
+      "created": "2023-12-02",
+      "modified": "2025-04-06",
+      "dateOrigin": {
+        "created": "frontmatter",
+        "modified": "vault-history"
+      }
     },
     {
       "id": "note-cb67c6bba195",
@@ -1837,7 +2557,12 @@
       "date": "2026-09-30",
       "published": true,
       "featured": false,
-      "created": "2023-12-06"
+      "created": "2023-12-06",
+      "modified": "2025-04-06",
+      "dateOrigin": {
+        "created": "frontmatter",
+        "modified": "vault-history"
+      }
     },
     {
       "id": "note-8f5f14d18b9b",
@@ -1852,7 +2577,12 @@
       "date": "2026-09-30",
       "published": true,
       "featured": false,
-      "created": "2023-12-14"
+      "created": "2023-12-14",
+      "modified": "2025-04-06",
+      "dateOrigin": {
+        "created": "frontmatter",
+        "modified": "vault-history"
+      }
     },
     {
       "id": "note-f0460ca039da",
@@ -1862,14 +2592,17 @@
       "tags": [
         "Python",
         "EEG",
-        "预处理",
-        "7479",
-        "9302"
+        "预处理"
       ],
       "date": "2026-09-30",
       "published": true,
       "featured": false,
-      "created": "2023-12-28"
+      "created": "2023-12-29",
+      "modified": "2025-04-06",
+      "dateOrigin": {
+        "created": "frontmatter",
+        "modified": "vault-history"
+      }
     },
     {
       "id": "note-433dc7605e31",
@@ -1878,12 +2611,17 @@
       "category": "脑电分析",
       "tags": [
         "行为学",
-        "EEG",
-        "发送字符串"
+        "EEG"
       ],
       "date": "2026-09-30",
       "published": true,
-      "featured": false
+      "featured": false,
+      "created": "2024-10-21",
+      "modified": "2025-04-06",
+      "dateOrigin": {
+        "created": "first-record",
+        "modified": "vault-history"
+      }
     },
     {
       "id": "note-fc542a9d5874",
@@ -1894,7 +2632,12 @@
       "date": "2026-09-30",
       "published": true,
       "featured": false,
-      "created": "2024-07-04"
+      "created": "2024-07-04",
+      "modified": "2026-09-29",
+      "dateOrigin": {
+        "created": "frontmatter",
+        "modified": "filesystem"
+      }
     },
     {
       "id": "note-7d6617aa52f5",
@@ -1909,7 +2652,12 @@
       "date": "2026-09-30",
       "published": true,
       "featured": false,
-      "created": "2024-03-15"
+      "created": "2024-03-15",
+      "modified": "2026-08-03",
+      "dateOrigin": {
+        "created": "frontmatter",
+        "modified": "vault-history"
+      }
     },
     {
       "id": "note-0019f794d98e",
@@ -1920,7 +2668,12 @@
       "date": "2026-09-30",
       "published": true,
       "featured": false,
-      "created": "2025-03-16"
+      "created": "2025-03-16",
+      "modified": "2025-04-06",
+      "dateOrigin": {
+        "created": "frontmatter",
+        "modified": "vault-history"
+      }
     },
     {
       "id": "note-ac4e5d870d26",
@@ -1932,7 +2685,13 @@
       ],
       "date": "2026-09-30",
       "published": true,
-      "featured": false
+      "featured": false,
+      "created": "2024-10-21",
+      "modified": "2025-04-06",
+      "dateOrigin": {
+        "created": "first-record",
+        "modified": "vault-history"
+      }
     },
     {
       "id": "note-37974f70f3c1",
@@ -1943,7 +2702,12 @@
       "date": "2026-09-30",
       "published": true,
       "featured": false,
-      "created": "2024-11-13"
+      "created": "2024-11-13",
+      "modified": "2024-11-14",
+      "dateOrigin": {
+        "created": "frontmatter",
+        "modified": "vault-history"
+      }
     },
     {
       "id": "note-a78f1abc8655",
@@ -1956,7 +2720,13 @@
       ],
       "date": "2026-09-30",
       "published": true,
-      "featured": false
+      "featured": false,
+      "created": "2024-10-21",
+      "modified": "2025-04-06",
+      "dateOrigin": {
+        "created": "first-record",
+        "modified": "vault-history"
+      }
     },
     {
       "id": "note-62a5a6c3c170",
@@ -1970,7 +2740,12 @@
       "date": "2026-09-30",
       "published": true,
       "featured": false,
-      "created": "2023-12-18"
+      "created": "2023-12-18",
+      "modified": "2025-04-06",
+      "dateOrigin": {
+        "created": "frontmatter",
+        "modified": "vault-history"
+      }
     },
     {
       "id": "note-d7af26cd96c6",
@@ -1984,7 +2759,13 @@
       ],
       "date": "2026-09-30",
       "published": true,
-      "featured": false
+      "featured": false,
+      "created": "2024-10-21",
+      "modified": "2025-04-06",
+      "dateOrigin": {
+        "created": "first-record",
+        "modified": "vault-history"
+      }
     },
     {
       "id": "note-248b5ff27a03",
@@ -1998,20 +2779,29 @@
       ],
       "date": "2026-09-30",
       "published": true,
-      "featured": false
+      "featured": false,
+      "created": "2024-10-21",
+      "modified": "2025-04-06",
+      "dateOrigin": {
+        "created": "first-record",
+        "modified": "vault-history"
+      }
     },
     {
       "id": "note-e7a079b72dc9",
       "file": "notes/技术学习/行为学/HDDM计算建模.md",
       "title": "HDDM计算建模",
       "category": "行为学与计算建模",
-      "tags": [
-        "4"
-      ],
+      "tags": [],
       "date": "2026-09-30",
       "published": true,
       "featured": false,
-      "created": "2024-09-11"
+      "created": "2024-09-11",
+      "modified": "2026-04-04",
+      "dateOrigin": {
+        "created": "frontmatter",
+        "modified": "vault-history"
+      }
     },
     {
       "id": "note-1914b10acb31",
@@ -2022,7 +2812,12 @@
       "date": "2026-09-30",
       "published": true,
       "featured": false,
-      "created": "2023-12-11"
+      "created": "2023-12-11",
+      "modified": "2024-11-24",
+      "dateOrigin": {
+        "created": "frontmatter",
+        "modified": "filesystem"
+      }
     },
     {
       "id": "note-2e22f4d52c4d",
@@ -2033,7 +2828,12 @@
       "date": "2026-09-30",
       "published": true,
       "featured": false,
-      "created": "2023-03-30"
+      "created": "2023-03-30",
+      "modified": "2025-04-06",
+      "dateOrigin": {
+        "created": "frontmatter",
+        "modified": "vault-history"
+      }
     },
     {
       "id": "note-cc264a2dbccd",
@@ -2044,7 +2844,12 @@
       "date": "2026-09-30",
       "published": true,
       "featured": false,
-      "created": "2023-12-11"
+      "created": "2023-12-11",
+      "modified": "2025-04-06",
+      "dateOrigin": {
+        "created": "frontmatter",
+        "modified": "vault-history"
+      }
     },
     {
       "id": "note-cf27e165882c",
@@ -2055,7 +2860,12 @@
       "date": "2026-09-30",
       "published": true,
       "featured": false,
-      "created": "2023-12-11"
+      "created": "2023-12-11",
+      "modified": "2025-04-06",
+      "dateOrigin": {
+        "created": "frontmatter",
+        "modified": "vault-history"
+      }
     },
     {
       "id": "note-5227dfc9f1e6",
@@ -2069,7 +2879,12 @@
       "date": "2026-09-30",
       "published": true,
       "featured": false,
-      "created": "2023-07-26"
+      "created": "2023-07-26",
+      "modified": "2025-04-06",
+      "dateOrigin": {
+        "created": "frontmatter",
+        "modified": "vault-history"
+      }
     },
     {
       "id": "note-cb253dbeef7d",
@@ -2079,7 +2894,13 @@
       "tags": [],
       "date": "2026-09-30",
       "published": true,
-      "featured": false
+      "featured": false,
+      "created": "2026-04-04",
+      "modified": "2026-04-04",
+      "dateOrigin": {
+        "created": "first-record",
+        "modified": "filesystem"
+      }
     },
     {
       "id": "note-f1d2fa27cd24",
@@ -2089,7 +2910,13 @@
       "tags": [],
       "date": "2026-09-30",
       "published": true,
-      "featured": false
+      "featured": false,
+      "created": "2026-04-06",
+      "modified": "2026-04-06",
+      "dateOrigin": {
+        "created": "first-record",
+        "modified": "filesystem"
+      }
     },
     {
       "id": "note-e72ffd855307",
@@ -2099,7 +2926,13 @@
       "tags": [],
       "date": "2026-09-30",
       "published": true,
-      "featured": false
+      "featured": false,
+      "created": "2024-10-21",
+      "modified": "2025-04-06",
+      "dateOrigin": {
+        "created": "first-record",
+        "modified": "vault-history"
+      }
     },
     {
       "id": "note-2d878db1ea0d",
@@ -2109,14 +2942,17 @@
       "tags": [
         "fNIRS",
         "设备使用",
-        "行为学",
-        "Python",
-        "Biopac"
+        "行为学"
       ],
       "date": "2026-09-30",
       "published": true,
       "featured": false,
-      "created": "2023-12-30"
+      "created": "2023-12-30",
+      "modified": "2025-04-06",
+      "dateOrigin": {
+        "created": "frontmatter",
+        "modified": "vault-history"
+      }
     },
     {
       "id": "note-56108e97fcaa",
@@ -2126,23 +2962,17 @@
       "tags": [
         "R语言",
         "信号处理",
-        "fNIRS",
-        "读取数据",
-        "复制采样率",
-        "复制block开始时间索引",
-        "获取periods",
-        "获取时间",
-        "转换为长数据",
-        "为美观",
-        "绘制ci",
-        "绘制block开始指示线",
-        "翻转y轴",
-        "展示",
-        "保存"
+        "fNIRS"
       ],
       "date": "2026-09-30",
       "published": true,
-      "featured": false
+      "featured": false,
+      "created": "2024-10-21",
+      "modified": "2025-04-06",
+      "dateOrigin": {
+        "created": "first-record",
+        "modified": "vault-history"
+      }
     },
     {
       "id": "note-1afc06637d3b",
@@ -2155,7 +2985,12 @@
       "date": "2026-09-30",
       "published": true,
       "featured": false,
-      "created": "2024-01-08"
+      "created": "2024-01-08",
+      "modified": "2025-04-06",
+      "dateOrigin": {
+        "created": "frontmatter",
+        "modified": "vault-history"
+      }
     },
     {
       "id": "note-ec46312cf621",
@@ -2168,7 +3003,13 @@
       ],
       "date": "2026-09-30",
       "published": true,
-      "featured": false
+      "featured": false,
+      "created": "2024-10-21",
+      "modified": "2025-04-06",
+      "dateOrigin": {
+        "created": "first-record",
+        "modified": "vault-history"
+      }
     },
     {
       "id": "note-2353a44abef7",
@@ -2181,7 +3022,12 @@
       "date": "2026-09-30",
       "published": true,
       "featured": false,
-      "created": "2023-04-08"
+      "created": "2023-04-08",
+      "modified": "2025-04-06",
+      "dateOrigin": {
+        "created": "frontmatter",
+        "modified": "vault-history"
+      }
     },
     {
       "id": "note-40b338df764a",
@@ -2192,7 +3038,12 @@
       "date": "2026-09-30",
       "published": true,
       "featured": false,
-      "created": "2024-07-12"
+      "created": "2024-07-12",
+      "modified": "2025-04-06",
+      "dateOrigin": {
+        "created": "frontmatter",
+        "modified": "vault-history"
+      }
     },
     {
       "id": "note-ff012aaeb439",
@@ -2202,7 +3053,13 @@
       "tags": [],
       "date": "2026-09-30",
       "published": true,
-      "featured": false
+      "featured": false,
+      "created": "2026-02-27",
+      "modified": "2026-02-27",
+      "dateOrigin": {
+        "created": "first-record",
+        "modified": "filesystem"
+      }
     },
     {
       "id": "note-f6ad700932da",
@@ -2212,7 +3069,13 @@
       "tags": [],
       "date": "2026-09-30",
       "published": true,
-      "featured": false
+      "featured": false,
+      "created": "2026-02-01",
+      "modified": "2026-02-01",
+      "dateOrigin": {
+        "created": "first-record",
+        "modified": "filesystem"
+      }
     },
     {
       "id": "note-c89529f3e4a8",
@@ -2222,14 +3085,17 @@
       "tags": [
         "统计学",
         "R语言",
-        "LME",
-        "518",
-        "1"
+        "LME"
       ],
       "date": "2026-09-30",
       "published": true,
       "featured": false,
-      "created": "2022-11-01"
+      "created": "2022-11-01",
+      "modified": "2025-04-06",
+      "dateOrigin": {
+        "created": "frontmatter",
+        "modified": "vault-history"
+      }
     }
   ]
 }

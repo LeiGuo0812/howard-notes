@@ -968,3 +968,10 @@ li {
     padding: 5px;
   }
 }
+.mini-article {
+  font-size: 10px;
+  color: var(--ink);
+  border-bottom: 1px solid var(--line);
+  padding-bottom: 5px;
+  margin: 6px 0;
+}

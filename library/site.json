@@ -12,6 +12,16 @@
     "density": "comfortable",
     "sections": [
       {
+        "id": "featured",
+        "title": "精选文章",
+        "enabled": true
+      },
+      {
+        "id": "recent",
+        "title": "最近文章",
+        "enabled": true
+      },
+      {
         "id": "topics",
         "title": "专题",
         "enabled": true
@@ -19,11 +29,16 @@
       {
         "id": "collections",
         "title": "浏览",
-        "enabled": true
+        "enabled": false
+      },
+      {
+        "id": "tags",
+        "title": "标签",
+        "enabled": false
       },
       {
         "id": "activity",
-        "title": "提交",
+        "title": "笔记活动",
         "enabled": true
       }
     ]
@@ -122,6 +137,11 @@
     {
       "id": "notes",
       "label": "文章",
+      "visible": true
+    },
+    {
+      "id": "tags",
+      "label": "标签",
       "visible": true
     },
     {

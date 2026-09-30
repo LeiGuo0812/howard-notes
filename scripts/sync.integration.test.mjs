@@ -106,6 +106,20 @@ test("sync initializes exact copies, merges independent edits and preserves file
     )
     assert.equal(await read(mirror, "notes/a.md"), "本地更新 A\r\n")
     assert.match(sync(), /"changes": \[\]/)
+    const historicalNote =
+      "---\r\ndate created: 2023-04-01\r\ndate modified: 2024-07-12\r\ntags: [Python]\r\n---\r\n#学习\r\n\r\n```python\r\n# comment\r\n```\r\n"
+    await write(mirror, "notes/c.md", historicalNote)
+    assert.throws(() => sync("--apply"), /未登记的新文章/)
+    sync("--include-new", "--apply")
+    const added = JSON.parse(await read(mirror, "catalog.json")).articles.find(
+      (a) => a.file === "notes/c.md",
+    )
+    assert.equal(added.created, "2023-04-01")
+    assert.equal(added.modified, "2024-07-12")
+    assert.equal(added.published, false)
+    assert.deepEqual(added.tags, ["Python", "学习"])
+    assert.equal(await read(mirror, "notes/c.md"), historicalNote)
+    assert.match(sync(), /"changes": \[\]/)
     git(web, "pull", "--ff-only")
     await webEdit("网页冲突 B\r\n")
     await write(mirror, "notes/b.md", "本地冲突 B\r\n")

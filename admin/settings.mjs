@@ -35,15 +35,38 @@ export function createSettings({ getSnapshot, action, message, onSaved, refresh 
     if (working.home.description)
       root.append(node("p", working.home.description, "mini-description"))
     const modules = node("div", undefined, "mini-modules")
-    for (const section of working.home.sections.filter((item) => item.enabled)) {
+    for (const section of working.home.sections
+      .filter((item) => item.enabled)
+      .sort((a, b) => Number(a.id === "activity") - Number(b.id === "activity"))) {
       const el = node("section", undefined, "mini-module mini-" + section.id)
       el.append(node("h3", section.title))
-      if (section.id === "activity") el.append(node("div", "提交热图", "mini-heatmap"))
-      else {
+      if (section.id === "activity") el.append(node("div", "笔记活动", "mini-heatmap"))
+      else if (["featured", "recent"].includes(section.id)) {
+        const articles = getSnapshot()
+          .catalog.articles.filter(
+            (article) => article.published && (section.id !== "featured" || article.featured),
+          )
+          .sort((a, b) =>
+            (b.modified || b.created || b.date).localeCompare(a.modified || a.created || a.date),
+          )
+        for (const article of articles.slice(0, 3))
+          el.append(node("p", article.title, "mini-article"))
+        if (!articles.length) el.append(node("p", "暂无文章", "mini-article"))
+      } else {
         const chips = node("div", undefined, "mini-chips")
         for (const item of section.id === "topics"
           ? working.topics.filter((item) => item.visible)
-          : working.collections.filter((item) => item.enabled))
+          : section.id === "tags"
+            ? [
+                ...new Set(
+                  getSnapshot()
+                    .catalog.articles.filter((a) => a.published)
+                    .flatMap((a) => a.tags || []),
+                ),
+              ]
+                .slice(0, 8)
+                .map((title) => ({ title }))
+            : working.collections.filter((item) => item.enabled))
           chips.append(node("span", item.title))
         el.append(chips)
       }

@@ -143,7 +143,7 @@ function showEditor(article, text) {
   renderCategories(article?.category)
   $("slug").value = article?.id || `note-${crypto.randomUUID()}`
   $("slug").readOnly = !!article
-  $("date").value = article?.date || date()
+  $("date").value = article?.created || article?.date || date()
   $("published").value = String(article?.published ?? false)
   $("tags").value = (article?.tags || []).join(", ")
   $("featured").checked = article?.featured || false
@@ -425,14 +425,18 @@ $("editor-form").onsubmit = (event) => {
     title: $("title").value.trim(),
     category: $("category").value,
     description: $("description").value.trim(),
-    date: $("date").value,
+    date: current?.date || date(),
+    created: $("date").value,
     tags: $("tags")
       .value.split(/[,，]/)
       .map((tag) => tag.trim())
       .filter(Boolean),
     published: $("published").value === "true",
     featured: $("featured").checked,
-    modified: date(),
+    modified:
+      !current || sourceText() !== raw
+        ? date()
+        : current.modified || current.created || current.date,
   }
   action(async () => {
     validateCatalog({ version: 2, articles: [edited] })

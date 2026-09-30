@@ -1,6 +1,7 @@
 export const CATALOG_PATH = "library/catalog.json"
 export const REPOSITORY = "LeiGuo0812/howard-notes"
 export const BRANCH = "main"
+import { validDay } from "./note-dates.mjs"
 
 export function safeRelative(file) {
   return (
@@ -38,6 +39,10 @@ export function validateCatalog(catalog) {
       Number.isNaN(Date.parse(article.date))
     )
       throw new Error("发布日期格式不正确。")
+    if (
+      [article.created, article.modified].some((value) => value !== undefined && !validDay(value))
+    )
+      throw new Error("笔记创建或修改日期格式不正确。")
     if (
       article.tags !== undefined &&
       (!Array.isArray(article.tags) || article.tags.some((t) => typeof t !== "string"))

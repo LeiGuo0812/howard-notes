@@ -1,7 +1,8 @@
 export const SITE_PATH = "library/site.json"
-export const SECTION_IDS = ["topics", "collections", "activity"]
+export const SECTION_IDS = ["featured", "recent", "topics", "collections", "tags", "activity"]
 export const COLLECTION_IDS = ["recent", "featured", "all"]
-export const NAV_IDS = ["notes", "topics", "about"]
+export const NAV_IDS = ["notes", "topics", "tags", "about"]
+import { sortNotes } from "./note-dates.mjs"
 const text = (value, limit, required = true) =>
   typeof value === "string" && value.length <= limit && (!required || !!value.trim())
 const id = (value) =>
@@ -28,7 +29,9 @@ export function validateSite(settings) {
     throw new Error("首页设置不正确。")
   if (
     !Array.isArray(home.sections) ||
-    home.sections.length !== SECTION_IDS.length ||
+    !["topics", "collections", "activity"].every((id) =>
+      home.sections.some((item) => item.id === id),
+    ) ||
     !unique(home.sections, "id") ||
     home.sections.some(
       (item) =>
@@ -67,7 +70,9 @@ export function validateSite(settings) {
     throw new Error("文章入口设置不正确。")
   if (
     !Array.isArray(settings.navigation) ||
-    settings.navigation.length !== NAV_IDS.length ||
+    !["notes", "topics", "about"].every((id) =>
+      settings.navigation.some((item) => item.id === id),
+    ) ||
     !unique(settings.navigation, "id") ||
     settings.navigation.some(
       (item) =>
@@ -112,11 +117,6 @@ export function topicList(settings, articles) {
 
 export function collectionArticles(id, articles) {
   const visible = articles.filter((article) => article.published)
-  if (id === "all") return visible.sort((a, b) => a.title.localeCompare(b.title, "zh-CN"))
-  const sorted = visible.sort(
-    (a, b) =>
-      String(b.modified || b.date).localeCompare(String(a.modified || a.date)) ||
-      a.title.localeCompare(b.title, "zh-CN"),
-  )
+  const sorted = sortNotes(visible)
   return id === "featured" ? sorted.filter((article) => article.featured) : sorted
 }

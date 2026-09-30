@@ -2,10 +2,11 @@ import fs from "node:fs/promises"
 import path from "node:path"
 import { fileURLToPath } from "node:url"
 import { execFileSync } from "node:child_process"
-import { walk, hash, splitNote, renderLibrary } from "./lib/library.mjs"
+import { walk, hash, splitNote, renderLibrary, extractNoteTags } from "./lib/library.mjs"
 import { validateCatalog, safeRelative } from "./lib/catalog.mjs"
 import { planSync } from "./lib/sync-plan.mjs"
 import { validateSite } from "./lib/site-settings.mjs"
+import { sourceDates } from "./lib/note-dates.mjs"
 
 const project = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..")
 process.chdir(project)
@@ -136,15 +137,19 @@ async function main() {
     )
   for (const file of additions) {
     const { data } = splitNote(merged.get(file).toString("utf8"))
+    const dates = sourceDates(data)
+    const today = new Intl.DateTimeFormat("sv-SE", { timeZone: "Asia/Shanghai" }).format(new Date())
     catalog.articles.push({
       id: `note-${hash(Buffer.from(file)).slice(0, 12)}`,
       file,
       title: path.basename(file, ".md"),
       category: "未分类",
-      date: new Intl.DateTimeFormat("sv-SE", { timeZone: "Asia/Shanghai" }).format(new Date()),
+      date: today,
+      created: dates.created || today,
+      modified: dates.modified || dates.created || today,
       published: data.publish === true && data.draft === false,
       featured: false,
-      tags: [],
+      tags: extractNoteTags(merged.get(file).toString("utf8")),
     })
   }
   if (additions.length)
@@ -156,6 +161,7 @@ async function main() {
     const bytes = merged.get(article.file)
     if (
       bytes &&
+      registered.has(article.file) &&
       !bytes.equals(remote.get(article.file) || Buffer.alloc(0)) &&
       article.modified !== today
     ) {
