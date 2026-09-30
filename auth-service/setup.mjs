@@ -225,16 +225,14 @@ async function main() {
         "list",
         "--repo",
         config.vars.REPOSITORY,
-        "--commit",
-        commit,
         "--limit",
-        "1",
+        "20",
         "--json",
-        "databaseId",
+        "databaseId,headSha",
       ],
       { capture: true },
     )
-    runId = JSON.parse(result.output)[0]?.databaseId
+    runId = JSON.parse(result.output).find((run) => run.headSha === commit)?.databaseId
   }
   if (!runId) throw new Error("GitHub 已收到新版后台，请在 Actions 页面查看部署进度。")
   await run("gh", [
