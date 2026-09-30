@@ -18,7 +18,7 @@
     "sections": [
       {
         "id": "featured",
-        "title": "试试手气",
+        "title": "手气不错",
         "enabled": true
       },
       {
@@ -39,14 +39,15 @@
       {
         "id": "tags",
         "title": "标签",
-        "enabled": false
+        "enabled": true
       },
       {
         "id": "activity",
         "title": "笔记活动",
         "enabled": true
       }
-    ]
+    ],
+    "activityPinned": true
   },
   "topics": [
     {
@@ -160,5 +161,21 @@
   "about": {
     "title": "关于",
     "body": "Howard 的技术笔记。"
+  },
+  "design": {
+    "font": "sans",
+    "fontSize": 16,
+    "lineHeight": 1.95,
+    "contentWidth": 1200,
+    "cardGap": 22,
+    "radius": 12,
+    "accentColor": "#365f8b",
+    "darkAccentColor": "#93bbdf"
+  },
+  "pages": {
+    "homeTemplate": "classic",
+    "topicLayout": "list",
+    "articleLayout": "wide",
+    "topicPreviewCount": 4
   }
 }
