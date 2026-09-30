@@ -27,6 +27,8 @@ function applyPreview() {
   label(".brand-mark", draft.brand.mark)
   label(".brand-name", draft.brand.name)
   label(".brand-subtitle", draft.brand.subtitle)
+  label(".home-identity", draft.brand.name)
+  label(".home-identity-subtitle", draft.brand.subtitle)
   label(".blog-footer > span", draft.footer)
   const nav = document.querySelector(".blog-nav")
   for (const item of draft.navigation) {

@@ -2,9 +2,9 @@ export const DEFAULT_DESIGN = Object.freeze({
   font: "sans",
   fontSize: 16,
   lineHeight: 1.95,
-  contentWidth: 1200,
+  contentWidth: 1040,
   cardGap: 22,
-  radius: 12,
+  radius: 20,
 })
 export const DEFAULT_PAGES = Object.freeze({
   homeTemplate: "classic",
@@ -18,7 +18,7 @@ export const ACCENT_COLORS = Object.freeze({
   ochre: ["#896222", "#dec18d"],
 })
 const fonts = {
-  sans: '"Microsoft YaHei", "PingFang SC", "Noto Sans CJK SC", system-ui, sans-serif',
+  sans: '-apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", "Noto Sans CJK SC", sans-serif',
   serif: '"Songti SC", "Noto Serif CJK SC", SimSun, serif',
   system: 'system-ui, -apple-system, "Segoe UI", "Microsoft YaHei", sans-serif',
 }

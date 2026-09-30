@@ -20,25 +20,25 @@ configuration:
       code: Cascadia Code
     colors:
       lightMode:
-        light: "#fafbf9"
-        lightgray: "#e2e7e3"
-        gray: "#5e6c67"
-        darkgray: "#3e4b48"
-        dark: "#192f2b"
-        secondary: "#286352"
-        tertiary: "#387e68"
-        highlight: rgba(40,99,82,0.08)
-        textHighlight: "#b8dbc980"
+        light: "#f4f6f9"
+        lightgray: "#dce2eb"
+        gray: "#657184"
+        darkgray: "#354154"
+        dark: "#1c2738"
+        secondary: "#365f8b"
+        tertiary: "#2c527c"
+        highlight: rgba(54,95,139,0.08)
+        textHighlight: "#a9cbe354"
       darkMode:
-        light: "#15221f"
-        lightgray: "#2d4039"
-        gray: "#a5b5ae"
-        darkgray: "#d0dcd5"
-        dark: "#edf4ef"
-        secondary: "#91cbb2"
-        tertiary: "#b0ddc6"
-        highlight: rgba(145,203,178,0.12)
-        textHighlight: "#45765d80"
+        light: "#1a1e25"
+        lightgray: "#343d49"
+        gray: "#a2aebe"
+        darkgray: "#c7d0dc"
+        dark: "#edf2f9"
+        secondary: "#93bbdf"
+        tertiary: "#b2d1eb"
+        highlight: rgba(147,187,223,0.09)
+        textHighlight: "#49739366"
 plugins:
   - source: "@quartz-community/created-modified-date"
     enabled: true

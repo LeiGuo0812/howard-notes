@@ -55,13 +55,10 @@ function setupNoteBrowser() {
     const resize = () => {
       tools.open = desktop.matches
     }
-    const expand = () => {
-      if (tools.open) document.dispatchEvent(new CustomEvent("render", { detail: {} }))
-    }
-    tools.addEventListener("toggle", expand)
+    // The local graph is SVG. Expanding it must not reinitialise unrelated
+    // Quartz controls or dispatch a render event without the current route.
     desktop.addEventListener("change", resize)
     window.addCleanup(() => desktop.removeEventListener("change", resize))
-    window.addCleanup(() => tools.removeEventListener("toggle", expand))
     resize()
   }
   const year = document.querySelector<HTMLSelectElement>("#activity-period")

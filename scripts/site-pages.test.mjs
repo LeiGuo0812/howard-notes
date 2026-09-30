@@ -25,14 +25,19 @@ const article = (index, extra = {}) => ({
 })
 
 test("layout defaults preserve existing configuration; templates and heatmap pinning are independent", () => {
-  const before = structuredClone(settings),
-    normalized = normalizeSite(settings)
-  assert.deepEqual(settings, before)
+  // Exercise legacy defaults independently of choices saved through the admin.
+  const legacy = structuredClone(settings)
+  delete legacy.design
+  delete legacy.pages
+  legacy.accent = "blue"
+  const before = structuredClone(legacy),
+    normalized = normalizeSite(legacy)
+  assert.deepEqual(legacy, before)
   assert.equal(normalized.pages.homeTemplate, "classic")
   assert.equal(normalized.pages.articleLayout, "wide")
-  assert.equal(normalized.design.contentWidth, 1200)
+  assert.equal(normalized.design.contentWidth, 1040)
   assert.equal(normalized.design.accentColor, "#365f8b")
-  const knowledge = applyHomeTemplate(settings, "knowledge")
+  const knowledge = applyHomeTemplate(legacy, "knowledge")
   assert.equal(knowledge.home.sections[0].id, "topics")
   assert.equal(knowledge.home.sections.find((section) => section.id === "tags").enabled, true)
   const activity = knowledge.home.sections.find((section) => section.id === "activity")

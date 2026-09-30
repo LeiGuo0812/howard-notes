@@ -435,6 +435,15 @@ export const BlogHome: QuartzComponent = (props) => {
       class={`home-workspace layout-${settings.home.layout} density-${settings.home.density}`}
       data-home-template={sitePages(settings).homeTemplate}
     >
+      <p class="home-eyebrow">
+        <span class="home-identity">{settings.brand.name}</span>
+        {settings.brand.subtitle && (
+          <>
+            <span aria-hidden="true">/</span>
+            <span class="home-identity-subtitle">{settings.brand.subtitle}</span>
+          </>
+        )}
+      </p>
       <div class="home-heading">
         <h1>{settings.home.title}</h1>
         <span>{total} 篇</span>

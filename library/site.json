@@ -166,9 +166,9 @@
     "font": "sans",
     "fontSize": 16,
     "lineHeight": 1.95,
-    "contentWidth": 1200,
+    "contentWidth": 1040,
     "cardGap": 22,
-    "radius": 12,
+    "radius": 20,
     "accentColor": "#365f8b",
     "darkAccentColor": "#93bbdf"
   },

@@ -1,0 +1,106 @@
+// Shared material tokens. Opaque defaults remain usable without backdrop-filter.
+:root {
+  --light: #f4f6f9;
+  --lightgray: #dce2eb;
+  --gray: #657184;
+  --darkgray: #354154;
+  --dark: #1c2738;
+  --secondary: #365f8b;
+  --tertiary: #2c527c;
+  --highlight: #365f8b12;
+  --textHighlight: #a9cbe354;
+  --bodyFont: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif;
+  --headerFont: var(--bodyFont);
+  --codeFont: "SFMono-Regular", "Cascadia Code", Consolas, monospace;
+  --glass-solid: #f8fafd;
+  --glass-fill: rgb(248 251 255 / 76%);
+  --glass-border: rgb(255 255 255 / 88%);
+  --glass-edge: rgb(166 186 209 / 36%);
+  --glass-highlight: rgb(255 255 255 / 92%);
+  --glass-shadow: 0 10px 32px rgb(45 68 100 / 7%), 0 2px 6px rgb(45 68 100 / 4%);
+  --glass-inset: inset 0 1px 0 var(--glass-highlight), inset 0 -1px 0 var(--glass-edge);
+  --glass-blur: 20px;
+  --glass-radius-nav: 24px;
+  --glass-radius-control: 12px;
+  --glass-radius-pill: 999px;
+  --glass-gap: 12px;
+  --glass-space: 24px;
+  --glass-transition: 180ms ease;
+  --glass-card: rgb(255 255 255 / 82%);
+  --glass-card-hover: #ffffff;
+  --glass-card-shadow: 0 8px 22px rgb(42 62 91 / 5%), 0 1px 3px rgb(42 62 91 / 3%);
+  --glass-reading: #fdfefe;
+  --glass-code: #f3f5f8;
+  --glass-hover: rgb(222 232 244 / 60%);
+  --glass-scrim: rgb(44 58 78 / 22%);
+  --glass-edge-blue: rgb(165 204 234 / 24%);
+  --glass-edge-cyan: rgb(178 215 225 / 19%);
+  --glass-anchor-offset: 112px;
+  --glass-z-controls: 20;
+  --glass-z-header: 30;
+  --glass-z-modal: 60;
+  --glass-z-skip: 80;
+}
+
+:root[saved-theme="dark"] {
+  --light: #1a1e25;
+  --lightgray: #343d49;
+  --gray: #a2aebe;
+  --darkgray: #c7d0dc;
+  --dark: #edf2f9;
+  --secondary: #93bbdf;
+  --tertiary: #b2d1eb;
+  --highlight: #93bbdf16;
+  --textHighlight: #49739366;
+  --glass-solid: #262c35;
+  --glass-fill: rgb(38 46 57 / 82%);
+  --glass-border: rgb(173 195 221 / 18%);
+  --glass-edge: rgb(10 14 21 / 60%);
+  --glass-highlight: rgb(215 232 255 / 10%);
+  --glass-shadow: 0 12px 32px rgb(6 12 20 / 26%), 0 2px 6px rgb(6 12 20 / 16%);
+  --glass-card: rgb(37 44 55 / 92%);
+  --glass-card-hover: #2b3440;
+  --glass-card-shadow: 0 8px 22px rgb(6 12 20 / 14%), 0 1px 3px rgb(6 12 20 / 12%);
+  --glass-reading: #222831;
+  --glass-code: #1b212a;
+  --glass-hover: rgb(104 145 184 / 13%);
+  --glass-scrim: rgb(5 9 16 / 58%);
+  --glass-edge-blue: rgb(60 111 149 / 13%);
+  --glass-edge-cyan: rgb(55 119 129 / 10%);
+}
+
+@mixin glass($radius: var(--glass-radius-control)) {
+  border: 1px solid var(--glass-border);
+  border-radius: $radius;
+  background: linear-gradient(165deg, var(--glass-highlight), transparent 42%), var(--glass-solid);
+  box-shadow: var(--glass-inset), var(--glass-shadow);
+  @supports ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+    background: linear-gradient(165deg, var(--glass-highlight), transparent 42%), var(--glass-fill);
+    -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(125%);
+    backdrop-filter: blur(var(--glass-blur)) saturate(125%);
+  }
+}
+
+@mixin control {
+  border: 1px solid var(--glass-edge);
+  border-radius: var(--glass-radius-control);
+  background: var(--glass-card);
+  color: var(--darkgray);
+  box-shadow: inset 0 1px 0 var(--glass-highlight);
+  font: inherit;
+  cursor: pointer;
+  transition:
+    background var(--glass-transition),
+    color var(--glass-transition),
+    border-color var(--glass-transition),
+    box-shadow var(--glass-transition),
+    transform var(--glass-transition);
+  &:hover {
+    background: var(--glass-hover);
+    border-color: color-mix(in srgb, var(--secondary) 40%, var(--glass-edge));
+    color: var(--secondary);
+  }
+  &:active {
+    transform: translateY(1px);
+  }
+}
