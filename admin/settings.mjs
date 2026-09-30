@@ -1,7 +1,17 @@
 import { validateSite, topicList } from "../scripts/lib/site-settings.mjs"
+import {
+  ACCENT_COLORS,
+  DEFAULT_DESIGN,
+  normalizeSite,
+  applyHomeTemplate,
+  sectionLimit,
+  orderedSections,
+} from "../scripts/lib/site-design.mjs"
 import { imageHostSettings } from "../scripts/lib/image-host.mjs"
 import { GitHubImageHost } from "./images.mjs"
 import { brokerOrigin } from "./auth.mjs"
+import { createSitePreview } from "./site-preview.mjs"
+import { readLayoutDraft, writeLayoutDraft, clearLayoutDraft } from "./layout-draft.mjs"
 const $ = (id) => document.getElementById(id)
 const node = (tag, text, cls) => {
   const el = document.createElement(tag)
@@ -13,73 +23,71 @@ const get = (obj, path) => path.split(".").reduce((value, key) => value[key], ob
 const set = (obj, path, value) => {
   const parts = path.split("."),
     key = parts.pop()
-  get(obj, parts.join("."))[key] = value
+  const target = parts.length ? get(obj, parts.join(".")) : obj
+  target[key] = value
 }
-
 export function createSettings({ getSnapshot, action, message, onSaved, refresh }) {
   let working,
     baseline = "",
-    openedSha
+    openedSha,
+    storage
+  try {
+    storage = localStorage
+  } catch {}
   const dirty = () => !!working && JSON.stringify(working) !== baseline
+  const preview = createSitePreview(() => working, getSnapshot)
+  const persist = () => {
+    try {
+      validateSite(working)
+      if (!storage) throw new Error("unavailable")
+      if (dirty()) writeLayoutDraft(storage, openedSha, working)
+      else clearLayoutDraft(storage)
+      $("settings-state").textContent = dirty()
+        ? openedSha !== getSnapshot().siteSha
+          ? "草稿版本已过期"
+          : "草稿已暂存"
+        : "已发布"
+    } catch {
+      $("settings-state").textContent = "未暂存，可导出"
+    }
+  }
   const changed = () => {
-    $("settings-state").textContent = dirty() ? "未保存" : "已保存"
+    persist()
     $("image-host-state").textContent = ""
     if (!$("authorize-images").hidden) {
       const link = new URL($("authorize-images").href)
       link.searchParams.set("repository", working.imageHost.repository)
       $("authorize-images").href = link.href
     }
-    renderPreview()
+    preview.update()
   }
-  function renderPreview() {
-    const root = $("layout-preview")
-    root.replaceChildren()
-    root.dataset.accent = working.accent
-    root.dataset.layout = working.home.layout
-    root.dataset.density = working.home.density
-    const brand = node("div", undefined, "mini-brand")
-    brand.append(node("strong", working.brand.mark), node("span", working.brand.name))
-    root.append(brand)
-    root.append(node("h2", working.home.title))
-    if (working.home.description)
-      root.append(node("p", working.home.description, "mini-description"))
-    const modules = node("div", undefined, "mini-modules")
-    for (const section of working.home.sections
-      .filter((item) => item.enabled)
-      .sort((a, b) => Number(a.id === "activity") - Number(b.id === "activity"))) {
-      const el = node("section", undefined, "mini-module mini-" + section.id)
-      el.append(node("h3", section.title))
-      if (section.id === "activity") el.append(node("div", "笔记活动", "mini-heatmap"))
-      else if (["featured", "recent"].includes(section.id)) {
-        const articles = getSnapshot()
-          .catalog.articles.filter((article) => article.published)
-          .sort((a, b) =>
-            (b.modified || b.created || b.date).localeCompare(a.modified || a.created || a.date),
-          )
-        for (const article of articles.slice(0, 3))
-          el.append(node("p", article.title, "mini-article"))
-        if (!articles.length) el.append(node("p", "暂无文章", "mini-article"))
-      } else {
-        const chips = node("div", undefined, "mini-chips")
-        for (const item of section.id === "topics"
-          ? working.topics.filter((item) => item.visible)
-          : section.id === "tags"
-            ? [
-                ...new Set(
-                  getSnapshot()
-                    .catalog.articles.filter((a) => a.published)
-                    .flatMap((a) => a.tags || []),
-                ),
-              ]
-                .slice(0, 8)
-                .map((title) => ({ title }))
-            : working.collections.filter((item) => item.enabled))
-          chips.append(node("span", item.title))
-        el.append(chips)
+  function bindFields() {
+    for (const input of $("site-form").querySelectorAll("[data-setting]")) {
+      if (input.type === "checkbox") input.checked = get(working, input.dataset.setting)
+      else input.value = get(working, input.dataset.setting)
+      input.oninput = () => {
+        const path = input.dataset.setting
+        const value =
+          input.type === "checkbox"
+            ? input.checked
+            : input.hasAttribute("data-number")
+              ? Number(input.value)
+              : input.value
+        if (path === "pages.homeTemplate") {
+          working = applyHomeTemplate(working, value)
+          bindFields()
+          renderRows()
+        } else {
+          set(working, path, value)
+          if (path === "accent") {
+            ;[working.design.accentColor, working.design.darkAccentColor] = ACCENT_COLORS[value]
+            bindFields()
+          }
+          if (path === "home.activityPinned") renderRows()
+        }
+        changed()
       }
-      modules.append(el)
     }
-    root.append(modules, node("div", working.footer, "mini-footer"))
   }
   function ordered(container, items, kind) {
     const root = $(container)
@@ -89,6 +97,55 @@ export function createSettings({ getSnapshot, action, message, onSaved, refresh 
       row.dataset.itemId = item.id
       const visibility = kind === "navigation" || kind === "topic" ? "visible" : "enabled",
         titleKey = kind === "navigation" ? "label" : "title"
+      const handle = node("button", "⠿", "drag-handle")
+      handle.type = "button"
+      const pinned = kind === "section" && working.home.activityPinned
+      const locked = pinned && item.id === "activity"
+      handle.disabled = locked
+      handle.dataset.boundary = String(locked)
+      handle.setAttribute("aria-label", `拖动${item[titleKey]}`)
+      handle.title = "拖动排序"
+      handle.onpointerdown = (event) => {
+        if (event.button !== 0 || handle.disabled) return
+        event.preventDefault()
+        row.classList.add("dragging")
+        const pointerId = event.pointerId
+        const move = (event) => {
+          if (event.pointerId !== pointerId) return
+          event.preventDefault()
+          const target = document
+            .elementFromPoint(event.clientX, event.clientY)
+            ?.closest(".setting-row")
+          if (
+            target &&
+            target.parentElement === root &&
+            target !== row &&
+            !(pinned && target.dataset.itemId === "activity")
+          ) {
+            const from = items.findIndex((entry) => entry.id === item.id),
+              to = items.findIndex((entry) => entry.id === target.dataset.itemId)
+            items.splice(to, 0, items.splice(from, 1)[0])
+            const rows = new Map([...root.children].map((child) => [child.dataset.itemId, child]))
+            root.append(...items.map((entry) => rows.get(entry.id)))
+            changed()
+          }
+          if (event.clientY < 75) window.scrollBy(0, -14)
+          if (event.clientY > innerHeight - 75) window.scrollBy(0, 14)
+        }
+        const end = (event) => {
+          if (event.pointerId !== pointerId) return
+          window.removeEventListener("pointermove", move)
+          window.removeEventListener("pointerup", end)
+          window.removeEventListener("pointercancel", end)
+          renderRows()
+          $(container)
+            .querySelector(`[data-item-id="${item.id}"] .drag-handle`)
+            ?.focus({ preventScroll: true })
+        }
+        window.addEventListener("pointermove", move, { passive: false })
+        window.addEventListener("pointerup", end)
+        window.addEventListener("pointercancel", end)
+      }
       const check = node("input")
       check.type = "checkbox"
       check.checked = item[visibility]
@@ -109,7 +166,20 @@ export function createSettings({ getSnapshot, action, message, onSaved, refresh 
         item[titleKey] = title.value
         changed()
       }
-      row.append(check, title)
+      row.append(handle, check, title)
+      if (kind === "section" && ["featured", "recent"].includes(item.id)) {
+        const count = node("input", undefined, "module-count")
+        count.type = "number"
+        count.min = 1
+        count.max = item.id === "featured" ? 6 : 20
+        count.value = sectionLimit(item)
+        count.setAttribute("aria-label", `${item[titleKey]}展示篇数`)
+        count.oninput = () => {
+          item.limit = Number(count.value)
+          changed()
+        }
+        row.append(count)
+      }
       if (kind === "topic")
         row.append(
           node(
@@ -125,7 +195,11 @@ export function createSettings({ getSnapshot, action, message, onSaved, refresh 
       ]) {
         const button = node("button", symbol)
         button.type = "button"
-        button.disabled = index + delta < 0 || index + delta >= items.length
+        button.disabled =
+          locked ||
+          index + delta < 0 ||
+          index + delta >= items.length ||
+          (pinned && items[index + delta]?.id === "activity")
         button.dataset.boundary = String(button.disabled)
         button.setAttribute("aria-label", `${label}${item[titleKey]}`)
         button.onclick = () => {
@@ -146,7 +220,7 @@ export function createSettings({ getSnapshot, action, message, onSaved, refresh 
             message("此专题仍有文章，请先调整文章专题。", true)
             return
           }
-          items.splice(index, 1)
+          items.splice(items.indexOf(item), 1)
           renderRows()
           changed()
         }
@@ -156,29 +230,33 @@ export function createSettings({ getSnapshot, action, message, onSaved, refresh 
     })
   }
   function renderRows() {
+    const sections = orderedSections(working)
+    working.home.sections.splice(0, working.home.sections.length, ...sections)
     ordered("section-settings", working.home.sections, "section")
     ordered("topic-settings", working.topics, "topic")
     ordered("collection-settings", working.collections, "collection")
     ordered("navigation-settings", working.navigation, "navigation")
   }
-  function load(snapshot) {
+  function load(snapshot, restoreDraft = true) {
     openedSha = snapshot.siteSha
-    working = structuredClone(snapshot.settings)
+    working = normalizeSite(snapshot.settings)
     working.imageHost = { ...imageHostSettings(working) }
     working.topics = topicList(working, snapshot.catalog.articles).map(
       ({ count, ...topic }) => topic,
     )
     baseline = JSON.stringify(working)
-    for (const input of $("site-form").querySelectorAll("[data-setting]")) {
-      input.value = get(working, input.dataset.setting)
-      input.oninput = () => {
-        if (input.dataset.setting.includes(".")) set(working, input.dataset.setting, input.value)
-        else working[input.dataset.setting] = input.value
-        changed()
-      }
+    const draft = restoreDraft && storage && readLayoutDraft(storage)
+    if (draft) {
+      working = normalizeSite(draft.settings)
+      working.imageHost = { ...imageHostSettings(working) }
+      openedSha = draft.openedSha
+      if (openedSha !== snapshot.siteSha)
+        message("已恢复旧版本草稿；远端设置有更新，请先导出草稿再重新载入。", true)
     }
+    bindFields()
     renderRows()
     changed()
+    preview.load()
     fetch(new URL("auth-config.json", location.href), { cache: "no-store" })
       .then((response) => response.json())
       .then((config) => {
@@ -230,23 +308,56 @@ export function createSettings({ getSnapshot, action, message, onSaved, refresh 
       $("add-topic").click()
     }
   }
+  $("save-layout-draft").onclick = () => {
+    persist()
+    if ($("settings-state").textContent === "草稿已暂存") message("布局草稿已保存在当前浏览器。")
+  }
+  $("reset-design").onclick = () => {
+    working.design = {
+      ...DEFAULT_DESIGN,
+      accentColor: ACCENT_COLORS[working.accent][0],
+      darkAccentColor: ACCENT_COLORS[working.accent][1],
+    }
+    bindFields()
+    changed()
+  }
+  $("restore-settings").onclick = () =>
+    action(async () => {
+      working = normalizeSite(await getSnapshot().client.previousSettings())
+      working.imageHost = { ...imageHostSettings(working) }
+      // Preserve occupied topic URLs when restoring an older layout.
+      const occupied = new Set(getSnapshot().catalog.articles.map((article) => article.category))
+      for (const current of getSnapshot().settings.topics) {
+        if (!occupied.has(current.category)) continue
+        const previous = working.topics.find((topic) => topic.category === current.category)
+        if (previous) previous.id = current.id
+        else working.topics.push(structuredClone(current))
+      }
+      bindFields()
+      renderRows()
+      changed()
+      message("已载入上一版设置，发布后生效。")
+    })
   $("site-form").onsubmit = (event) => {
     event.preventDefault()
     action(async () => {
       validateSite(working)
-      message("正在保存页面…")
+      message("正在发布页面…")
       await getSnapshot().client.saveSettings({ openedSha, settings: structuredClone(working) })
+      if (storage) clearLayoutDraft(storage)
       const latest = await refresh()
-      load(latest)
+      load(latest, false)
       onSaved(latest)
-      message("页面已保存，正在部署。", false, "https://github.com/LeiGuo0812/howard-notes/actions")
+      message("页面已发布，正在部署。", false, "https://github.com/LeiGuo0812/howard-notes/actions")
     })
   }
   $("reload-settings").onclick = () => {
-    if (!dirty() || confirm("放弃未保存的页面设置？"))
+    if (!dirty() || confirm("放弃布局草稿并载入已发布设置？"))
       action(async () => {
-        load(await refresh())
-        message("已载入最新设置。")
+        const latest = await refresh()
+        if (storage) clearLayoutDraft(storage)
+        load(latest, false)
+        message("已载入已发布设置。")
       })
   }
   $("export-settings").onclick = () => {

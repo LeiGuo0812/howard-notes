@@ -6,6 +6,7 @@ import { topicList, collectionArticles, validateSite } from "./site-settings.mjs
 import { splitNote } from "./library.mjs"
 import { safeRelative } from "./catalog.mjs"
 import { createdDay, modifiedDay } from "./note-dates.mjs"
+import { sectionLimit, sitePages } from "./site-design.mjs"
 
 function excerpt(bytes) {
   if (!bytes) return ""
@@ -68,6 +69,7 @@ export function generateSitePages(
     modified: modifiedDay(article),
     category:
       topics.find((topic) => topic.category === article.category)?.title || article.category,
+    categoryKey: article.category,
     excerpt: article.description || excerpt(sources.get(article.file)),
     tags: tags
       .filter((tag) => tag.articleIds.includes(article.id))
@@ -146,22 +148,26 @@ export function generateSitePages(
       settings,
       total: published.length,
       activity,
-      topics: topics.map((topic) => ({
-        ...topic,
-        preview: collectionArticles(
+      topics: topics.map((topic) => {
+        const previewPool = collectionArticles(
           "recent",
           published.filter((a) => a.category === topic.category),
         )
-          .slice(0, 4)
-          .map((a) => rows.get(a.id)),
-      })),
+          .slice(0, 5)
+          .map((a) => rows.get(a.id))
+        return {
+          ...topic,
+          preview: previewPool.slice(0, sitePages(settings).topicPreviewCount),
+          previewPool,
+        }
+      }),
       tags: tags.map(({ articleIds, ...tag }) => tag),
       articles: all.map((article) => rows.get(article.id)),
       featured: collectionArticles("featured", published)
         .slice(0, 6)
         .map((a) => rows.get(a.id)),
       recent: collectionArticles("recent", published)
-        .slice(0, 6)
+        .slice(0, sectionLimit(settings.home.sections.find((section) => section.id === "recent")))
         .map((a) => rows.get(a.id)),
       collections: settings.collections.map((item) => ({
         ...item,

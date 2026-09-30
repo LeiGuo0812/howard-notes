@@ -4,6 +4,7 @@ export const COLLECTION_IDS = ["recent", "featured", "all"]
 export const NAV_IDS = ["notes", "topics", "tags", "about"]
 import { sortNotes } from "./note-dates.mjs"
 import { validateImageHost } from "./image-host.mjs"
+import { validateDesign } from "./site-design.mjs"
 const text = (value, limit, required = true) =>
   typeof value === "string" && value.length <= limit && (!required || !!value.trim())
 const id = (value) =>
@@ -13,6 +14,7 @@ function unique(items, key) {
 }
 
 export function validateSite(settings) {
+  validateDesign(settings)
   if (settings?.imageHost !== undefined) validateImageHost(settings.imageHost)
   if (
     settings?.version !== 1 ||

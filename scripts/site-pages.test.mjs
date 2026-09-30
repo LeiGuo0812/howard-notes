@@ -6,6 +6,12 @@ import { generateSitePages, tagList } from "./lib/site-pages.mjs"
 import { validateSite, topicList } from "./lib/site-settings.mjs"
 import { splitNote } from "./lib/library.mjs"
 import { parseNoteDate, sortNotes } from "./lib/note-dates.mjs"
+import {
+  normalizeSite,
+  applyHomeTemplate,
+  orderedSections,
+  designVariables,
+} from "./lib/site-design.mjs"
 const settings = JSON.parse(await fs.readFile("library/site.json", "utf8"))
 const article = (index, extra = {}) => ({
   id: `note-${index}`,
@@ -16,6 +22,55 @@ const article = (index, extra = {}) => ({
   published: true,
   featured: index === 0,
   ...extra,
+})
+
+test("layout defaults preserve existing configuration; templates and heatmap pinning are independent", () => {
+  const before = structuredClone(settings),
+    normalized = normalizeSite(settings)
+  assert.deepEqual(settings, before)
+  assert.equal(normalized.pages.homeTemplate, "classic")
+  assert.equal(normalized.pages.articleLayout, "wide")
+  assert.equal(normalized.design.contentWidth, 1200)
+  assert.equal(normalized.design.accentColor, "#365f8b")
+  const knowledge = applyHomeTemplate(settings, "knowledge")
+  assert.equal(knowledge.home.sections[0].id, "topics")
+  assert.equal(knowledge.home.sections.find((section) => section.id === "tags").enabled, true)
+  const activity = knowledge.home.sections.find((section) => section.id === "activity")
+  knowledge.home.sections = [
+    activity,
+    ...knowledge.home.sections.filter((section) => section !== activity),
+  ]
+  assert.equal(orderedSections(knowledge).at(-1).id, "activity")
+  knowledge.home.activityPinned = false
+  assert.equal(orderedSections(knowledge)[0].id, "activity")
+  assert.doesNotThrow(() => validateSite(knowledge))
+})
+test("style validation rejects injected CSS and invalid sizes; configured counts exclude unpublished notes", () => {
+  const configured = normalizeSite(settings)
+  configured.design.accentColor = "#884466"
+  configured.home.sections.find((section) => section.id === "recent").limit = 9
+  configured.pages.topicPreviewCount = 3
+  const articles = Array.from({ length: 15 }, (_, i) => article(i))
+  articles.push(article(99, { published: false }))
+  const result = generateSitePages(configured, { version: 2, articles }, readActivity(articles))
+  assert.equal(result.data.recent.length, 9)
+  assert.equal(result.data.topics[0].preview.length, 3)
+  assert.equal(result.data.topics[0].previewPool.length, 5)
+  assert.ok(result.data.recent.every((row) => row.id !== "note-99"))
+  assert.equal(designVariables(configured)["--site-accent-light"], "#884466")
+  for (const [key, value] of [
+    ["accentColor", "red;background:url(https://example.test)"],
+    ["font", "url(bad)"],
+    ["fontSize", 100],
+    ["lineHeight", Infinity],
+    ["radius", -1],
+  ]) {
+    const invalid = structuredClone(configured)
+    invalid.design[key] = value
+    assert.throws(() => validateSite(invalid), /样式/)
+  }
+  configured.pages.topicLayout = "arbitrary"
+  assert.throws(() => validateSite(configured), /模板/)
 })
 
 test("original Obsidian dates preserve China calendar days, ordinal dates and ISO zones", () => {

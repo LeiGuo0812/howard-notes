@@ -7,6 +7,12 @@ import { cloneElement, isValidElement, ComponentChildren } from "preact"
 import siteSettings from "../../library/site.json"
 import { ARTICLES_PER_PAGE } from "./scripts/browsing"
 import { prepareArticleImages } from "../util/article-images"
+import {
+  designStyle,
+  orderedSections,
+  sectionLimit,
+  sitePages,
+} from "../../scripts/lib/site-design.mjs"
 // @ts-ignore Quartz's inline-script loader turns this module into a JavaScript string.
 import browserScript from "./scripts/note-browser.inline"
 
@@ -17,6 +23,7 @@ type Row = {
   created: string
   modified: string
   category: string
+  categoryKey?: string
   excerpt: string
   tags: { id: string; title: string }[]
 }
@@ -27,6 +34,7 @@ type Topic = {
   visible: boolean
   count: number
   preview: Row[]
+  previewPool: Row[]
 }
 type Day = {
   date: string
@@ -87,28 +95,28 @@ export const BlogNav: QuartzComponent = (props) => (
         {data().settings.brand.mark}
       </span>
       <span>
-        {data().settings.brand.name}
+        <span class="brand-name">{data().settings.brand.name}</span>
         <span class="brand-subtitle">{data().settings.brand.subtitle}</span>
       </span>
     </a>
     <nav class="blog-nav" aria-label="主导航">
-      {data()
-        .settings.navigation.filter((item) => item.visible)
-        .map((item) => (
-          <a
-            class="internal"
-            data-no-popover="true"
-            href={href(props, navRoutes[item.id])}
-            aria-current={
-              (item.id === "notes" && props.fileData.slug?.startsWith("collections/")) ||
-              props.fileData.slug?.startsWith(navRoutes[item.id].replace("/index", ""))
-                ? "page"
-                : undefined
-            }
-          >
-            {item.label}
-          </a>
-        ))}
+      {data().settings.navigation.map((item) => (
+        <a
+          class="internal"
+          data-nav-id={item.id}
+          hidden={!item.visible}
+          data-no-popover="true"
+          href={href(props, navRoutes[item.id])}
+          aria-current={
+            (item.id === "notes" && props.fileData.slug?.startsWith("collections/")) ||
+            props.fileData.slug?.startsWith(navRoutes[item.id].replace("/index", ""))
+              ? "page"
+              : undefined
+          }
+        >
+          {item.label}
+        </a>
+      ))}
     </nav>
   </>
 )
@@ -117,19 +125,19 @@ BlogNav.afterDOMLoaded = browserScript
 function TopicChips({ props }: { props: QuartzComponentProps }) {
   return (
     <nav class="topic-chips" aria-label="专题标签">
-      {data()
-        .topics.filter((topic) => topic.visible)
-        .map((topic) => (
-          <a
-            class="internal topic-chip"
-            data-no-popover="true"
-            id={slug(topic.category)}
-            href={href(props, `topics/${topic.id}`)}
-          >
-            <span>{topic.title}</span>
-            <small>{topic.count}</small>
-          </a>
-        ))}
+      {data().topics.map((topic) => (
+        <a
+          class="internal topic-chip"
+          data-topic-id={topic.id}
+          hidden={!topic.visible}
+          data-no-popover="true"
+          id={slug(topic.category)}
+          href={href(props, `topics/${topic.id}`)}
+        >
+          <span>{topic.title}</span>
+          <small>{topic.count}</small>
+        </a>
+      ))}
     </nav>
   )
 }
@@ -157,19 +165,19 @@ function TagChips({
 function CollectionChips({ props }: { props: QuartzComponentProps }) {
   return (
     <nav class="topic-chips collection-chips" aria-label="文章入口">
-      {data()
-        .collections.filter((item) => item.enabled)
-        .map((item) => (
-          <a
-            class="internal topic-chip"
-            data-no-popover="true"
-            href={href(props, `collections/${item.id}`)}
-          >
-            <span>{item.title}</span>
-            <small>{item.count}</small>
-            <span aria-hidden="true">↗</span>
-          </a>
-        ))}
+      {data().collections.map((item) => (
+        <a
+          class="internal topic-chip"
+          data-collection-id={item.id}
+          hidden={!item.enabled}
+          data-no-popover="true"
+          href={href(props, `collections/${item.id}`)}
+        >
+          <span>{item.title}</span>
+          <small>{item.count}</small>
+          <span aria-hidden="true">↗</span>
+        </a>
+      ))}
     </nav>
   )
 }
@@ -177,14 +185,17 @@ function NotePreview({
   props,
   row,
   compact = false,
+  hidden = false,
 }: {
   props: QuartzComponentProps
   row: Row
   compact?: boolean
+  hidden?: boolean
 }) {
   return (
     <a
       class={`internal note-preview${compact ? " compact-preview" : ""}`}
+      hidden={hidden}
       data-no-popover="true"
       href={href(props, `notes/${row.id}`)}
     >
@@ -195,40 +206,50 @@ function NotePreview({
         </time>
       </div>
       {row.excerpt && <p>{row.excerpt}</p>}
-      {!compact && <small>{row.category}</small>}
+      {!compact && <small data-category={row.categoryKey || row.category}>{row.category}</small>}
     </a>
   )
 }
 function TopicDirectory({ props }: { props: QuartzComponentProps }) {
   return (
-    <div class="topic-directory">
-      {data()
-        .topics.filter((topic) => topic.visible)
-        .map((topic) => (
-          <section class="topic-section" aria-labelledby={`topic-${topic.id}`}>
-            <div class="topic-section-heading">
-              <h2 id={`topic-${topic.id}`}>
-                <a class="internal" data-no-popover="true" href={href(props, `topics/${topic.id}`)}>
-                  {topic.title}
-                </a>
-              </h2>
-              <a
-                class="internal topic-more"
-                data-no-popover="true"
-                href={href(props, `topics/${topic.id}`)}
-              >
-                {topic.count} 篇 <span aria-hidden="true">↗</span>
+    <div class={`topic-directory topic-layout-${sitePages(data().settings).topicLayout}`}>
+      {data().topics.map((topic) => (
+        <section
+          class="topic-section"
+          data-topic-id={topic.id}
+          hidden={!topic.visible}
+          aria-labelledby={`topic-${topic.id}`}
+        >
+          <div class="topic-section-heading">
+            <h2 id={`topic-${topic.id}`}>
+              <a class="internal" data-no-popover="true" href={href(props, `topics/${topic.id}`)}>
+                {topic.title}
               </a>
-            </div>
-            <div class="topic-note-previews">
-              {topic.preview.length ? (
-                topic.preview.map((row) => <NotePreview props={props} row={row} compact />)
-              ) : (
-                <p class="empty-list">暂无文章</p>
-              )}
-            </div>
-          </section>
-        ))}
+            </h2>
+            <a
+              class="internal topic-more"
+              data-no-popover="true"
+              href={href(props, `topics/${topic.id}`)}
+            >
+              {topic.count} 篇 <span aria-hidden="true">↗</span>
+            </a>
+          </div>
+          <div class="topic-note-previews">
+            {topic.preview.length ? (
+              topic.previewPool.map((row, index) => (
+                <NotePreview
+                  props={props}
+                  row={row}
+                  compact
+                  hidden={index >= sitePages(data().settings).topicPreviewCount}
+                />
+              ))
+            ) : (
+              <p class="empty-list">暂无文章</p>
+            )}
+          </div>
+        </section>
+      ))}
     </div>
   )
 }
@@ -408,20 +429,25 @@ export const BlogHome: QuartzComponent = (props) => {
   if (props.fileData.slug !== "index") return null
   const { settings, total } = data()
   // Keep activity last even when older saved settings used another order.
-  const sections = settings.home.sections
-    .filter((section) => section.enabled)
-    .sort((a, b) => Number(a.id === "activity") - Number(b.id === "activity"))
+  const sections = orderedSections(settings)
   return (
-    <div class={`home-workspace layout-${settings.home.layout} density-${settings.home.density}`}>
+    <div
+      class={`home-workspace layout-${settings.home.layout} density-${settings.home.density}`}
+      data-home-template={sitePages(settings).homeTemplate}
+    >
       <div class="home-heading">
         <h1>{settings.home.title}</h1>
         <span>{total} 篇</span>
       </div>
-      {settings.home.description && <p class="home-description">{settings.home.description}</p>}
+      <p class="home-description" hidden={!settings.home.description}>
+        {settings.home.description}
+      </p>
       <div class="home-modules">
         {sections.map((section) => (
           <section
             class={`home-module module-${section.id}`}
+            data-section-id={section.id}
+            hidden={!section.enabled}
             aria-labelledby={`section-${section.id}`}
           >
             <div class="module-heading">
@@ -463,9 +489,13 @@ export const BlogHome: QuartzComponent = (props) => {
             </div>
             {section.id === "featured" ? (
               <>
-                <div class="home-note-previews lucky-previews" id="random-notes">
+                <div
+                  class="home-note-previews lucky-previews"
+                  id="random-notes"
+                  data-count={sectionLimit(section)}
+                >
                   {data()
-                    .recent.slice(0, 3)
+                    .articles.slice(0, sectionLimit(section))
                     .map((row) => (
                       <NotePreview props={props} row={row} />
                     ))}
@@ -606,7 +636,11 @@ export const BlogFrame: PageFrame = {
       ? data().articles.find((row) => componentData.fileData.slug === `notes/${row.id}`)
       : undefined
     return (
-      <div class={`site-surface accent-${data().settings.accent}`}>
+      <div
+        class={`site-surface accent-${data().settings.accent}`}
+        data-article-layout={sitePages(data().settings).articleLayout}
+        style={designStyle(data().settings)}
+      >
         <a class="skip-link" href="#main-content">
           跳到正文
         </a>

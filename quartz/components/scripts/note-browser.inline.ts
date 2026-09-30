@@ -1,12 +1,14 @@
 import { paginateItems, sampleItems } from "./browsing"
+import { setupLayoutPreview } from "./layout-preview"
 
 function setupNoteBrowser() {
   const recommendations = document.querySelector<HTMLElement>("#random-notes")
   const pool = document.querySelector<HTMLTemplateElement>("#random-note-pool")
+  let redraw = () => {}
   if (recommendations && pool) {
     const notes = [...pool.content.querySelectorAll<HTMLAnchorElement>(".note-preview")]
     const draw = () => {
-      let chosen = sampleItems(notes)
+      let chosen = sampleItems(notes, Number(recommendations.dataset.count) || 3)
       // Always change at least one article when there is a larger pool.
       const previous = new Set(
         [...recommendations.querySelectorAll<HTMLAnchorElement>(".note-preview")].map((note) =>
@@ -31,7 +33,9 @@ function setupNoteBrowser() {
     refresh?.addEventListener("click", draw)
     window.addCleanup(() => refresh?.removeEventListener("click", draw))
     draw()
+    redraw = draw
   }
+  setupLayoutPreview(redraw)
   const scrollControls = document.querySelector<HTMLElement>(".reading-scroll-controls")
   if (scrollControls) {
     const jump = (event: MouseEvent) => {

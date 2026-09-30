@@ -200,6 +200,12 @@ export class GitHubLibrary {
       "Update site layout and topics",
     )
   }
+  async previousSettings() {
+    const commits = await this.repo(`commits?path=${encodeURIComponent(SITE_PATH)}&per_page=2`)
+    if (commits.length < 2) throw new Error("尚无上一版页面设置。")
+    const blob = await this.repo(`contents/${SITE_PATH}?ref=${encodeURIComponent(commits[1].sha)}`)
+    return validateSite(JSON.parse(decodeBase64(blob.content)))
+  }
   async removeDraft({ opened, openedSha }) {
     if (!opened || opened.published !== false) throw new Error("只能删除未发布的草稿。")
     const latest = await this.snapshot()

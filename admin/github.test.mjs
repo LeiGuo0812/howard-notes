@@ -2,7 +2,42 @@ import test from "node:test"
 import assert from "node:assert/strict"
 import { GitHubLibrary, decodeBase64 } from "./github.mjs"
 import fs from "node:fs/promises"
+import { readLayoutDraft, writeLayoutDraft, clearLayoutDraft } from "./layout-draft.mjs"
 const settings = JSON.parse(await fs.readFile("library/site.json", "utf8"))
+
+test("layout drafts persist the original version without credentials or repository writes", () => {
+  const values = new Map()
+  const storage = {
+    getItem: (key) => values.get(key),
+    setItem: (key, value) => values.set(key, value),
+    removeItem: (key) => values.delete(key),
+  }
+  assert.equal(readLayoutDraft(storage), null)
+  writeLayoutDraft(storage, "baseline-sha", settings)
+  const restored = readLayoutDraft(storage)
+  assert.equal(restored.openedSha, "baseline-sha")
+  assert.deepEqual(restored.settings, settings)
+  assert.ok(!JSON.stringify(restored).includes("token"))
+  clearLayoutDraft(storage)
+  assert.equal(readLayoutDraft(storage), null)
+  storage.setItem("howard-notes:layout-draft:v1", "broken-json")
+  assert.equal(readLayoutDraft(storage), null)
+})
+test("restore previous layout reads settings history without creating a commit", async () => {
+  const client = new GitHubLibrary("test-not-a-token"),
+    calls = []
+  client.repo = async (endpoint) => {
+    calls.push(endpoint)
+    return endpoint.startsWith("commits?")
+      ? [{ sha: "current" }, { sha: "previous" }]
+      : { content: Buffer.from(JSON.stringify(settings)).toString("base64") }
+  }
+  assert.deepEqual(await client.previousSettings(), settings)
+  assert.equal(calls.length, 2)
+  assert.ok(calls[1].endsWith("ref=previous"))
+  client.repo = async () => [{ sha: "only" }]
+  await assert.rejects(client.previousSettings(), /尚无/)
+})
 const article = {
   id: "a",
   file: "notes/a.md",

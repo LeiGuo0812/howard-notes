@@ -168,7 +168,9 @@
               <span id="settings-state" class="small">已保存</span
               ><button id="reload-settings" type="button">重新载入</button
               ><button id="export-settings" type="button">导出</button
-              ><button id="save-settings" class="primary" type="submit">保存页面</button>
+              ><button id="save-layout-draft" type="button">暂存草稿</button
+              ><button id="restore-settings" type="button">恢复上一版</button
+              ><button id="save-settings" class="primary" type="submit">发布页面</button>
             </div>
           </div>
           <div class="settings-grid">
@@ -210,6 +212,13 @@
               <fieldset>
                 <legend>首页</legend>
                 <div class="fields">
+                  <label
+                    >首页模板<select data-setting="pages.homeTemplate">
+                      <option value="classic">当前布局</option>
+                      <option value="articles">文章为主</option>
+                      <option value="knowledge">知识库为主</option>
+                    </select></label
+                  >
                   <label>标题<input data-setting="home.title" required maxlength="80" /></label
                   ><label>副标题<input data-setting="home.description" maxlength="200" /></label
                   ><label
@@ -230,7 +239,91 @@
                     </select></label
                   >
                 </div>
+                <label class="inline-check"
+                  ><input type="checkbox" data-setting="home.activityPinned" />热图固定在底部</label
+                >
                 <div id="section-settings" class="ordered-settings"></div>
+              </fieldset>
+              <fieldset>
+                <legend>模板与样式</legend>
+                <div class="fields">
+                  <label
+                    >专题布局<select data-setting="pages.topicLayout">
+                      <option value="list">纵向列表</option>
+                      <option value="cards">卡片布局</option>
+                    </select></label
+                  >
+                  <label
+                    >专题预览篇数<select data-setting="pages.topicPreviewCount" data-number>
+                      <option value="3">3 篇</option>
+                      <option value="4">4 篇</option>
+                      <option value="5">5 篇</option>
+                    </select></label
+                  >
+                  <label
+                    >阅读布局<select data-setting="pages.articleLayout">
+                      <option value="wide">宽屏</option>
+                      <option value="centered">居中</option>
+                    </select></label
+                  >
+                  <label
+                    >字体<select data-setting="design.font">
+                      <option value="sans">黑体</option>
+                      <option value="serif">宋体</option>
+                      <option value="system">系统字体</option>
+                    </select></label
+                  >
+                  <label>浅色主色<input type="color" data-setting="design.accentColor" /></label>
+                  <label
+                    >深色主色<input type="color" data-setting="design.darkAccentColor"
+                  /></label>
+                  <label
+                    >正文字号<input
+                      type="number"
+                      min="14"
+                      max="22"
+                      step="1"
+                      data-number
+                      data-setting="design.fontSize"
+                  /></label>
+                  <label
+                    >正文行距<input
+                      type="number"
+                      min="1.4"
+                      max="2.4"
+                      step="0.05"
+                      data-number
+                      data-setting="design.lineHeight"
+                  /></label>
+                  <label
+                    >正文最大宽度<input
+                      type="number"
+                      min="760"
+                      max="1440"
+                      step="10"
+                      data-number
+                      data-setting="design.contentWidth"
+                  /></label>
+                  <label
+                    >卡片间距<input
+                      type="number"
+                      min="8"
+                      max="40"
+                      step="1"
+                      data-number
+                      data-setting="design.cardGap"
+                  /></label>
+                  <label
+                    >圆角<input
+                      type="number"
+                      min="0"
+                      max="24"
+                      step="1"
+                      data-number
+                      data-setting="design.radius"
+                  /></label>
+                </div>
+                <button id="reset-design" type="button">恢复默认样式</button>
               </fieldset>
               <fieldset>
                 <legend>专题标签</legend>
@@ -271,9 +364,41 @@
                 </label>
               </fieldset>
             </div>
-            <aside class="layout-preview-panel">
-              <div class="preview-label">首页预览</div>
-              <div id="layout-preview" class="layout-preview"></div>
+            <aside class="layout-preview-panel" id="site-preview-panel">
+              <div class="site-preview-toolbar">
+                <label
+                  >页面<select id="preview-page">
+                    <option value="home">首页</option>
+                    <option value="topics">专题</option>
+                    <option value="notes">文章列表</option>
+                    <option value="article">阅读页</option>
+                  </select></label
+                >
+                <label
+                  >尺寸<select id="preview-device">
+                    <option value="desktop">桌面</option>
+                    <option value="tablet">平板</option>
+                    <option value="mobile">手机</option>
+                  </select></label
+                >
+                <label
+                  >主题<select id="preview-theme">
+                    <option value="light">浅色</option>
+                    <option value="dark">深色</option>
+                  </select></label
+                >
+                <button id="expand-site-preview" type="button">展开预览</button>
+                <button id="retry-site-preview" type="button">重试</button>
+              </div>
+              <select id="preview-article" aria-label="预览文章" hidden></select>
+              <span id="site-preview-state" role="status" class="small"></span>
+              <div id="site-preview-stage" class="site-preview-stage">
+                <iframe
+                  id="site-preview-frame"
+                  title="完整页面预览"
+                  sandbox="allow-scripts allow-same-origin"
+                ></iframe>
+              </div>
             </aside>
           </div>
         </form>

@@ -1,0 +1,35 @@
+export interface DesignSettings {
+  font: "sans" | "serif" | "system"
+  fontSize: number
+  lineHeight: number
+  contentWidth: number
+  cardGap: number
+  radius: number
+  accentColor: string
+  darkAccentColor: string
+}
+export interface PageSettings {
+  homeTemplate: "classic" | "articles" | "knowledge"
+  topicLayout: "list" | "cards"
+  articleLayout: "wide" | "centered"
+  topicPreviewCount: number
+}
+export const DEFAULT_DESIGN: Readonly<Omit<DesignSettings, "accentColor" | "darkAccentColor">>
+export const DEFAULT_PAGES: Readonly<PageSettings>
+export const ACCENT_COLORS: Readonly<Record<string, [string, string]>>
+export function siteDesign(settings: unknown): DesignSettings
+export function sitePages(settings: unknown): PageSettings
+export function normalizeSite<T extends { home: { sections: unknown[] } }>(
+  settings: T,
+): T & { design: DesignSettings; pages: PageSettings }
+export function sectionLimit(section: unknown): number
+export function orderedSections<T extends { home: { sections: unknown[] } }>(
+  settings: T,
+): T["home"]["sections"]
+export function applyHomeTemplate<T extends { home: { sections: unknown[] } }>(
+  settings: T,
+  template: string,
+): T & { design: DesignSettings; pages: PageSettings }
+export function designVariables(settings: unknown): Record<string, string>
+export function designStyle(settings: unknown): string
+export function validateDesign(settings: unknown): void
