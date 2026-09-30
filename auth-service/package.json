@@ -1,0 +1,13 @@
+{
+  "name": "howard-notes-login",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --test worker.test.mjs",
+    "login": "wrangler login",
+    "setup": "node setup.mjs"
+  },
+  "devDependencies": {
+    "wrangler": "4.144.0"
+  }
+}

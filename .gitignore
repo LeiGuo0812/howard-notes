@@ -22,3 +22,7 @@ output/
 .local/
 .sync/
 content/
+
+.wrangler/
+.dev.vars
+auth-service/wrangler.local.json

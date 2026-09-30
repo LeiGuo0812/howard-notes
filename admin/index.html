@@ -18,40 +18,15 @@
   <body>
     <header class="topbar">
       <a class="brand" href="../">h. <span>Howard / 管理</span></a>
-      <div class="account"><span id="account"></span><button id="logout" hidden>退出</button></div>
+      <div class="account">
+        <span id="account"></span><button id="reconnect" hidden>重新登录</button
+        ><button id="logout" hidden>退出</button>
+      </div>
     </header>
     <main>
       <section id="login-panel" class="login-panel">
         <h1>管理</h1>
-        <form id="login-form">
-          <label for="token">GitHub 访问令牌</label
-          ><input
-            id="token"
-            type="password"
-            autocomplete="off"
-            required
-            placeholder="仅授权 howard-notes"
-          /><button type="submit" class="primary">登录</button>
-        </form>
-        <details>
-          <summary>首次登录</summary>
-          <ol>
-            <li>
-              在
-              <a
-                href="https://github.com/settings/personal-access-tokens/new"
-                target="_blank"
-                rel="noopener noreferrer"
-                >GitHub</a
-              >
-              创建 Fine-grained token。
-            </li>
-            <li>选择 howard-notes，将 Contents 设为 Read and write。</li>
-            <li>粘贴令牌登录。刷新或退出后清除。</li>
-          </ol>
-          <p class="small">公开仓库中的草稿也可被访问。</p>
-          <a href="../maintenance">维护说明</a>
-        </details>
+        <button id="login-button" class="primary">使用 GitHub 登录</button>
       </section>
       <nav id="admin-tabs" class="admin-tabs" aria-label="管理功能" hidden>
         <button id="tab-articles" aria-current="page">文章</button

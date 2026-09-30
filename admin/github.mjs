@@ -37,7 +37,7 @@ export class GitHubLibrary {
         response.status === 401
           ? "登录凭据无效或已过期，请重新登录。"
           : response.status === 403
-            ? "GitHub 拒绝了请求。请检查令牌的仓库权限或 API 额度。"
+            ? "GitHub 拒绝了请求。请检查应用的仓库权限，或稍后重试。"
             : [409, 422].includes(response.status)
               ? "远端发生变化，本次未覆盖任何远端内容。请重新载入后再保存。"
               : `GitHub 请求失败（${response.status}），请稍后重试。`,
@@ -53,7 +53,7 @@ export class GitHubLibrary {
   async authenticate() {
     const user = await this.request("/user")
     const repository = await this.request(`/repos/${REPOSITORY}`)
-    if (!repository.permissions?.push) throw new Error("当前账号或令牌没有此仓库的写入权限。")
+    if (!repository.permissions?.push) throw new Error("当前账号没有此仓库的写入权限。")
     return user.login
   }
   async snapshot() {
