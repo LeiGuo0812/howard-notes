@@ -3,11 +3,13 @@ import { frameRegistry } from "./quartz/components/frames/registry"
 import { BlogFrame, BlogNav, BlogHome, BlogFooter } from "./quartz/components/Blog"
 import { PageTypeDispatcher } from "./quartz/plugins/pageTypes/dispatcher"
 import siteSettings from "./library/site.json"
+import { BrandIcon } from "./quartz/plugins/emitters/brandIcon"
 
 frameRegistry.register("blog", BlogFrame, "howard-notes")
 const config = await loadQuartzConfig()
 config.configuration.pageTitle = `${siteSettings.brand.name} ${siteSettings.brand.subtitle}`.trim()
 config.configuration.pageTitleSuffix = ` | ${siteSettings.brand.name}`
+config.plugins.emitters.push(BrandIcon())
 export default config
 export const layout = await loadQuartzLayout()
 for (const section of [layout.defaults, ...Object.values(layout.byPageType)]) {

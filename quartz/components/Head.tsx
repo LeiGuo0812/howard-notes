@@ -4,6 +4,8 @@ import { CSSResourceToStyleElement, JSResourceToScriptElement } from "../util/re
 import { googleFontHref, googleFontSubsetHref } from "../util/theme"
 import { QuartzComponent, QuartzComponentConstructor, QuartzComponentProps } from "./types"
 import { unescapeHTML } from "../util/escape"
+import { brandIcon } from "../../scripts/lib/site-icon.mjs"
+import siteSettings from "../../library/site.json"
 
 export default (() => {
   const Head: QuartzComponent = ({
@@ -25,7 +27,7 @@ export default (() => {
     const url = new URL(`https://${cfg.baseUrl ?? "example.com"}`)
     const path = url.pathname as FullSlug
     const baseDir = fileData.slug === "404" ? path : pathToRoot(fileData.slug!)
-    const iconPath = joinSegments(baseDir, "static/icon.png")
+    const iconPath = joinSegments(baseDir, `static/${brandIcon(siteSettings).basename}`)
 
     // Url of current page
     const socialUrl =
@@ -91,7 +93,10 @@ export default (() => {
           </>
         )}
 
-        <link rel="icon" href={iconPath} />
+        <link rel="icon" href={`${iconPath}.ico`} sizes="16x16 32x32 48x48" />
+        <link rel="icon" href={`${iconPath}-32.png`} type="image/png" sizes="32x32" />
+        <link rel="icon" href={`${iconPath}.svg`} type="image/svg+xml" sizes="any" />
+        <link rel="apple-touch-icon" href={`${iconPath}-180.png`} sizes="180x180" />
         <meta name="description" content={description} />
         <meta name="generator" content="Quartz" />
         <link rel="canonical" href={socialUrl} />

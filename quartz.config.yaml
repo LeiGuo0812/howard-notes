@@ -97,7 +97,7 @@ plugins:
       rssLimit: 20
       rssFullHtml: false
   - source: "@quartz-community/favicon"
-    enabled: true
+    enabled: false
   - source: "@quartz-community/content-page"
     enabled: true
   - source: "@quartz-community/folder-page"

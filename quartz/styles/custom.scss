@@ -1214,9 +1214,18 @@ a.article-row.internal {
   }
   ul.toc-content.overflow {
     max-height: none;
+    // The complete rail scrolls in .reading-tools. Quartz's inner overflow
+    // list otherwise traps wheel gestures over entries, even when the list
+    // itself has no overflow; keep a single scroll container for every area.
+    overflow: visible;
+    overscroll-behavior: auto;
+    mask-image: none;
     margin-top: 12px;
     font-size: 12px;
     line-height: 1.75;
+    &.collapsed {
+      display: none;
+    }
     > li {
       margin: 6px 0;
     }

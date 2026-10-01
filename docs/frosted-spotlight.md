@@ -50,6 +50,20 @@
 
 追加截图在 `output/playwright/independent-*.png`，验收记录在 `.local/independent-*.log`。
 
+## 浅色柔光、目录滚轮与品牌图标
+
+2026-10-01。浅色追光改用更浅的冰蓝色：内层 `rgb(166 216 245 / 22%)`、外层 `rgb(159 215 242 / 9%)`、边缘 `rgb(119 184 222 / 50%)`；深色参数保留。公开页面、阅读目录和后台共用同一组变量。实际比较同一卡片的静态底板、旧参数与新参数截图，排除文字像素后，鼠标中心 40px 内的平均 RGB 通道变化从 32.02 降到 7.08，确认颜色变化明显变淡；仍检查了左上、中心、右下跟随与离开淡出。
+
+长目录原有内层 `ul.toc-content.overflow` 在没有自身溢出时仍继承 `overflow:auto` 与 `overscroll-behavior:contain`，鼠标在链接或列表空白上会阻断外层侧栏滚动。改为内层可见溢出、允许滚动传播、移除渐隐蒙版；外层 `.reading-tools` 统一负责桌面滚动，不增加 JavaScript 滚轮拦截。另外恢复目录自身的实际折叠，折叠列表使用 `display:none`。
+
+- Chromium 与 Firefox 均用真实滚轮检查三篇含 45／74／77 项标题的长目录，覆盖 1440×1000、1440×720、1280×900，以及图谱、间隙、标题、目录链接、列表空白、内边距、滚动条边七个区域。上下滚轮均滚动侧栏，正文与内层不动，末尾目录可达，正文区域仍独立滚动。
+- 目录折叠实际隐藏列表、展开恢复；Chrome 的侧栏内容高度为 1930 → 417 → 1930，Firefox 为 1929 → 416 → 1929。768／390px 外层折叠与页面滚动正常，全局图谱固定定位、追光与页面宽度保留，没有 JavaScript 错误。
+- 原创冰蓝圆角 `h.` 图标替代 Quartz 图标，构建按品牌标识与主色生成 SVG、32／180／512px PNG 和真正的 16／32／48px 多尺寸 ICO。公共内容页、404 和后台采用统一内容 hash 的资源链接，品牌改动后下一次构建同步；保留兼容 PNG 和根目录 ICO。
+- 浏览器检查首页、文章列表、专题、标签、阅读、后台与 404 的图标引用及资源请求，四种图标资源均成功返回、ICO 帧可解码，内部导航后图标保持一致。
+- 最终构建、类型与格式检查、69 项测试及站点验证通过，仍为 297 个 HTML 页面和 172 篇文章；笔记原文、页面设置和依赖未修改。
+
+截图在 `output/playwright/soft-glow-*.png` 与 `howard-icon-*.png`，记录在 `.local/soft-glow-*.log`、`toc-scroll-*.log` 与 `site-icon-browser-check.log`。未实测 Safari、实体手机或浏览器标签栏的界面截图；图标已通过页面引用、资源请求、尺寸与解码验证。
+
 ## 参考
 
 参照 [SpotlightCard](https://reactbits.dev/components/spotlight-card) 的局部指针坐标、[Magic Card](https://magicui.design/docs/components/magic-card) 的局部柔光与边缘响应、[Glass Surface](https://reactbits.dev/components/glass-surface) 的材质层次，自行实现 CSS 与交互，未复制第三方组件源码。没有引入 SVG 位移折射、RGB 色散或 Motion 运行时。取样层级参考 [CSSWG Backdrop Root](https://drafts.csswg.org/filter-effects-2/#BackdropRoot)。
