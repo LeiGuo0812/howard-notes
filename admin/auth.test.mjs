@@ -13,6 +13,7 @@ test("login only accepts credentials from its own popup, exact origin and random
       channel,
       token: "ghu_mock-authorized-user",
       login: "LeiGuo0812",
+      serverTime: Date.now(),
       expiresAt: Date.now() + 3600000,
     },
   }
@@ -44,6 +45,7 @@ const result = (channel) => ({
   channel,
   token: "ghu_mock-owner-short-lived-token",
   login: "LeiGuo0812",
+  serverTime: Date.now(),
   expiresAt: Date.now() + 3600000,
 })
 function browser(t, { mobile = false, blockedStorage = false, popupAllowed = true } = {}) {
@@ -325,8 +327,46 @@ test("result validation bounds the error, account and credential expiry", () => 
     { login: "x".repeat(101) },
     { token: "x".repeat(501) },
     { expiresAt: Date.now() + 28801000 },
+    { serverTime: undefined },
+    { serverTime: 0 },
+    { serverTime: Infinity },
+    { expiresAt: 1 },
     { error: "", token: "" },
     { error: "x".repeat(301), token: "" },
   ])
     assert.equal(acceptsResult({ ...result(channel), ...change }, channel), false)
+})
+test("valid full-lifetime results are independent of phone clock and delivery speed", () => {
+  const original = Date.now
+  const channel = "c".repeat(43)
+  const issuedAt = original()
+  const credentials = { ...result(channel), expiresAt: issuedAt + 28800000 }
+  try {
+    for (const clockOffset of [-3600000, -5000, -1000, 0, 1000, 3600000])
+      for (const deliveryDelay of [20, 100, 1500, 6000]) {
+        Date.now = () => issuedAt + deliveryDelay + clockOffset
+        assert.equal(
+          acceptsResult({ ...credentials, serverTime: issuedAt + deliveryDelay }, channel),
+          true,
+          `clock ${clockOffset}ms, delivery ${deliveryDelay}ms`,
+        )
+      }
+  } finally {
+    Date.now = original
+  }
+})
+test("server-relative validation still rejects expiry, excessive lifetime and malformed timing", () => {
+  const channel = "c".repeat(43)
+  const serverTime = Date.now()
+  const credentials = { ...result(channel), serverTime }
+  for (const change of [
+    { expiresAt: serverTime },
+    { expiresAt: serverTime - 1 },
+    { expiresAt: serverTime + 28800001 },
+    { expiresAt: "not-a-timestamp" },
+    { serverTime: "not-a-timestamp" },
+    { serverTime: undefined },
+    { serverTime: -1 },
+  ])
+    assert.equal(acceptsResult({ ...credentials, ...change }, channel), false)
 })

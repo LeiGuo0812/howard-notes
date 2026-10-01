@@ -269,7 +269,21 @@ async function loginBridge(request, env, prepare = false) {
       .bind(channel, challenge, Date.now())
       .first()
     if (!claimed) return response({ error: "登录已失效，请重新登录。" }, 403)
-    return response(await unseal(claimed.encrypted, env, "login-result"), 200)
+    const payload = await unseal(claimed.encrypted, env, "login-result")
+    const serverTime = Date.now()
+    if (payload.token && payload.expiresAt <= serverTime)
+      return response(
+        {
+          type: "howard-github-auth",
+          channel,
+          serverTime,
+          error: "GitHub 登录凭据已过期，请重新登录。",
+        },
+        200,
+      )
+    // Both expiry and the fresh delivery timestamp use the server clock.
+    // A phone's system clock must not reject a valid eight-hour GitHub token.
+    return response({ ...payload, serverTime }, 200)
   } catch {
     return response({ error: "登录服务暂时不可用，请重新登录。" }, 400)
   }
@@ -458,6 +472,7 @@ export async function handle(request, env, fetcher = (...args) => fetch(...args)
           throw new Error("GitHub 未返回有效登录信息。")
         const app = await config(env)
         if (!app) throw new Error("登录应用配置缺失。")
+        const exchangeStartedAt = Date.now()
         const response = await fetcher("https://github.com/login/oauth/access_token", {
           method: "POST",
           headers: {
@@ -486,7 +501,7 @@ export async function handle(request, env, fetcher = (...args) => fetch(...args)
         return await complete(env, flow, {
           token: token.access_token,
           login: user.login,
-          expiresAt: Date.now() + token.expires_in * 1000,
+          expiresAt: exchangeStartedAt + token.expires_in * 1000,
         })
       } catch (error) {
         return await complete(env, flow, { error: error.message })

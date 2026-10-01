@@ -846,3 +846,74 @@ test("a later callback from a pending retry cannot replace the first completed r
   assert.equal(result.status, 200)
   assert.equal((await result.json()).token, "ghu_mock-short-lived-access")
 })
+
+test("result delivery adds a fresh server clock and overrides a stored timestamp", async (t) => {
+  const { env, sqlite } = await configured()
+  const pending = await startResult(env)
+  await handle(callback(pending), env, upstream().fetcher)
+  const row = sqlite
+    .prepare("SELECT encrypted FROM login_results WHERE channel = ?")
+    .get(resultChannel)
+  const stored = await unseal(row.encrypted, env, "login-result")
+  sqlite
+    .prepare("UPDATE login_results SET encrypted = ? WHERE channel = ?")
+    .run(await seal({ ...stored, serverTime: 1 }, env, "login-result"), resultChannel)
+  const deliveredAt = Date.now() + 2000
+  t.mock.method(Date, "now", () => deliveredAt)
+  const response = await handle(resultRequest(env), env)
+  assert.equal(response.status, 200)
+  const payload = await response.json()
+  assert.equal(payload.serverTime, deliveredAt)
+  assert.equal(payload.expiresAt, stored.expiresAt)
+  assert.ok(payload.expiresAt > payload.serverTime)
+  assert.ok(payload.expiresAt - payload.serverTime <= 28800000)
+  assert.equal(payload.channel, resultChannel)
+})
+
+test("an access token that expires before result delivery is consumed without exposing credentials", async (t) => {
+  const { env, sqlite } = await configured()
+  const pending = await startResult(env)
+  await handle(callback(pending), env, upstream({ expires: 1 }).fetcher)
+  const row = sqlite
+    .prepare("SELECT encrypted, expires FROM login_results WHERE channel = ?")
+    .get(resultChannel)
+  const stored = await unseal(row.encrypted, env, "login-result")
+  const deliveredAt = stored.expiresAt + 1
+  assert.ok(row.expires > deliveredAt)
+  t.mock.method(Date, "now", () => deliveredAt)
+  const response = await handle(resultRequest(env), env)
+  assert.equal(response.status, 200)
+  const payload = await response.json()
+  assert.equal(payload.type, "howard-github-auth")
+  assert.equal(payload.channel, resultChannel)
+  assert.equal(payload.serverTime, deliveredAt)
+  assert.match(payload.error, /登录凭据已过期/)
+  assert.equal(payload.token, undefined)
+  assertNoCredentials(JSON.stringify(payload))
+  assert.equal((await handle(resultRequest(env), env)).status, 403)
+})
+
+test("owner and repository validation time is not added to the GitHub token lifetime", async (t) => {
+  const { env, sqlite } = await configured()
+  const pending = await startResult(env)
+  const api = upstream()
+  const exchangeAt = Date.now()
+  let serverClock = exchangeAt
+  t.mock.method(Date, "now", () => serverClock)
+  const fetcher = async (...args) => {
+    const response = await api.fetcher(...args)
+    serverClock += 2000
+    return response
+  }
+  const response = await handle(callback(pending), env, fetcher)
+  assert.equal(response.status, 200)
+  const row = sqlite
+    .prepare("SELECT encrypted FROM login_results WHERE channel = ?")
+    .get(resultChannel)
+  const stored = await unseal(row.encrypted, env, "login-result")
+  assert.equal(serverClock, exchangeAt + 6000)
+  assert.equal(stored.expiresAt, exchangeAt + 28800000)
+  const delivered = await (await handle(resultRequest(env), env)).json()
+  assert.equal(delivered.serverTime, serverClock)
+  assert.equal(delivered.expiresAt - delivered.serverTime, 28794000)
+})

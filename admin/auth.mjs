@@ -34,9 +34,11 @@ export function acceptsResult(data, channel) {
         typeof data.login === "string" &&
         data.login.length > 0 &&
         data.login.length <= 100 &&
-        Number.isFinite(data.expiresAt) &&
-        data.expiresAt > Date.now() &&
-        data.expiresAt <= Date.now() + 28800000))
+        Number.isSafeInteger(data.serverTime) &&
+        data.serverTime > 0 &&
+        Number.isSafeInteger(data.expiresAt) &&
+        data.expiresAt > data.serverTime &&
+        data.expiresAt - data.serverTime <= 28800000))
   )
 }
 
