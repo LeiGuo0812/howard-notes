@@ -1,46 +1,237 @@
-.maintenance-toolbar {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  flex-wrap: wrap;
-  max-width: 1200px;
-  margin: 16px auto 0;
-  padding: 0 12px;
-  font-size: 12px;
-  color: var(--gray);
+@use "./liquid-glass" as material;
+
+:root {
+  --glass-z-maintenance: 40;
 }
+
 .maintenance-toolbar[hidden],
 [data-maintenance-slot][hidden],
 .maintenance-edit[hidden],
-.maintenance-host[hidden] {
+.maintenance-host[hidden],
+.blog-nav [data-maintenance-login][hidden],
+.blog-nav [data-maintenance-status][hidden] {
   display: none !important;
+}
+
+.maintenance-status {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  min-height: 38px;
+  margin-left: 6px;
+  padding: 7px 12px;
+  border-radius: var(--glass-radius-control);
+  color: var(--secondary);
+  background: var(--highlight);
+  font-size: 12px;
+  font-weight: 550;
+  white-space: nowrap;
+}
+.maintenance-status-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+.maintenance-toolbar {
+  @include material.glass(18px);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  max-width: 1200px;
+  margin: 18px auto 0;
+  padding: 9px;
+  font-size: 13px;
+  color: var(--gray);
+  box-shadow:
+    var(--glass-inset),
+    0 9px 28px -16px rgb(25 48 78 / 28%);
+}
+.maintenance-primary-tools,
+.maintenance-session-tools {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
 }
 .maintenance-toolbar button,
 .maintenance-edit {
-  font: inherit;
-  padding: 7px 12px;
+  @include material.control;
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 9px;
+  min-width: 44px;
+  height: 46px;
+  padding: 0 16px;
+  font-size: 13px;
+  font-weight: 550;
   color: var(--secondary);
-  border: 1px solid var(--lightgray);
-  border-radius: var(--glass-radius-control, 12px);
-  background: var(--glass-fill, var(--light));
-  cursor: pointer;
-  transition: background 180ms ease;
-  &:hover {
-    background: var(--highlight);
-  }
+  background: var(--glass-card);
   &:focus-visible {
     outline: 2px solid var(--secondary);
     outline-offset: 3px;
   }
+  svg {
+    width: 19px;
+    height: 19px;
+    flex-shrink: 0;
+  }
+}
+.maintenance-toolbar [data-maintenance-action="new"] {
+  border-color: color-mix(in srgb, var(--secondary) 25%, var(--glass-edge));
+  background: color-mix(in srgb, var(--secondary) 11%, var(--glass-card));
+  &:hover {
+    background: color-mix(in srgb, var(--secondary) 16%, var(--glass-card));
+  }
+}
+.maintenance-session-tools {
+  button {
+    width: 40px;
+    height: 40px;
+    min-width: 40px;
+    padding: 0;
+    color: var(--gray);
+    background: transparent;
+    border-color: transparent;
+    box-shadow: none;
+  }
+  .maintenance-tool-label {
+    display: none;
+  }
 }
 .maintenance-account {
-  margin-left: auto;
-  overflow-wrap: anywhere;
+  max-width: 150px;
+  margin-right: 2px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+}
+
+// The right rail occupies the empty reading margin; prose stays centred.
+.maintenance-toolbar.is-reading {
+  position: fixed;
+  z-index: var(--glass-z-controls);
+  top: clamp(168px, 24dvh, 240px);
+  right: max(12px, env(safe-area-inset-right));
+  width: 56px;
+  max-width: none;
+  margin: 0;
+  padding: 6px;
+  flex-direction: column;
+  gap: 9px;
+  .maintenance-primary-tools,
+  .maintenance-session-tools {
+    width: 100%;
+    flex-direction: column;
+    gap: 6px;
+  }
+  .maintenance-session-tools {
+    padding-top: 8px;
+    border-top: 1px solid var(--glass-edge);
+  }
+  button {
+    width: 42px;
+    height: 42px;
+    min-width: 42px;
+    padding: 0;
+  }
+  .maintenance-tool-label,
+  .maintenance-account {
+    display: none;
+  }
+}
+.maintenance-tool-dock {
+  width: 100%;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+.maintenance-dock-toggle {
+  display: none;
+}
+.maintenance-dock-content {
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+}
+
+.blog-layout.is-article .page-header:has(.maintenance-edit:not([hidden])) {
+  position: relative;
+  padding-right: 54px;
 }
 .maintenance-edit {
-  font-size: 12px;
-  margin-top: 16px;
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  border-radius: 14px;
+  svg {
+    width: 20px;
+    height: 20px;
+  }
 }
+
+// Short hints appear immediately and also work for keyboard focus. Native
+// title attributes provide a fallback without intercepting pointer events.
+.maintenance-toolbar [data-tooltip],
+.maintenance-edit[data-tooltip],
+.reading-scroll-controls [data-tooltip] {
+  position: relative;
+  &::after {
+    content: attr(data-tooltip);
+    position: absolute;
+    z-index: 2;
+    bottom: calc(100% + 9px);
+    left: 50%;
+    transform: translateX(-50%);
+    padding: 6px 9px;
+    border: 1px solid var(--glass-edge);
+    border-radius: 8px;
+    background: var(--glass-solid);
+    box-shadow: 0 4px 14px rgb(12 24 40 / 12%);
+    color: var(--darkgray);
+    font-size: 11px;
+    font-weight: 450;
+    line-height: 1.4;
+    white-space: nowrap;
+    pointer-events: none;
+    opacity: 0;
+    visibility: hidden;
+    transition:
+      opacity 150ms ease,
+      visibility 150ms ease;
+  }
+  &:hover::after,
+  &:focus-visible::after {
+    opacity: 1;
+    visibility: visible;
+  }
+}
+.maintenance-edit[data-tooltip] {
+  position: absolute;
+  &::after {
+    left: auto;
+    right: 0;
+    transform: none;
+  }
+}
+.maintenance-toolbar.is-reading [data-tooltip]::after,
+.reading-scroll-controls [data-tooltip]::after {
+  top: 50%;
+  bottom: auto;
+  left: auto;
+  right: calc(100% + 10px);
+  transform: translateY(-50%);
+}
+
 .maintenance-notice {
   max-width: 1040px;
   margin: 18px auto;
@@ -57,16 +248,28 @@
 }
 .maintenance-host.is-panel {
   position: fixed;
-  inset: auto 20px 20px auto;
   top: var(--maintenance-panel-top, 160px);
-  width: min(1340px, calc(100vw - 40px));
+  right: 20px;
+  bottom: auto;
+  width: min(1120px, calc(100vw - 40px));
+  height: min(760px, calc(100dvh - var(--maintenance-panel-top, 160px) - 20px));
+  max-height: calc(100dvh - var(--maintenance-panel-top, 160px) - 20px);
   z-index: var(--glass-z-maintenance);
   overflow-y: auto;
   overscroll-behavior: contain;
-  border: 1px solid var(--lightgray);
+  border: 1px solid var(--glass-edge);
   border-radius: 22px;
-  background: var(--light);
-  box-shadow: 0 22px 60px -18px rgb(12 24 40 / 32%);
+  background: var(--glass-reading);
+  box-shadow:
+    var(--glass-inset),
+    0 22px 60px -18px rgb(12 24 40 / 32%);
+}
+.maintenance-host.is-panel.is-floating {
+  top: var(--maintenance-window-y, var(--maintenance-panel-top, 160px));
+  left: var(--maintenance-window-x, 20px);
+  right: auto;
+  bottom: auto;
+  transform: none;
 }
 .maintenance-host.is-inline {
   margin: 20px 0 36px;
@@ -74,39 +277,222 @@
   border: 1px solid var(--lightgray);
   background: var(--light);
 }
+.maintenance-host.is-fullscreen {
+  position: fixed;
+  z-index: var(--glass-z-maintenance);
+  inset: max(10px, env(safe-area-inset-top)) max(10px, env(safe-area-inset-right))
+    max(10px, env(safe-area-inset-bottom)) max(10px, env(safe-area-inset-left));
+  width: auto;
+  height: auto;
+  max-width: none;
+  max-height: none;
+  margin: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  border-radius: 16px;
+  transform: none;
+  box-shadow:
+    var(--glass-inset),
+    0 24px 80px rgb(8 18 34 / 28%);
+}
+.maintenance-host.is-panel.is-fullscreen {
+  left: max(10px, env(safe-area-inset-left));
+  top: max(10px, env(safe-area-inset-top));
+  right: max(10px, env(safe-area-inset-right));
+  bottom: max(10px, env(safe-area-inset-bottom));
+}
+.maintenance-host.is-dragging {
+  cursor: grabbing;
+  user-select: none;
+}
 .center.maintenance-editing > article,
 .center.maintenance-editing > .page-footer {
   display: none;
 }
+.blog-header:has(.search-container.active) {
+  z-index: var(--glass-z-modal);
+}
+
+@media (max-width: 1239px) {
+  .site-surface:has(.maintenance-toolbar.is-reading:not([hidden])) .reading-tools > summary {
+    margin-right: 52px;
+  }
+  .maintenance-toolbar.is-reading {
+    top: max(160px, env(safe-area-inset-top));
+    right: max(0px, env(safe-area-inset-right));
+    width: 42px;
+    padding: 0;
+    border-radius: 12px 0 0 12px;
+    background: var(--glass-solid);
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+    .maintenance-dock-toggle {
+      @include material.control;
+      display: grid;
+      place-items: center;
+      width: 40px;
+      height: 40px;
+      padding: 0;
+      list-style: none;
+      &::-webkit-details-marker {
+        display: none;
+      }
+      svg {
+        width: 20px;
+        height: 20px;
+      }
+    }
+    .maintenance-dock-content {
+      position: absolute;
+      top: 0;
+      right: calc(100% + 8px);
+      width: 190px;
+      max-height: calc(100dvh - 180px);
+      overflow-y: auto;
+      overscroll-behavior: contain;
+      padding: 7px;
+      border: 1px solid var(--glass-edge);
+      border-radius: 16px;
+      background: var(--glass-solid);
+      box-shadow: var(--glass-inset), var(--glass-shadow);
+    }
+    .maintenance-primary-tools {
+      gap: 4px;
+      button {
+        justify-content: flex-start;
+        width: 100%;
+        height: 44px;
+        padding: 0 12px;
+      }
+      .maintenance-tool-label {
+        display: inline;
+      }
+    }
+    .maintenance-session-tools {
+      flex-direction: row;
+      justify-content: flex-end;
+      padding-top: 7px;
+      gap: 4px;
+      .maintenance-account {
+        display: block;
+        margin-right: auto;
+        font-size: 10px;
+      }
+      button {
+        min-width: 40px;
+        width: 40px;
+        height: 40px;
+      }
+    }
+    .maintenance-dock-content [data-tooltip]::after {
+      top: auto;
+      right: 0;
+      bottom: calc(100% + 6px);
+      transform: none;
+    }
+  }
+}
 @media (max-width: 800px) {
-  .maintenance-toolbar {
-    margin-top: 10px;
-    padding-inline: 0;
+  .maintenance-status {
+    flex: 1;
+    margin-left: 0;
+    min-height: 33px;
+    padding: 6px 8px;
+    gap: 5px;
+    font-size: 11px;
   }
-  .maintenance-toolbar button {
-    min-height: 36px;
-    padding: 5px 9px;
-  }
-  .maintenance-account {
-    width: 100%;
-    margin-left: 4px;
-  }
-  .maintenance-host.is-panel {
-    inset: 12px 8px;
-    width: auto;
+  .maintenance-toolbar:not(.is-reading) {
+    align-items: stretch;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-top: 12px;
+    padding: 7px;
     border-radius: 16px;
+    background: var(--glass-solid);
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+    .maintenance-primary-tools {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      width: 100%;
+      gap: 5px;
+    }
+    .maintenance-primary-tools button {
+      flex-direction: column;
+      gap: 5px;
+      height: 62px;
+      min-width: 0;
+      padding: 6px 2px;
+      font-size: 11px;
+      svg {
+        width: 20px;
+        height: 20px;
+      }
+    }
+    .maintenance-session-tools {
+      justify-content: flex-end;
+      width: 100%;
+      gap: 4px;
+      button {
+        height: 40px;
+        width: 40px;
+        min-width: 40px;
+      }
+    }
+    .maintenance-account {
+      max-width: none;
+      margin-right: auto;
+      padding-left: 6px;
+      font-size: 11px;
+    }
+    [data-tooltip]::after {
+      left: 0;
+      transform: none;
+    }
+  }
+  .maintenance-host.is-panel:not(.is-fullscreen) {
+    top: var(--maintenance-panel-top, 160px);
+    left: 8px;
+    right: 8px;
+    bottom: 8px;
+    width: auto;
+    height: auto;
+    max-height: none;
+    border-radius: 16px;
+  }
+  .maintenance-host.is-panel.is-fullscreen,
+  .maintenance-host.is-fullscreen {
+    inset: max(4px, env(safe-area-inset-top)) max(4px, env(safe-area-inset-right))
+      max(4px, env(safe-area-inset-bottom)) max(4px, env(safe-area-inset-left));
+    border-radius: 12px;
+  }
+}
+@media (max-height: 650px) and (min-width: 1240px) {
+  .maintenance-toolbar.is-reading {
+    top: 128px;
+    gap: 4px;
+    .maintenance-primary-tools,
+    .maintenance-session-tools {
+      gap: 2px;
+    }
+    button {
+      height: 36px;
+    }
+  }
+}
+@media (hover: none) {
+  .maintenance-toolbar [data-tooltip]::after,
+  .maintenance-edit[data-tooltip]::after,
+  .reading-scroll-controls [data-tooltip]::after {
+    display: none;
   }
 }
 @media (prefers-reduced-motion: reduce) {
   .maintenance-toolbar button,
-  .maintenance-edit {
+  .maintenance-edit,
+  .maintenance-toolbar [data-tooltip]::after,
+  .maintenance-edit[data-tooltip]::after,
+  .reading-scroll-controls [data-tooltip]::after {
     transition: none;
   }
-}
-:root {
-  --glass-z-maintenance: 40;
-}
-
-.blog-header:has(.search-container.active) {
-  z-index: var(--glass-z-modal);
 }

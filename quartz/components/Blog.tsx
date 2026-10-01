@@ -123,6 +123,7 @@ export const BlogNav: QuartzComponent = (props) => (
         href={`${root(props)}/admin/`}
         data-router-ignore
         data-maintenance-login
+        title="登录网站维护"
       >
         <svg
           viewBox="0 0 24 24"
@@ -137,8 +138,12 @@ export const BlogNav: QuartzComponent = (props) => (
             stroke-linecap="round"
           />
         </svg>
-        登录
+        <span class="maintenance-login-label">登录</span>
       </a>
+      <span class="maintenance-status" data-maintenance-status role="status" hidden>
+        <span class="maintenance-status-dot" aria-hidden="true" />
+        已登录
+      </span>
     </nav>
   </>
 )
@@ -655,6 +660,63 @@ export const BlogFooter: QuartzComponent = (props) => (
     </div>
   </footer>
 )
+type MaintenanceAction =
+  "new" | "drafts" | "articles" | "settings" | "reconnect" | "logout" | "edit"
+function MaintenanceIcon({ action }: { action: MaintenanceAction }) {
+  const paths: Record<MaintenanceAction, string> = {
+    new: "M12 5v14M5 12h14",
+    drafts: "M5 3h10l4 4v14H5ZM14 3v5h5M8 12h8M8 16h5",
+    articles: "M8 5h12M8 12h12M8 19h12M3 5h.01M3 12h.01M3 19h.01",
+    settings: "M4 5h16v14H4ZM4 10h16M10 10v9",
+    reconnect: "M20 7v5h-5M4 17v-5h5M6.1 7a7 7 0 0 1 11.5-1L20 12M4 12l2.4 6A7 7 0 0 0 17.9 17",
+    logout: "M9 4H4v16h5M14 8l4 4-4 4M8 12h12",
+    edit: "M14 5H5v14h14v-9M14 4l6 6M10 14l2.5-.5L21 5l-3-3-8.5 8.5Z",
+  }
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      stroke-width="1.7"
+      stroke-linecap="round"
+      stroke-linejoin="round"
+      aria-hidden="true"
+    >
+      <path d={paths[action]} />
+    </svg>
+  )
+}
+function MaintenanceButton({ action, label }: { action: MaintenanceAction; label: string }) {
+  return (
+    <button
+      type="button"
+      data-maintenance-action={action}
+      aria-label={label}
+      title={label}
+      data-tooltip={label}
+    >
+      <MaintenanceIcon action={action} />
+      <span class="maintenance-tool-label">{label}</span>
+    </button>
+  )
+}
+function MaintenanceTools() {
+  return (
+    <>
+      <div class="maintenance-primary-tools">
+        <MaintenanceButton action="new" label="新建文章" />
+        <MaintenanceButton action="drafts" label="草稿箱" />
+        <MaintenanceButton action="articles" label="文章管理" />
+        <MaintenanceButton action="settings" label="页面设置" />
+      </div>
+      <div class="maintenance-session-tools">
+        <span class="maintenance-account" />
+        <MaintenanceButton action="reconnect" label="重新登录" />
+        <MaintenanceButton action="logout" label="退出登录" />
+      </div>
+    </>
+  )
+}
 export const BlogFrame: PageFrame = {
   name: "blog",
   render({ componentData, header, beforeBody, pageBody: Content, afterBody, left, right, footer }) {
@@ -681,26 +743,28 @@ export const BlogFrame: PageFrame = {
             <Component {...componentData} />
           ))}
         </header>
-        <nav class="maintenance-toolbar" aria-label="网站维护" hidden>
-          <button type="button" data-maintenance-action="new">
-            新建
-          </button>
-          <button type="button" data-maintenance-action="drafts">
-            草稿箱
-          </button>
-          <button type="button" data-maintenance-action="articles">
-            文章管理
-          </button>
-          <button type="button" data-maintenance-action="settings">
-            页面设置
-          </button>
-          <button type="button" data-maintenance-action="reconnect">
-            重新登录
-          </button>
-          <button type="button" data-maintenance-action="logout">
-            退出
-          </button>
-          <span class="maintenance-account" />
+        <nav
+          class={`maintenance-toolbar${article ? " is-reading" : ""}`}
+          aria-label="网站维护"
+          hidden
+        >
+          {article ? (
+            <details class="maintenance-tool-dock" open>
+              <summary
+                class="maintenance-dock-toggle"
+                aria-label="维护工具"
+                title="维护工具"
+                data-tooltip="维护工具"
+              >
+                <MaintenanceIcon action="settings" />
+              </summary>
+              <div class="maintenance-dock-content">
+                <MaintenanceTools />
+              </div>
+            </details>
+          ) : (
+            <MaintenanceTools />
+          )}
         </nav>
         <div
           class={`blog-layout ${home ? "is-home" : ""} ${article ? "is-article" : ""} ${hub || listing ? "is-directory" : ""}`}
@@ -747,9 +811,12 @@ export const BlogFrame: PageFrame = {
                   class="maintenance-edit"
                   type="button"
                   data-maintenance-action="edit"
+                  aria-label="编辑文章"
+                  title="编辑文章"
+                  data-tooltip="编辑文章"
                   hidden
                 >
-                  编辑文章
+                  <MaintenanceIcon action="edit" />
                 </button>
               )}
             </div>
@@ -789,7 +856,13 @@ export const BlogFrame: PageFrame = {
         </div>
         {article && (
           <nav class="reading-scroll-controls" aria-label="阅读位置">
-            <button type="button" data-scroll="top" aria-label="到顶" title="到顶">
+            <button
+              type="button"
+              data-scroll="top"
+              aria-label="到顶"
+              title="到顶"
+              data-tooltip="到顶"
+            >
               <svg
                 viewBox="0 0 24 24"
                 fill="none"
@@ -800,7 +873,13 @@ export const BlogFrame: PageFrame = {
                 <path d="M5 4h14M6 13l6-6 6 6M12 7v13" />
               </svg>
             </button>
-            <button type="button" data-scroll="bottom" aria-label="到底" title="到底">
+            <button
+              type="button"
+              data-scroll="bottom"
+              aria-label="到底"
+              title="到底"
+              data-tooltip="到底"
+            >
               <svg
                 viewBox="0 0 24 24"
                 fill="none"

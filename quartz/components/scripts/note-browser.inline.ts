@@ -3,7 +3,61 @@ import { setupLayoutPreview } from "./layout-preview"
 import { mountFrostedSpotlight } from "../../../scripts/lib/frosted-spotlight.mjs"
 import { setupMaintenance } from "../../../admin/maintenance-loader.mjs"
 
+function setupIconHints() {
+  const update = () => {
+    const dark = document.documentElement.getAttribute("saved-theme") === "dark"
+    for (const [selector, label] of [
+      [".darkmode", dark ? "切换浅色模式" : "切换深色模式"],
+      [".search-button", "搜索笔记"],
+      [".global-graph-icon", "展开关系图谱"],
+    ]) {
+      for (const button of document.querySelectorAll<HTMLElement>(selector)) {
+        button.title = label
+        button.setAttribute("aria-label", label)
+      }
+    }
+  }
+  update()
+  document.addEventListener("themechange", update)
+  window.addCleanup(() => document.removeEventListener("themechange", update))
+}
+
+function setupMaintenanceDock() {
+  const dock = document.querySelector<HTMLDetailsElement>(".maintenance-tool-dock")
+  if (!dock) return
+  const desktop = matchMedia("(min-width: 1240px)")
+  const resize = () => {
+    dock.open = desktop.matches
+  }
+  const choose = (event: MouseEvent) => {
+    if ((event.target as HTMLElement).closest("[data-maintenance-action]")) resize()
+  }
+  const dismiss = (event: KeyboardEvent) => {
+    if (
+      event.key === "Escape" &&
+      dock.open &&
+      !desktop.matches &&
+      !document.querySelector(".search-container.active,.global-graph-outer.active")
+    ) {
+      dock.open = false
+      event.preventDefault()
+      event.stopImmediatePropagation()
+    }
+  }
+  resize()
+  desktop.addEventListener("change", resize)
+  dock.addEventListener("click", choose)
+  document.addEventListener("keydown", dismiss)
+  window.addCleanup(() => {
+    desktop.removeEventListener("change", resize)
+    dock.removeEventListener("click", choose)
+    document.removeEventListener("keydown", dismiss)
+  })
+}
+
 function setupNoteBrowser() {
+  setupIconHints()
+  setupMaintenanceDock()
   setupMaintenance()
   const recommendations = document.querySelector<HTMLElement>("#random-notes")
   const pool = document.querySelector<HTMLTemplateElement>("#random-note-pool")

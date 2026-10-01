@@ -13,6 +13,7 @@ export function mountAdminTheme(button) {
     const dark = theme === "dark"
     document.documentElement.setAttribute("saved-theme", theme)
     button.setAttribute("aria-label", dark ? "切换浅色模式" : "切换深色模式")
+    button.title = dark ? "切换浅色模式" : "切换深色模式"
     button.setAttribute("aria-pressed", String(dark))
   }
   const update = () => apply(preference() || (system.matches ? "dark" : "light"))
