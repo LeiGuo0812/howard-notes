@@ -1,4 +1,5 @@
 @use "./liquid-glass" as material;
+@use "../../styles/frosted-glass";
 
 html {
   width: 100%;
@@ -483,23 +484,36 @@ a.note-preview.internal {
   }
 }
 .lucky-previews {
+  position: relative;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: var(--site-card-gap);
+  border-radius: var(--site-radius);
+  // These fixed low-chroma shapes sit behind the cards, not on their glass.
+  // They remain distinct enough to see the backdrop filter soften their edges.
+  background:
+    radial-gradient(ellipse 30% 70% at 8% 25%, var(--frost-ambient-cyan), transparent 90%),
+    radial-gradient(ellipse 35% 65% at 55% 92%, var(--frost-ambient-blue), transparent 90%),
+    radial-gradient(ellipse 30% 80% at 100% 22%, var(--frost-ambient-violet), transparent 90%),
+    linear-gradient(
+      115deg,
+      transparent 12%,
+      var(--frost-ambient-cyan) 18% 29%,
+      transparent 35% 61%,
+      var(--frost-ambient-violet) 67% 80%,
+      transparent 86%
+    );
 }
 .lucky-previews a.note-preview.internal {
   display: flex;
   flex-direction: column;
   min-height: 272px;
   padding: 27px;
-  border: 1px solid transparent;
-  border-radius: var(--site-radius);
-  background:
-    linear-gradient(140deg, var(--glass-card-shine), transparent 38%),
-    linear-gradient(165deg, transparent 40%, var(--glass-card-tint)), var(--glass-card);
-  box-shadow: var(--glass-inset), var(--glass-card-shadow);
+  border: 1px solid var(--frost-border);
+  background: var(--frost-solid);
+  @supports ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+    background: var(--frost-fill);
+  }
   transition:
-    transform var(--glass-transition),
-    background var(--glass-transition),
     border-color var(--glass-transition),
     box-shadow var(--glass-transition);
   .preview-note-heading {
@@ -516,12 +530,14 @@ a.note-preview.internal {
     display: block;
     margin-top: 10px;
     font-size: 11px;
+    color: var(--darkgray);
   }
   p {
     margin: 20px 0 24px;
     font-size: 13px;
     line-height: 1.85;
     -webkit-line-clamp: 3;
+    color: var(--darkgray);
   }
   > small {
     align-self: flex-start;
@@ -534,24 +550,10 @@ a.note-preview.internal {
     font-size: 11px;
     overflow-wrap: anywhere;
   }
-  &:nth-child(2) {
-    background:
-      linear-gradient(140deg, var(--glass-card-shine), transparent 38%),
-      linear-gradient(165deg, transparent 40%, var(--glass-card-violet)), var(--glass-card);
-  }
-  &:nth-child(3) {
-    box-shadow:
-      var(--glass-inset),
-      0 22px 38px -18px var(--glass-reflection),
-      var(--glass-card-shadow);
-  }
 }
 @media (hover: hover) {
   .lucky-previews a.note-preview.internal:hover {
-    transform: translateY(-2px);
     border-color: color-mix(in srgb, var(--secondary) 42%, var(--glass-border));
-    background: var(--glass-card-hover);
-    box-shadow: var(--glass-inset), var(--glass-shadow);
   }
 }
 a.compact-preview.internal {
@@ -1129,6 +1131,12 @@ a.article-row.internal {
   justify-self: start;
   padding: 0;
   z-index: auto;
+  border-radius: var(--site-radius);
+  background: radial-gradient(
+    ellipse 90% 280px at 20% 70%,
+    var(--frost-ambient-blue),
+    transparent 100%
+  );
 }
 .reading-tools {
   width: 100%;
@@ -1268,6 +1276,19 @@ a.article-row.internal {
     }
   }
 }
+.reading-sidebar .toc.frosted-panel {
+  border-color: var(--frost-border);
+  background: var(--frost-solid);
+  box-shadow:
+    inset 0 1px 0 var(--frost-border),
+    inset 0 -1px 1px var(--frost-shade),
+    var(--frost-shadow);
+  @supports ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+    background: var(--frost-fill);
+    -webkit-backdrop-filter: blur(var(--frost-blur)) saturate(var(--frost-saturation));
+    backdrop-filter: blur(var(--frost-blur)) saturate(var(--frost-saturation));
+  }
+}
 .article-backlinks {
   grid-column: 2;
   font-size: 13px;
@@ -1311,8 +1332,8 @@ a.article-row.internal {
   height: 100dvh;
   padding: 0 20px;
   background: var(--glass-scrim);
-  backdrop-filter: none;
   -webkit-backdrop-filter: none;
+  backdrop-filter: none;
   &.active {
     animation: glass-overlay-in 180ms ease-out;
   }
@@ -1399,8 +1420,8 @@ a.article-row.internal {
 .graph > .global-graph-outer {
   z-index: var(--glass-z-modal);
   background: var(--glass-scrim);
-  backdrop-filter: none;
   -webkit-backdrop-filter: none;
+  backdrop-filter: none;
   &.active {
     animation: glass-overlay-in 180ms ease-out;
   }
@@ -1441,10 +1462,19 @@ a.article-row.internal {
     width: 100%;
   }
   .reading-tools {
-    @include material.glass(var(--site-radius));
+    position: relative;
+    isolation: isolate;
     max-height: none;
     overflow: visible;
     padding: 14px 18px;
+    &::before {
+      @include material.glass(var(--site-radius));
+      content: "";
+      position: absolute;
+      inset: 0;
+      z-index: -1;
+      pointer-events: none;
+    }
     > summary {
       display: list-item;
       cursor: pointer;
@@ -1454,13 +1484,17 @@ a.article-row.internal {
   }
   .reading-tool-panels {
     margin-top: 20px;
-    .toc {
+    .toc,
+    .toc.frosted-panel {
       background: none;
-      backdrop-filter: none;
       -webkit-backdrop-filter: none;
+      backdrop-filter: none;
       border: 0;
       box-shadow: none;
       padding: 0 8px 4px;
+    }
+    .toc.frosted-panel::before {
+      background: none;
     }
   }
   .brand-subtitle {
@@ -1600,18 +1634,18 @@ a.article-row.internal {
   .blog-layout .article-title {
     font-size: 26px;
   }
-  .reading-tools {
+  .reading-tools::before {
     background: var(--glass-solid);
-    backdrop-filter: none;
     -webkit-backdrop-filter: none;
+    backdrop-filter: none;
   }
   .reading-scroll-controls {
     right: max(4px, env(safe-area-inset-right));
     bottom: max(16px, env(safe-area-inset-bottom));
     padding: 3px;
     background: var(--glass-solid);
-    backdrop-filter: none;
     -webkit-backdrop-filter: none;
+    backdrop-filter: none;
     opacity: 0.96;
     button {
       width: 30px;

@@ -7,6 +7,7 @@ await fs.mkdir("public/admin/katex", { recursive: true })
 await Promise.all([
   fs.copyFile("admin/index.html", "public/admin/index.html"),
   fs.copyFile("admin/admin.css", "public/admin/admin.css"),
+  fs.copyFile("styles/frosted-glass.css", "public/admin/frosted-glass.css"),
   fs.copyFile("admin/auth-config.json", "public/admin/auth-config.json"),
   build({
     entryPoints: ["admin/app.mjs"],

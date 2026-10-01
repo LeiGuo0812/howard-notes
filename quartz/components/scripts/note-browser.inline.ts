@@ -1,5 +1,6 @@
 import { paginateItems, sampleItems } from "./browsing"
 import { setupLayoutPreview } from "./layout-preview"
+import { mountFrostedSpotlight } from "../../../scripts/lib/frosted-spotlight.mjs"
 
 function setupNoteBrowser() {
   const recommendations = document.querySelector<HTMLElement>("#random-notes")
@@ -27,7 +28,14 @@ function setupNoteBrowser() {
           ...chosen.slice(1),
         ]
       }
-      recommendations.replaceChildren(...chosen.map((note) => note.cloneNode(true)))
+      recommendations.replaceChildren(
+        ...chosen.map((note) => {
+          const card = note.cloneNode(true) as HTMLElement
+          card.classList.add("frosted-panel")
+          card.setAttribute("data-spotlight", "")
+          return card
+        }),
+      )
     }
     const refresh = document.querySelector<HTMLButtonElement>("#refresh-random-notes")
     refresh?.addEventListener("click", draw)
@@ -36,6 +44,13 @@ function setupNoteBrowser() {
     redraw = draw
   }
   setupLayoutPreview(redraw)
+  // Auxiliary reading surfaces share the material. Prose and graph nodes stay
+  // still; the global graph/search dialogs keep their viewport positioning.
+  for (const panel of document.querySelectorAll<HTMLElement>(".reading-sidebar .toc")) {
+    panel.classList.add("frosted-panel")
+    panel.setAttribute("data-spotlight", "")
+  }
+  window.addCleanup(mountFrostedSpotlight(document))
   const scrollControls = document.querySelector<HTMLElement>(".reading-scroll-controls")
   if (scrollControls) {
     const jump = (event: MouseEvent) => {

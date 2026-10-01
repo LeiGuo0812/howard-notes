@@ -1,13 +1,17 @@
 :root {
   color-scheme: light;
-  --paper: #fafbf9;
-  --surface: #fff;
-  --ink: #192f2b;
-  --muted: #5e6c67;
-  --line: #dce4de;
-  --accent: #286352;
-  --wash: #edf3ef;
-  --danger: #a52d30;
+  --paper: #f2f6fa;
+  --surface: #fafdff;
+  --ink: #243447;
+  --muted: #5b6d80;
+  --line: #d5e0eb;
+  --accent: #365f8b;
+  --accent-hover: #2c527c;
+  --primary-ink: #fff;
+  --wash: #e9f1f8;
+  --danger: #a43d46;
+  --status-fill: #e7f0f8;
+  --status-error-fill: #fff0f1;
   font-family: "Microsoft YaHei", "PingFang SC", system-ui, sans-serif;
   background: var(--paper);
   color: var(--ink);
@@ -19,6 +23,12 @@
 }
 body {
   margin: 0;
+  min-height: 100dvh;
+  background:
+    radial-gradient(ellipse 700px 580px at 0 16%, rgb(106 191 215 / 23%), transparent 72%),
+    radial-gradient(ellipse 600px 600px at 100% 22%, rgb(160 166 212 / 19%), transparent 73%),
+    radial-gradient(ellipse 500px 360px at 32% 0, rgb(145 190 224 / 19%), transparent 76%),
+    var(--paper);
 }
 a {
   color: var(--accent);
@@ -34,10 +44,14 @@ button,
 .upload-label {
   padding: 8px 13px;
   border: 1px solid var(--line);
-  border-radius: 6px;
+  border-radius: 10px;
   background: var(--surface);
   color: var(--ink);
   cursor: pointer;
+  transition:
+    background-color 180ms ease,
+    border-color 180ms ease,
+    box-shadow 180ms ease;
 }
 button:hover,
 .upload-label:hover {
@@ -50,10 +64,10 @@ button:disabled {
 .primary {
   background: var(--accent);
   border-color: var(--accent);
-  color: white;
+  color: var(--primary-ink);
 }
 .primary:hover {
-  background: #20513f;
+  background: var(--accent-hover);
 }
 .danger {
   color: var(--danger);
@@ -63,7 +77,7 @@ button:disabled {
   font-size: 12px;
   padding: 4px 9px;
   background: var(--wash);
-  border-radius: 5px;
+  border-radius: 9px;
   color: var(--muted);
 }
 .list-empty {
@@ -119,35 +133,80 @@ p.small,
   display: none !important;
 }
 .topbar {
-  padding: 20px 4vw;
+  position: sticky;
+  top: 14px;
+  z-index: 20;
+  min-height: 76px;
+  margin: 14px 24px 0;
+  padding: 15px 22px;
+  --frost-radius: 24px;
   display: flex;
   justify-content: space-between;
   align-items: center;
-  border-bottom: 1px solid var(--line);
   gap: 18px;
 }
 .brand {
-  font-size: 29px;
+  font-size: 27px;
   font-weight: 700;
   text-decoration: none;
   display: flex;
-  gap: 16px;
+  gap: 13px;
   align-items: center;
 }
 .brand span {
-  font-size: 15px;
+  font-size: 14px;
   font-weight: 500;
 }
 .account {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 9px;
   font-size: 13px;
+  min-width: 0;
+}
+#account {
+  max-width: 160px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.theme-control {
+  display: grid;
+  place-items: center;
+  flex: 0 0 40px;
+  width: 40px;
+  height: 40px;
+  padding: 9px;
+  background: rgb(255 255 255 / 28%);
+}
+.theme-control svg {
+  width: 20px;
+  height: 20px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.theme-control .theme-sun,
+:root[saved-theme="dark"] .theme-control .theme-moon {
+  display: none;
+}
+:root[saved-theme="dark"] .theme-control .theme-sun {
+  display: block;
 }
 .login-panel {
-  max-width: 640px;
-  padding: 70px 28px;
-  margin: auto;
+  width: min(640px, calc(100% - 48px));
+  --frost-radius: 28px;
+  padding: 64px 44px;
+  margin: 84px auto;
+  min-height: 240px;
+}
+.login-panel h1 {
+  margin-bottom: 28px;
+}
+.login-panel .primary {
+  padding: 11px 18px;
 }
 .eyebrow {
   font-size: 12px;
@@ -174,15 +233,17 @@ li {
 .workspace {
   display: grid;
   grid-template-columns: 300px minmax(0, 1fr);
-  max-width: 1800px;
-  margin: auto;
+  width: calc(100% - 48px);
+  max-width: 1752px;
+  margin: 24px auto;
+  gap: 24px;
 }
 .article-sidebar {
-  padding: 28px 20px;
-  border-right: 1px solid var(--line);
-  height: calc(100dvh - 88px);
+  padding: 24px 18px;
+  --frost-radius: 22px;
+  height: calc(100dvh - 148px);
   position: sticky;
-  top: 0;
+  top: 112px;
   overflow: auto;
 }
 .list-heading,
@@ -213,7 +274,7 @@ li {
   text-align: left;
   border: 0;
   border-bottom: 1px solid var(--line);
-  border-radius: 0;
+  border-radius: 9px;
   padding: 14px 9px;
   background: transparent;
 }
@@ -237,7 +298,7 @@ li {
 }
 .editor-panel {
   min-width: 0;
-  padding: 28px 32px 44px;
+  padding: 12px 14px 32px;
 }
 .empty {
   padding: 70px 10px;
@@ -326,16 +387,16 @@ li {
 #status {
   position: sticky;
   bottom: 0;
-  background: #eaf3ed;
-  border-top: 1px solid #a8c3b3;
+  background: var(--status-fill);
+  border-top: 1px solid var(--line);
   color: var(--ink);
   padding: 16px 4vw;
   white-space: pre-wrap;
   z-index: 20;
 }
 #status.error {
-  background: #fff1f0;
-  border-color: #e7b8b6;
+  background: var(--status-error-fill);
+  border-color: var(--danger);
   color: var(--danger);
 }
 #status a {
@@ -403,49 +464,70 @@ li {
     padding-top: 0;
   }
 }
+:root[saved-theme="dark"] {
+  color-scheme: dark;
+  --paper: #191f28;
+  --surface: #222c39;
+  --ink: #edf3fb;
+  --muted: #aabbd0;
+  --line: #3c4c60;
+  --accent: #a3c8ed;
+  --accent-hover: #bddaf5;
+  --primary-ink: #1c2b3d;
+  --wash: #2b3a4c;
+  --danger: #f2a5ad;
+  --status-fill: #2b3a4c;
+  --status-error-fill: #432d36;
+}
 @media (prefers-color-scheme: dark) {
-  :root {
+  :root:not([saved-theme]) {
     color-scheme: dark;
-    --paper: #15221f;
-    --surface: #192a25;
-    --ink: #edf4ef;
-    --muted: #a5b5ae;
-    --line: #354b41;
-    --accent: #91cbb2;
-    --wash: #20382e;
+    --paper: #191f28;
+    --surface: #222c39;
+    --ink: #edf3fb;
+    --muted: #aabbd0;
+    --line: #3c4c60;
+    --accent: #a3c8ed;
+    --accent-hover: #bddaf5;
+    --primary-ink: #1c2b3d;
+    --wash: #2b3a4c;
+    --danger: #f2a5ad;
+    --status-fill: #2b3a4c;
+    --status-error-fill: #432d36;
   }
-  .primary {
-    color: #15221f;
-  }
-  .primary:hover {
-    background: #a8dcc6;
-  }
-  #status {
-    background: #20382e;
-    color: var(--ink);
-  }
-  #status.error {
-    background: #452626;
-    color: #ffc9c9;
-  }
+}
+:root[saved-theme="dark"] body {
+  background:
+    radial-gradient(ellipse 700px 580px at 0 16%, rgb(42 115 148 / 19%), transparent 72%),
+    radial-gradient(ellipse 600px 600px at 100% 22%, rgb(86 76 134 / 18%), transparent 73%),
+    radial-gradient(ellipse 500px 360px at 32% 0, rgb(65 104 146 / 18%), transparent 76%),
+    var(--paper);
+}
+:root[saved-theme="dark"] .theme-control {
+  background: rgb(42 60 81 / 35%);
 }
 
 .admin-tabs {
   display: flex;
-  gap: 24px;
-  border-bottom: 1px solid var(--line);
-  padding: 0 4vw;
+  width: max-content;
+  max-width: calc(100% - 48px);
+  gap: 4px;
+  margin: 22px 24px 0;
+  padding: 5px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 15px;
 }
 .admin-tabs button {
   border: 0;
-  border-radius: 0;
-  padding: 16px 4px;
+  border-radius: 10px;
+  padding: 8px 20px;
   background: transparent;
   color: var(--muted);
 }
 .admin-tabs button[aria-current="page"] {
   color: var(--accent);
-  box-shadow: inset 0 -2px var(--accent);
+  background: var(--wash);
   font-weight: 600;
 }
 .title-label {
@@ -520,10 +602,10 @@ li {
   padding: 9px;
   border: 1px solid var(--line);
   border-bottom: 0;
-  border-radius: 6px 6px 0 0;
+  border-radius: 13px 13px 0 0;
   background: var(--surface);
   position: sticky;
-  top: 0;
+  top: 112px;
   z-index: 10;
 }
 .format-toolbar button {
@@ -554,7 +636,7 @@ li {
 .writing-area {
   gap: 0;
   border: 1px solid var(--line);
-  border-radius: 0 0 6px 6px;
+  border-radius: 0 0 13px 13px;
   overflow: hidden;
   background: var(--surface);
 }
@@ -582,6 +664,7 @@ li {
   outline-offset: -2px;
 }
 #preview {
+  background: var(--surface);
   border: 0;
   border-radius: 0;
   border-left: 1px solid var(--line);
@@ -639,7 +722,7 @@ li {
 }
 #preview .mermaid-preview {
   overflow-x: auto;
-  background: #fafbf9;
+  background: var(--surface);
   padding: 10px;
   border-radius: 4px;
 }
@@ -712,6 +795,9 @@ li {
 .focus-editor .workspace {
   grid-template-columns: minmax(0, 1fr);
 }
+.focus-editor .format-toolbar {
+  top: 0;
+}
 .focus-editor .editor-panel {
   max-width: 1600px;
   width: 100%;
@@ -724,7 +810,7 @@ li {
 .settings-workspace {
   max-width: 1500px;
   margin: auto;
-  padding: 28px 4vw 60px;
+  padding: 24px 24px 60px;
 }
 .settings-grid {
   display: grid;
@@ -734,6 +820,10 @@ li {
 }
 .settings-fields {
   min-width: 0;
+  padding: 26px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 22px;
 }
 .settings-fields fieldset {
   margin: 0 0 32px;
@@ -862,10 +952,7 @@ li {
   z-index: 30;
   overflow: auto;
   padding: 20px;
-  background: var(--surface);
-  border: 1px solid var(--line);
-  border-radius: 10px;
-  box-shadow: 0 12px 50px rgb(0 0 0 / 15%);
+  --frost-radius: 24px;
 }
 @media (max-width: 999px) {
   .settings-grid {
@@ -896,8 +983,10 @@ li {
 }
 .layout-preview-panel {
   position: sticky;
-  top: 28px;
+  top: 112px;
   min-width: 0;
+  padding: 20px;
+  --frost-radius: 22px;
 }
 @media (max-width: 1100px) {
   .settings-grid {
@@ -915,15 +1004,50 @@ li {
   }
 }
 @media (max-width: 800px) {
+  .topbar {
+    margin: 10px 12px 0;
+    top: 10px;
+    padding: 12px 15px;
+    gap: 10px;
+    flex-wrap: wrap;
+    --frost-radius: 20px;
+  }
+  .brand {
+    gap: 9px;
+  }
+  .account {
+    margin-left: auto;
+  }
+  #account {
+    max-width: 80px;
+  }
+  .account > button:not(.theme-control) {
+    padding: 7px 10px;
+    font-size: 12px;
+  }
+  .admin-tabs {
+    max-width: calc(100% - 32px);
+    margin: 18px 16px 0;
+  }
+  .admin-tabs button {
+    padding-inline: 17px;
+  }
+  .login-panel {
+    width: calc(100% - 32px);
+    margin: 52px auto;
+    padding: 38px 26px;
+    --frost-radius: 24px;
+  }
   .workspace {
     display: block;
+    width: calc(100% - 32px);
+    margin-top: 18px;
   }
   .article-sidebar {
     position: static;
     max-height: 290px;
     height: auto;
-    border-right: 0;
-    border-bottom: 1px solid var(--line);
+    margin-bottom: 18px;
   }
   .article-list {
     max-height: 110px;
@@ -980,7 +1104,13 @@ li {
     width: 100%;
   }
   .settings-workspace {
-    padding-inline: 18px;
+    padding-inline: 16px;
+  }
+  .settings-fields {
+    padding: 20px 16px;
+  }
+  .editor-panel {
+    padding: 12px 0 24px;
   }
   .setting-row {
     gap: 5px;
@@ -1005,4 +1135,12 @@ li {
 }
 .layout-preview-panel.expanded {
   width: auto;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    transition: none !important;
+  }
 }

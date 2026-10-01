@@ -202,15 +202,18 @@ function NotePreview({
   row,
   compact = false,
   hidden = false,
+  frosted = false,
 }: {
   props: QuartzComponentProps
   row: Row
   compact?: boolean
   hidden?: boolean
+  frosted?: boolean
 }) {
   return (
     <a
-      class={`internal note-preview${compact ? " compact-preview" : ""}`}
+      class={`internal note-preview${compact ? " compact-preview" : ""}${frosted ? " frosted-panel" : ""}`}
+      data-spotlight={frosted ? "" : undefined}
       hidden={hidden}
       data-no-popover="true"
       href={href(props, `notes/${row.id}`)}
@@ -522,7 +525,7 @@ export const BlogHome: QuartzComponent = (props) => {
                   {data()
                     .articles.slice(0, sectionLimit(section))
                     .map((row) => (
-                      <NotePreview props={props} row={row} />
+                      <NotePreview props={props} row={row} frosted />
                     ))}
                 </div>
                 <template id="random-note-pool">

@@ -7,6 +7,11 @@ import { createSettings } from "./settings.mjs"
 import { signIn } from "./auth.mjs"
 import { GitHubImageHost, prepareImage } from "./images.mjs"
 import { imageHostSettings } from "../scripts/lib/image-host.mjs"
+import { mountFrostedSpotlight } from "../scripts/lib/frosted-spotlight.mjs"
+import { mountAdminTheme } from "./theme.mjs"
+
+mountAdminTheme(document.getElementById("admin-theme"))
+mountFrostedSpotlight(document)
 
 const $ = (id) => document.getElementById(id)
 let client,
