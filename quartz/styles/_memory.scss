@@ -406,6 +406,18 @@
     border: 0;
     border-top: 1px solid var(--memory-card-border);
   }
+  input[type="checkbox"] {
+    appearance: auto;
+    width: 14px;
+    height: 14px;
+    min-height: 14px;
+    padding: 0;
+    margin: 0 6px 0 0;
+    border-radius: 3px;
+    accent-color: var(--secondary);
+    opacity: 0.85;
+    vertical-align: -1px;
+  }
 }
 .memory-hub .memory-inline-tag {
   padding: 0 2px;
