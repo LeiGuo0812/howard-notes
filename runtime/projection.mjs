@@ -12,6 +12,7 @@ import {
   transclusionTargets,
 } from "./markdown.ts"
 import { AST_CACHE_ENCODING, encodeAstCache, decodeAstCache } from "./cache.mjs"
+import { THUMBNAIL_VERSION, extractArticleThumbnail } from "../scripts/lib/article-thumbnail.mjs"
 
 const encoder = new TextEncoder()
 const decoder = new TextDecoder("utf-8", { ignoreBOM: true })
@@ -166,6 +167,8 @@ export async function prepareProjection({
       tags: data.frontmatter?.tags || [],
       transclusions: transclusionTargets(tree),
       astCache: await encodeAstCache(tree, stage.blocks),
+      thumbnail: extractArticleThumbnail(tree, `notes/${stage.article.id}`),
+      thumbnailVersion: THUMBNAIL_VERSION,
     })
     parsed++
   }
@@ -194,6 +197,8 @@ export async function prepareProjection({
       astCache: old?.astCache,
       transclusions: old?.transclusions || [],
       excerpt: pages.data.articles.find((row) => row.id === article.id).excerpt,
+      thumbnail: old?.thumbnail,
+      thumbnailVersion: old?.thumbnailVersion,
     }
     const stage = { doc, article, tree: null, blocks: null }
     if (changedIds.has(article.id)) {
@@ -260,6 +265,23 @@ export async function prepareProjection({
       await ensureTree(slug)
       doc.html = renderArticleFragment(stage.tree, slug, allFiles())
     }
+    if (doc.thumbnailVersion !== THUMBNAIL_VERSION) {
+      let tree = stage.tree
+      if (!tree) {
+        try {
+          tree = (await decodeAstCache(doc.astCache)).tree
+        } catch {
+          await compileStage(stage)
+          tree = stage.tree
+        }
+      }
+      doc.thumbnail = extractArticleThumbnail(tree, slug)
+      doc.thumbnailVersion = THUMBNAIL_VERSION
+    }
+    // The generator deliberately shares row objects between article, topic,
+    // home and collection lists, so one update keeps every live list in sync.
+    const row = pages.data.articles.find((row) => row.id === doc.id)
+    if (doc.thumbnail) row.thumbnail = doc.thumbnail
   }
 
   // The public About page uses the same syntax and the same published-only resolver.

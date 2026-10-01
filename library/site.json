@@ -182,7 +182,7 @@
   },
   "pages": {
     "homeTemplate": "classic",
-    "topicLayout": "list",
+    "topicLayout": "cards",
     "articleLayout": "wide",
     "topicPreviewCount": 4
   }

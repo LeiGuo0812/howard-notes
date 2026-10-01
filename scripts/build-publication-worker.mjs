@@ -28,4 +28,5 @@ export async function buildPublicationWorker() {
     "public/maintenance-assets/publication-worker.js",
     `import "./worker/${path.basename(entry[0])}";\n`,
   )
+  return `maintenance-assets/worker/${path.basename(entry[0])}`
 }

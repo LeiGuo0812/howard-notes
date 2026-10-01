@@ -88,6 +88,11 @@ if (
   !existing.has(path.join(publicDir, "maintenance-assets", maintenance.entry))
 )
   failures.push("Main-site maintenance must load a versioned entry on demand")
+if (
+  !/^maintenance-assets\/worker\/publication-[A-Z0-9]+\.js$/.test(maintenance.workerEntry || "") ||
+  !existing.has(path.join(publicDir, maintenance.workerEntry || ""))
+)
+  failures.push("The publication worker must have an existing content-hashed entry")
 for (const route of ["index.html", "notes/index.html", "tags/index.html"])
   if (!(await fs.readFile(path.join(publicDir, route), "utf8")).includes("data-maintenance-login"))
     failures.push(`Missing maintenance login: ${route}`)

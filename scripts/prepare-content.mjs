@@ -3,13 +3,23 @@ import path from "node:path"
 import { readLibrary, renderLibrary, walk } from "./lib/library.mjs"
 import { generateSitePages } from "./lib/site-pages.mjs"
 import { readActivity } from "./lib/activity.mjs"
+import { renderedArticleThumbnails } from "./lib/article-thumbnail.mjs"
 
 const { catalog, sources } = await readLibrary("library")
 const { output, warnings, records } = renderLibrary(catalog, sources)
 for (const file of await walk("site"))
   if (file.endsWith(".md")) output.set(path.relative("site", file), await fs.readFile(file))
 const settings = JSON.parse(sources.get("site.json").toString())
-const pages = generateSitePages(settings, catalog, readActivity(catalog.articles), 24, sources)
+const pages = generateSitePages(
+  settings,
+  catalog,
+  readActivity(catalog.articles),
+  24,
+  sources,
+  undefined,
+  undefined,
+  renderedArticleThumbnails(output),
+)
 for (const [file, bytes] of pages.output) output.set(file, bytes)
 // content is generated and ignored. The original bytes live exclusively in library.
 await fs.mkdir("content", { recursive: true })

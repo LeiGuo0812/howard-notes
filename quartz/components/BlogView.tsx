@@ -23,6 +23,7 @@ type Row = {
   category: string
   categoryKey?: string
   excerpt: string
+  thumbnail?: { src: string; alt: string }
   tags: { id: string; title: string }[]
 }
 type Topic = {
@@ -245,11 +246,13 @@ function NotePreview({
   return frosted ? <div class="frost-environment lucky-preview-surface">{card}</div> : card
 }
 function TopicDirectory({ props }: { props: QuartzComponentProps }) {
+  const cards = sitePages(data(props).settings).topicLayout === "cards"
   return (
-    <div class={`topic-directory topic-layout-${sitePages(data(props).settings).topicLayout}`}>
+    <div class={`topic-directory topic-layout-${cards ? "cards topic-card-grid" : "list"}`}>
       {data(props).topics.map((topic) => (
         <section
-          class="topic-section"
+          class={`topic-section topic-card${cards ? " frosted-panel" : ""}`}
+          data-spotlight={cards ? "" : undefined}
           data-topic-id={topic.id}
           hidden={!topic.visible}
           aria-labelledby={`topic-${topic.id}`}
@@ -590,6 +593,40 @@ function ListingPage({ props, listing }: { props: QuartzComponentProps; listing:
           <span class="sr-only">搜索文章</span>
           <input id="listing-search" type="search" placeholder="搜索标题、专题、标签" />
         </label>
+        <div class="listing-view-switch" role="group" aria-label="文章视图">
+          <button type="button" data-listing-view="list" aria-pressed="true" title="列表视图">
+            <svg
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="1.6"
+              aria-hidden="true"
+            >
+              <path d="M8 5h12M8 12h12M8 19h12M3 5h.01M3 12h.01M3 19h.01" />
+            </svg>
+            列表
+          </button>
+          <button
+            type="button"
+            data-listing-view="timeline"
+            aria-pressed="false"
+            title="时间线视图"
+          >
+            <svg
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="1.6"
+              aria-hidden="true"
+            >
+              <path d="M6 3v18M10 6h10M10 12h8M10 18h10" />
+              <circle cx="6" cy="6" r="1.5" />
+              <circle cx="6" cy="12" r="1.5" />
+              <circle cx="6" cy="18" r="1.5" />
+            </svg>
+            时间线
+          </button>
+        </div>
         <label class="listing-sort">
           排序
           <select id="listing-sort" aria-label="文章排序" defaultValue="modified-desc">
@@ -600,6 +637,10 @@ function ListingPage({ props, listing }: { props: QuartzComponentProps; listing:
             <option value="title-asc">标题：升序</option>
             <option value="title-desc">标题：降序</option>
           </select>
+        </label>
+        <label class="timeline-jump" hidden>
+          <span>跳转</span>
+          <select id="timeline-jump" aria-label="跳转到年份或月份" />
         </label>
       </div>
       <div class="activity-filter" id="activity-filter" hidden>
@@ -623,17 +664,42 @@ function ListingPage({ props, listing }: { props: QuartzComponentProps; listing:
               data-no-popover="true"
               href={href(props, `notes/${row.id}`)}
             >
-              <span>{row.title}</span>
-              <div>
-                {!listing.topicId && <small>{row.category}</small>}
-                <time dateTime={row.modified} title={`创建 ${row.created} · 更新 ${row.modified}`}>
-                  {row.modified}
-                </time>
+              <div class="article-row-copy">
+                <span class="article-row-title">{row.title}</span>
+                <div class="article-row-meta">
+                  {!listing.topicId && <small>{row.category}</small>}
+                  <time
+                    dateTime={row.modified}
+                    title={`创建 ${row.created} · 更新 ${row.modified}`}
+                  >
+                    {row.modified}
+                  </time>
+                </div>
+                {row.excerpt && <p class="article-row-excerpt">{row.excerpt}</p>}
               </div>
+              {row.thumbnail && (
+                <span class="article-thumbnail" aria-hidden="true">
+                  <img
+                    src={
+                      /^(?:https?:\/\/|\/)/i.test(row.thumbnail.src)
+                        ? row.thumbnail.src
+                        : `${root(props)}/${row.thumbnail.src}`
+                    }
+                    alt=""
+                    loading="lazy"
+                    decoding="async"
+                    referrerPolicy="no-referrer"
+                    data-article-thumbnail
+                    width="128"
+                    height="96"
+                  />
+                </span>
+              )}
             </a>
           </li>
         ))}
       </ol>
+      <div class="article-timeline" id="article-timeline" hidden aria-label="文章时间线" />
       <nav class="pagination" id="listing-pagination" aria-label="文章分页">
         <button type="button" id="listing-previous" disabled>
           上一页

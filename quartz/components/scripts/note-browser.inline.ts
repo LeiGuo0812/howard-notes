@@ -1,5 +1,6 @@
 import { paginateItems, sampleItems } from "./browsing"
 import { setupLayoutPreview } from "./layout-preview"
+import { setupTimeline } from "./timeline"
 import { mountFrostedSpotlight } from "../../../scripts/lib/frosted-spotlight.mjs"
 import { setupMaintenance } from "../../../admin/maintenance-loader.mjs"
 import "./runtime-content.inline"
@@ -60,6 +61,21 @@ function setupNoteBrowser() {
   setupIconHints()
   setupMaintenanceDock()
   setupMaintenance()
+  const hideThumbnail = (image: HTMLImageElement) => {
+    const wrapper = image.closest<HTMLElement>(".article-thumbnail")
+    if (wrapper) wrapper.hidden = true
+  }
+  const hideBrokenThumbnail = (event: Event) => {
+    const image = event.target
+    if (image instanceof HTMLImageElement && image.hasAttribute("data-article-thumbnail"))
+      hideThumbnail(image)
+  }
+  for (const image of document.querySelectorAll<HTMLImageElement>("img[data-article-thumbnail]"))
+    if (image.complete && !image.naturalWidth) hideThumbnail(image)
+  document.addEventListener("error", hideBrokenThumbnail, { capture: true })
+  window.addCleanup(() =>
+    document.removeEventListener("error", hideBrokenThumbnail, { capture: true }),
+  )
   const recommendations = document.querySelector<HTMLElement>("#random-notes")
   const pool = document.querySelector<HTMLTemplateElement>("#random-note-pool")
   let redraw = () => {}
@@ -254,7 +270,10 @@ function setupNoteBrowser() {
         ? `${matching.length} 篇`
         : `${matching.length} / ${rows.length} 篇`
     document.querySelector<HTMLElement>("#listing-empty")!.hidden = matching.length > 0
-    document.querySelector<HTMLElement>("#listing-pagination")!.hidden = paginated.pages === 1
+    timeline?.update(matching, value)
+    list.hidden = timeline?.isActive() || false
+    document.querySelector<HTMLElement>("#listing-pagination")!.hidden =
+      !!timeline?.isActive() || paginated.pages === 1
     previous.disabled = currentPage === 1
     next.disabled = currentPage === paginated.pages
     document.querySelector("#listing-page-state")!.textContent =
@@ -298,6 +317,7 @@ function setupNoteBrowser() {
       else history.replaceState(history.state, "", url)
     }
   }
+  const timeline = setupTimeline({ onViewChange: () => update() })
   const refresh = () => {
     currentPage = 1
     update()

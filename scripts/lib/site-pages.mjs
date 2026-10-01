@@ -59,6 +59,7 @@ export function generateSitePages(
   sources = new Map(),
   encode = (text) => Buffer.from(text),
   excerpts = new Map(),
+  thumbnails = new Map(),
 ) {
   validateSite(settings)
   const output = new Map()
@@ -80,6 +81,7 @@ export function generateSitePages(
     tags: tags
       .filter((tag) => tag.articleIds.includes(article.id))
       .map(({ id, title }) => ({ id, title })),
+    ...(thumbnails.has(article.id) ? { thumbnail: thumbnails.get(article.id) } : {}),
   })
   const rows = new Map(published.map((article) => [article.id, row(article)]))
   const markdown = (data, body = "") =>

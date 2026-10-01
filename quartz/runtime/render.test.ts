@@ -117,6 +117,36 @@ test("removing a published row removes every list, lucky card, graph and route r
   assert.ok(pages.every((page) => !page.html.includes("notes/related-note")))
 })
 
+test("article lists render optional root-relative thumbnails and preserve notes and view controls", () => {
+  const projection = fixture()
+  projection.blogData.articles[0].thumbnail = { src: "assets/figure.svg", alt: "原有图示" }
+  const pages = renderPages(projection, shell)
+  const listing = pages.find((page) => page.path === "notes/index")!.html
+  const images = listing.match(/<img\b[^>]*data-article-thumbnail[^>]*>/g) || []
+  assert.equal(images.length, 1)
+  const src = images[0].match(/src="([^"]+)"/)![1]
+  assert.equal(
+    new URL(src, "https://notes.example/howard-notes/notes/").href,
+    "https://notes.example/howard-notes/assets/figure.svg",
+  )
+  assert.match(images[0], /loading="lazy"/)
+  assert.match(images[0], /referrerPolicy="no-referrer"/i)
+  assert.match(listing, /data-listing-view="timeline"/)
+  assert.match(listing, /id="article-timeline"/)
+  assert.match(listing, /id="timeline-jump"/)
+  assert.match(pages.find((page) => page.path === "notes/fresh-note")!.html, /中文正文/)
+})
+
+test("topic cards and the legacy list can both render from saved page settings", () => {
+  const projection = fixture()
+  projection.settings.pages.topicLayout = "cards"
+  const topicHtml = () =>
+    renderPages(projection, shell).find((page) => page.path === "topics/index")!.html
+  assert.match(topicHtml(), /topic-card-grid/)
+  projection.settings.pages.topicLayout = "list"
+  assert.doesNotMatch(topicHtml(), /topic-card-grid/)
+})
+
 test("missing rendered bodies fail explicitly instead of publishing empty new routes", () => {
   const projection = fixture()
   projection.documents = []

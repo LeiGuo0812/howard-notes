@@ -1,12 +1,15 @@
 @use "./liquid-glass" as material;
 @use "../../styles/frosted-glass";
 @use "./maintenance";
+@use "./article-browser";
 
 html {
   width: 100%;
   scroll-padding-top: var(--glass-anchor-offset);
 }
 body {
+  // Keep short-page gradients on one continuous canvas through the viewport.
+  min-height: 100vh;
   font-size: 16px;
   -webkit-font-smoothing: antialiased;
   background:
@@ -22,6 +25,12 @@ body:has(.blog-layout.is-article) {
     radial-gradient(ellipse 300px 600px at 0 100px, var(--glass-reader-blue), transparent 80%),
     radial-gradient(ellipse 280px 560px at 100% 140px, var(--glass-reader-violet), transparent 80%),
     var(--glass-reader-page);
+}
+// Short pages propagate the body's background to the viewport. Repeating the
+// ambient gradients started another coloured band below the footer.
+body,
+body:has(.blog-layout.is-article) {
+  background-repeat: no-repeat;
 }
 * {
   box-sizing: border-box;
@@ -704,6 +713,110 @@ a.topic-chip.internal {
     h2 {
       margin: 0;
       font-size: 17px;
+    }
+  }
+}
+.topic-directory.topic-card-grid {
+  --topic-stagger: 32px;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-items: start;
+  gap: var(--site-card-gap) calc(var(--site-card-gap) + 6px);
+  // The offset participates in layout, so the last card cannot overlap the
+  // footer. DOM order stays row by row for keyboard and screen reader users.
+  .topic-section.topic-card {
+    display: block;
+    min-width: 0;
+    padding: clamp(22px, 2.5vw, 30px);
+    border: 1px solid var(--frost-border);
+    border-radius: var(--site-radius);
+    background:
+      radial-gradient(ellipse at 0 0, var(--glass-card-tint), transparent 66%),
+      radial-gradient(ellipse at 100% 100%, var(--glass-card-violet), transparent 72%),
+      var(--frost-solid);
+    box-shadow:
+      inset 0 1px 0 var(--frost-border),
+      inset 0 -1px 1px var(--frost-shade),
+      var(--frost-independent-shadow);
+    transition:
+      transform var(--glass-transition),
+      border-color var(--glass-transition),
+      box-shadow var(--glass-transition);
+    @supports ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+      background:
+        radial-gradient(ellipse at 0 0, var(--glass-card-tint), transparent 66%),
+        radial-gradient(ellipse at 100% 100%, var(--glass-card-violet), transparent 72%),
+        var(--frost-fill);
+    }
+    &:nth-child(even of :not([hidden])) {
+      margin-block-start: var(--topic-stagger);
+    }
+  }
+  .topic-section-heading {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 16px;
+    margin-bottom: 18px;
+    h2 {
+      min-width: 0;
+      margin: 0;
+      font-size: 22px;
+      font-weight: 650;
+      line-height: 1.45;
+      letter-spacing: -0.025em;
+      overflow-wrap: anywhere;
+      text-wrap: balance;
+    }
+    a.topic-more {
+      flex-shrink: 0;
+      padding: 5px 0;
+      font-size: 11px;
+      font-variant-numeric: tabular-nums;
+      white-space: nowrap;
+    }
+  }
+  .topic-note-previews {
+    min-width: 0;
+    a.compact-preview.internal {
+      padding: 13px 0;
+      border-color: color-mix(in srgb, var(--lightgray) 60%, transparent);
+      &:hover {
+        background: transparent;
+      }
+    }
+    .empty-list {
+      margin: 0;
+      padding: 20px 0;
+      font-size: 13px;
+    }
+  }
+}
+@media (hover: hover) and (pointer: fine) {
+  .topic-card-grid .topic-section.topic-card:hover {
+    transform: translateY(-2px);
+    border-color: color-mix(in srgb, var(--secondary) 28%, var(--frost-border));
+    box-shadow:
+      inset 0 1px 0 var(--frost-border),
+      inset 0 -1px 1px var(--frost-shade),
+      var(--frost-shadow);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .topic-card-grid .topic-section.topic-card {
+    transition: none;
+    &:hover {
+      transform: none;
+    }
+  }
+}
+@media (max-width: 600px) {
+  .topic-directory.topic-card-grid {
+    --topic-stagger: 0px;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 18px;
+    .topic-section-heading h2 {
+      font-size: 20px;
     }
   }
 }
@@ -1567,7 +1680,7 @@ a.article-row.internal {
     padding-inline: 8px;
   }
   .home-workspace[data-home-template="articles"] .recent-previews,
-  .topic-directory.topic-layout-cards {
+  .topic-directory.topic-layout-cards:not(.topic-card-grid) {
     grid-template-columns: 1fr;
   }
   .topic-section {

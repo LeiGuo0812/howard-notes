@@ -6,6 +6,7 @@ import { brandIconLinks } from "./lib/site-icon.mjs"
 import { brokerOrigin } from "../admin/auth.mjs"
 import { upgradeAdmin } from "./lib/admin-upgrade.mjs"
 import { buildMaintenance } from "./build-maintenance.mjs"
+import { buildPublicationWorker } from "./build-publication-worker.mjs"
 import { runtimeBrowserPlugins } from "../runtime/build.mjs"
 const authConfig = JSON.parse(await fs.readFile("admin/auth-config.json", "utf8"))
 const settings = JSON.parse(await fs.readFile("library/site.json", "utf8"))
@@ -22,6 +23,7 @@ const preparedHtml = template
 if (process.env.GITHUB_REF === "refs/heads/main" && !authConfig.brokerOrigin)
   throw new Error("Account login must be configured before deploying main.")
 await fs.mkdir("public/admin/katex", { recursive: true })
+const workerEntry = await buildPublicationWorker()
 const bundle = await build({
   entryPoints: ["admin/app.mjs"],
   outdir: "public/admin",
@@ -35,6 +37,7 @@ const bundle = await build({
   target: ["es2022"],
   sourcemap: false,
   metafile: true,
+  define: { __HOWARD_PUBLICATION_WORKER__: JSON.stringify(workerEntry) },
   plugins: runtimeBrowserPlugins(),
   loader: { ".scss": "empty" },
 })
@@ -65,4 +68,4 @@ await Promise.all([
   fs.cp("node_modules/katex/dist/fonts", "public/admin/katex/fonts", { recursive: true }),
 ])
 console.log(`Built /admin ${version} with a self-hosted Markdown editor.`)
-await buildMaintenance(template)
+await buildMaintenance(template, workerEntry)

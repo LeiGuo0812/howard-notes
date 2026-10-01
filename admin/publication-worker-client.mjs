@@ -1,5 +1,11 @@
 // Only public source data crosses this boundary; GitHub credentials stay on the UI thread.
 export function createPublicationWorker(siteBase) {
+  // Production builds pin the worker to its content hash. This prevents a
+  // cached stable bootstrap from loading an older renderer after deployment.
+  const entry =
+    typeof __HOWARD_PUBLICATION_WORKER__ === "string"
+      ? __HOWARD_PUBLICATION_WORKER__
+      : "maintenance-assets/publication-worker.js"
   let idleTimer
   let worker = null
   let sequence = 0
@@ -16,7 +22,7 @@ export function createPublicationWorker(siteBase) {
   }
   function start() {
     if (worker) return
-    worker = new Worker(new URL("maintenance-assets/publication-worker.js", siteBase), {
+    worker = new Worker(new URL(entry, siteBase), {
       type: "module",
       name: "howard-publication",
     })

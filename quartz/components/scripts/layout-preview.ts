@@ -100,8 +100,9 @@ function applyPreview() {
       collections!.append(chip)
     }
   }
+  const topicCards = sitePages(draft).topicLayout === "cards"
   if (directory)
-    directory.className = `topic-directory topic-layout-${sitePages(draft).topicLayout}`
+    directory.className = `topic-directory topic-layout-${topicCards ? "cards topic-card-grid" : "list"}`
   const chips = document.querySelector<HTMLElement>(".module-topics .topic-chips")
   for (const topic of draft.topics) {
     let chip = chips?.querySelector<HTMLAnchorElement>(`[data-topic-id="${topic.id}"]`)
@@ -122,7 +123,7 @@ function applyPreview() {
     let section = directory?.querySelector<HTMLElement>(`[data-topic-id="${topic.id}"]`)
     if (!section && directory) {
       section = document.createElement("section")
-      section.className = "topic-section"
+      section.className = "topic-section topic-card"
       section.dataset.topicId = topic.id
       const heading = document.createElement("div"),
         title = document.createElement("h2"),
@@ -135,6 +136,9 @@ function applyPreview() {
       section.append(heading, empty)
     }
     if (section && directory) {
+      section.classList.toggle("frosted-panel", topicCards)
+      if (topicCards) section.setAttribute("data-spotlight", "")
+      else section.removeAttribute("data-spotlight")
       section.hidden = !topic.visible
       const heading = section.querySelector("h2 a") || section.querySelector("h2")
       if (heading) heading.textContent = topic.title

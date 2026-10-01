@@ -3,6 +3,8 @@ import assert from "node:assert/strict"
 import fs from "node:fs/promises"
 import { createHash } from "node:crypto"
 import { prepareProjection, gitBlobSha } from "./projection.mjs"
+import { renderLibrary } from "../scripts/lib/library.mjs"
+import { THUMBNAIL_VERSION, renderedArticleThumbnails } from "../scripts/lib/article-thumbnail.mjs"
 
 const settings = JSON.parse(await fs.readFile("library/site.json", "utf8"))
 const encode = (text) => new TextEncoder().encode(text)
@@ -285,4 +287,69 @@ test("Git blob hashes depend on original UTF-8 bytes including BOM and CRLF", as
     await gitBlobSha(original),
     createHash("sha1").update(`blob ${original.length}\0`).update(original).digest("hex"),
   )
+})
+
+test("static and live lists share first-image thumbnails for Markdown, HTML, references and Obsidian attachments", async () => {
+  const articles = [
+    article("markdown"),
+    article("html"),
+    article("reference"),
+    article("obsidian"),
+    article("none"),
+    article("private", { published: false }),
+  ]
+  const sources = new Map([
+    [
+      "notes/markdown.md",
+      encode(
+        "![架构|400](https://example.test/figure.svg)\n\n![第二张](https://example.test/later.png)",
+      ),
+    ],
+    ["notes/html.md", encode('<img src="https://example.test/html.png" alt="HTML 图">')],
+    ["notes/reference.md", encode("![附件][image]\n\n[image]: ../assets/附件.png")],
+    ["notes/obsidian.md", encode("![[../assets/附件.png|400]]")],
+    ["notes/none.md", encode("正文中的 `![代码](https://example.test/code.png)`")],
+    ["notes/private.md", encode("![私有](https://example.test/private.png)")],
+    ["assets/附件.png", encode("unchanged-image-bytes")],
+  ])
+  const before = new Map([...sources].map(([file, bytes]) => [file, bytes.slice()]))
+  const projected = await prepareProjection({
+    catalog: { version: 2, articles },
+    settings,
+    sources,
+  })
+  const staticThumbnails = renderedArticleThumbnails(
+    renderLibrary({ version: 2, articles }, sources).output,
+  )
+  for (const row of projected.blogData.articles)
+    assert.deepEqual(row.thumbnail, staticThumbnails.get(row.id), row.id)
+  assert.equal(projected.blogData.articles.find((row) => row.id === "none").thumbnail, undefined)
+  assert.equal(staticThumbnails.has("private"), false)
+  assert.ok(!JSON.stringify(projected.blogData).includes("private.png"))
+  for (const [file, bytes] of sources) assert.deepEqual(bytes, before.get(file))
+})
+
+test("thumbnail upgrades reuse compressed ASTs and unchanged documents, then track source edits and image removal", async () => {
+  const articles = [article("a"), article("b")],
+    sources = { "notes/a.md": "![首图](https://example.test/first.png)", "notes/b.md": "没有图片" }
+  const first = await prepareProjection(input(articles, sources))
+  for (const doc of first.documents) {
+    delete doc.thumbnail
+    delete doc.thumbnailVersion
+  }
+  const upgraded = await prepareProjection(input(articles, sources, { previous: first }))
+  assert.deepEqual(upgraded.compilation, { parsed: 0, reused: 2 })
+  assert.deepEqual(upgraded.blogData.articles.find((row) => row.id === "a").thumbnail, {
+    src: "https://example.test/first.png",
+    alt: "首图",
+  })
+  assert.ok(upgraded.documents.every((doc) => doc.thumbnailVersion === THUMBNAIL_VERSION))
+  const unchanged = await prepareProjection(input(articles, sources, { previous: upgraded }))
+  assert.deepEqual(unchanged.compilation, { parsed: 0, reused: 2 })
+  assert.deepEqual(unchanged.blogData.articles, upgraded.blogData.articles)
+  const removed = await prepareProjection(
+    input(articles, { ...sources, "notes/a.md": "首图已删除" }, { previous: unchanged }),
+  )
+  assert.deepEqual(removed.compilation, { parsed: 1, reused: 1 })
+  assert.equal(removed.blogData.articles.find((row) => row.id === "a").thumbnail, undefined)
 })
