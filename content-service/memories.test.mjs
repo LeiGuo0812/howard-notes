@@ -597,6 +597,192 @@ test("Chinese literal searches longer than D1's 50-byte LIKE limit remain usable
   assert.ok(f.queries.every(({ sql }) => !/\bLIKE\b|\bGLOB\b/i.test(sql)))
 })
 
+test("native and fallback chunk decoders reject malformed and noncanonical base64 before D1 writes", async (t) => {
+  const descriptor = Object.getOwnPropertyDescriptor(Uint8Array, "fromBase64")
+  const native = Uint8Array.fromBase64
+  assert.equal(typeof native, "function")
+  const malformed = [
+    "-w==",
+    "_w==",
+    "AA$=",
+    "AAAA!!!!", // alphabet and URL-safe alphabet
+    "Zg==\r\n  ",
+    " Zg==   ",
+    "    ",
+    "Zm9v\t\n\r ", // ignored whitespace
+    "Zg",
+    "Zg=",
+    "Zg===",
+    "Z=g=",
+    "Zg==AAAA",
+    "A===",
+    "====", // padding
+    "Zh==",
+    "Zm9=", // nonzero overflow bits encode the same bytes loosely
+  ]
+  for (const mode of ["native", "fallback"])
+    await t.test(mode, async () => {
+      let strictCalls = 0
+      Object.defineProperty(Uint8Array, "fromBase64", {
+        configurable: true,
+        value:
+          mode === "native"
+            ? function (value, options) {
+                if (options) {
+                  assert.deepEqual(options, { lastChunkHandling: "strict" })
+                  strictCalls++
+                }
+                return native.call(Uint8Array, value, options)
+              }
+            : undefined,
+      })
+      try {
+        const f = fixture()
+        for (const data of [...malformed, null, 17]) {
+          f.queries.length = 0
+          const response = await f.owner(
+            "memories/import/files",
+            {
+              file: f.file,
+              chunk: { index: 0, total: 1, data },
+            },
+            { "X-Howard-Sync-Key": f.env.SYNC_SECRET },
+          )
+          assert.equal(response.status, 400)
+          assert.equal(f.queries.length, 0)
+        }
+        for (const [index, data] of [
+          "",
+          "Zg==",
+          "Zm8=",
+          "Zm9v",
+          "AAECAwQF",
+          Buffer.alloc(600 * 1024, 197).toString("base64"),
+        ].entries()) {
+          const bytes = Buffer.from(data, "base64")
+          const file = {
+            ...f.file,
+            id: `${mode}-canonical-${index}`,
+            size: bytes.length,
+            sha256: createHash("sha256").update(bytes).digest("hex"),
+          }
+          const before = strictCalls
+          const response = await f.owner(
+            "memories/import/files",
+            {
+              file,
+              chunk: { index: 0, total: 1, data },
+            },
+            { "X-Howard-Sync-Key": f.env.SYNC_SECRET },
+          )
+          assert.equal(response.status, 200, await response.clone().text())
+          assert.equal((await response.json()).complete, true)
+          if (mode === "native") assert.equal(strictCalls - before, 1)
+        }
+        f.queries.length = 0
+        const before = strictCalls
+        const overLimit = await f.owner(
+          "memories/import/files",
+          {
+            file: f.file,
+            chunk: { index: 0, total: 1, data: Buffer.alloc(600 * 1024 + 1).toString("base64") },
+          },
+          { "X-Howard-Sync-Key": f.env.SYNC_SECRET },
+        )
+        assert.equal(overLimit.status, 413)
+        assert.equal(f.queries.length, 0)
+        assert.equal(strictCalls, before)
+        const oversizedFile = await f.owner(
+          "memories/import/files",
+          {
+            file: { ...f.file, size: 100 * 1024 * 1024 + 1 },
+            chunk: { index: 0, total: 1, data: "Zg==" },
+          },
+          { "X-Howard-Sync-Key": f.env.SYNC_SECRET },
+        )
+        assert.equal(oversizedFile.status, 400)
+        assert.equal(f.queries.length, 0)
+      } finally {
+        if (descriptor) Object.defineProperty(Uint8Array, "fromBase64", descriptor)
+        else delete Uint8Array.fromBase64
+      }
+    })
+})
+
+test("multi-megabyte attachment checksums and reads fetch one encoded chunk per D1 page", async () => {
+  const f = fixture()
+  const chunkSize = 600 * 1024
+  const bytes = Buffer.alloc(chunkSize * 6 + 42, 197)
+  const file = {
+    ...f.file,
+    id: "medium-pages",
+    size: bytes.length,
+    sha256: createHash("sha256").update(bytes).digest("hex"),
+  }
+  f.sqlite
+    .prepare(
+      "INSERT INTO memory_files(id,name,mime_type,size,sha256,total_chunks,created_at) VALUES(?,?,?,?,?,?,?)",
+    )
+    .run(file.id, file.name, file.mimeType, file.size, file.sha256, 7, Date.now())
+  const insert = f.sqlite.prepare(
+    "INSERT INTO memory_file_chunks(file_id,chunk_index,size,data) VALUES(?,?,?,?)",
+  )
+  for (let index = 0; index < 6; index++)
+    insert.run(
+      file.id,
+      index,
+      chunkSize,
+      bytes.subarray(index * chunkSize, (index + 1) * chunkSize).toString("base64"),
+    )
+  const pages = []
+  const prepare = f.DB.prepare.bind(f.DB)
+  f.DB.prepare = (sql) => {
+    const statement = prepare(sql),
+      all = statement.all.bind(statement)
+    statement.all = async () => {
+      const result = await all()
+      if (/SELECT chunk_index,size,data/.test(sql))
+        pages.push(result.results.map((row) => row.data.length))
+      return result
+    }
+    return statement
+  }
+  const complete = await f.owner(
+    "memories/import/files",
+    {
+      file,
+      chunk: { index: 6, total: 7, data: bytes.subarray(chunkSize * 6).toString("base64") },
+    },
+    { "X-Howard-Sync-Key": f.env.SYNC_SECRET },
+  )
+  assert.equal(complete.status, 200, await complete.clone().text())
+  assert.equal((await complete.json()).complete, true)
+  assert.ok(f.queries.length <= 50)
+  assert.equal(pages.length, 7)
+  assert.ok(pages.every((page) => page.length === 1 && page[0] <= 819200))
+  await f.importCards([card(1, { attachments: [{ fileId: file.id }] })])
+  f.queries.length = 0
+  pages.length = 0
+  const full = await f.call("memories/files/" + file.id)
+  assert.deepEqual(Buffer.from(await full.arrayBuffer()), bytes)
+  assert.ok(f.queries.length <= 50)
+  assert.equal(pages.length, 7)
+  assert.ok(pages.every((page) => page.length === 1))
+  const first = chunkSize - 10,
+    last = chunkSize + 16
+  const range = await f.call("memories/files/" + file.id, undefined, {
+    Range: `bytes=${first}-${last}`,
+  })
+  assert.equal(range.status, 206)
+  assert.deepEqual(Buffer.from(await range.arrayBuffer()), bytes.subarray(first, last + 1))
+  f.queries.length = 0
+  const head = await f.call("memories/files/" + file.id, undefined, {}, "HEAD")
+  assert.equal(head.status, 200)
+  assert.equal(head.headers.get("Content-Length"), String(bytes.length))
+  assert.equal(await head.text(), "")
+  assert.equal(f.queries.length, 1)
+})
+
 test("1,000-chunk attachments use bounded D1 reads, native streaming SHA validation and range responses", async () => {
   const f = fixture()
   const bytes = Uint8Array.from({ length: 1000 }, (_, i) => i % 256)

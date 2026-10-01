@@ -42,8 +42,35 @@ const decodeBase64 = (value) => {
   for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i)
   return bytes
 }
+function decodeChunk(value) {
+  if (typeof value !== "string" || value.length % 4 !== 0)
+    throw new MemoryError("附件分块格式不正确。")
+  const padding = value.endsWith("==") ? 2 : value.endsWith("=") ? 1 : 0
+  const expectedSize = (value.length / 4) * 3 - padding
+  if (expectedSize > MAX_CHUNK_BYTES) throw new MemoryError("附件分块过大。", 413)
+  try {
+    const data =
+      typeof Uint8Array.fromBase64 === "function"
+        ? Uint8Array.fromBase64(value, { lastChunkHandling: "strict" })
+        : decodeBase64(value)
+    // Native decoders ignore ASCII whitespace. Any ignored characters change
+    // the expected byte count, so reject them without rescanning the input.
+    if (data.length !== expectedSize) throw new Error()
+    if (padding) {
+      // atob accepts nonzero overflow bits; enforce native strict semantics in
+      // the fallback too, using only the final meaningful base64 character.
+      const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"
+      const last = alphabet.indexOf(value[value.length - padding - 1])
+      if (last < 0 || (last & (padding === 2 ? 15 : 3)) !== 0) throw new Error()
+    }
+    return data
+  } catch {
+    throw new MemoryError("附件分块格式不正确。")
+  }
+}
 // Even files split into 1,000 tiny chunks use at most 40 D1 reads per request.
-const chunkPageSize = (total) => Math.max(20, Math.ceil(total / 40))
+// Smaller files use one row per page to avoid buffering multi-megabyte D1 JSON.
+const chunkPageSize = (total) => Math.max(1, Math.ceil(total / 40))
 async function fileDigest(db, id, total, size) {
   // Workers supplies a native streaming digest that never retains the whole
   // file. The standard Web Crypto fallback is for local Node test runtimes.
@@ -489,13 +516,10 @@ async function importFile(db, body) {
     !Number.isSafeInteger(chunk.total) ||
     chunk.index < 0 ||
     chunk.index >= chunk.total ||
-    chunk.total > 1000 ||
-    typeof chunk.data !== "string" ||
-    !/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(chunk.data)
+    chunk.total > 1000
   )
     throw new MemoryError("附件分块格式不正确。")
-  const data = decodeBase64(chunk.data)
-  if (data.length > MAX_CHUNK_BYTES) throw new MemoryError("附件分块过大。", 413)
+  const data = decodeChunk(chunk.data)
   const prior = await db.prepare("SELECT * FROM memory_files WHERE id = ?").bind(file.id).first()
   if (
     prior &&
