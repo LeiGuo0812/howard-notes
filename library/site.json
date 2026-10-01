@@ -115,6 +115,12 @@
       "title": "统计方法",
       "category": "统计方法",
       "visible": true
+    },
+    {
+      "id": "topic-fe191af5-1b65-4f39-8bf4-9ed86ba32b35",
+      "title": "Ai",
+      "category": "Ai",
+      "visible": true
     }
   ],
   "collections": [
