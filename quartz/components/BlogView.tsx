@@ -777,7 +777,7 @@ export const BlogFrame: PageFrame = {
         >
           {article && (
             <aside class="left sidebar reading-sidebar" aria-label="文章导航">
-              <details class="reading-tools" open>
+              <details class="reading-tools">
                 <summary aria-label="目录与图谱" title="目录与图谱">
                   <span class="reading-tools-label">目录与图谱</span>
                   <span class="reading-tools-mobile-label" aria-hidden="true">

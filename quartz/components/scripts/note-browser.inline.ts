@@ -129,8 +129,12 @@ function setupNoteBrowser() {
     const desktop = matchMedia("(min-width: 1240px)")
     const mobile = matchMedia("(max-width: 800px)")
     const summary = tools.querySelector<HTMLElement>(":scope > summary")
+    let initialized = false
     const resize = () => {
-      tools.open = desktop.matches
+      // Mobile starts closed in HTML. Keep an early native summary click
+      // while the asynchronously loaded script initializes.
+      if (initialized || !mobile.matches) tools.open = desktop.matches
+      initialized = true
     }
     const close = (restoreFocus = true) => {
       if (!mobile.matches || !tools.open) return
