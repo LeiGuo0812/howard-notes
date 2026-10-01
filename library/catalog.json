@@ -3096,6 +3096,19 @@
         "created": "frontmatter",
         "modified": "vault-history"
       }
+    },
+    {
+      "id": "note-00b7f312-b2a8-4d52-954c-fa75513fa1b5",
+      "file": "notes/网页新建/note-00b7f312-b2a8-4d52-954c-fa75513fa1b5.md",
+      "title": "test",
+      "category": "统计方法",
+      "description": "",
+      "date": "2026-10-01",
+      "created": "2026-10-01",
+      "tags": [],
+      "published": true,
+      "featured": false,
+      "modified": "2026-10-01"
     }
   ]
 }
