@@ -1,12 +1,17 @@
 import fs from "node:fs/promises"
 import { build } from "esbuild"
 import { brandIconLinks } from "./lib/site-icon.mjs"
+import { brokerOrigin } from "../admin/auth.mjs"
 const authConfig = JSON.parse(await fs.readFile("admin/auth-config.json", "utf8"))
 const settings = JSON.parse(await fs.readFile("library/site.json", "utf8"))
-const adminHtml = (await fs.readFile("admin/index.html", "utf8")).replace(
-  "<!-- brand-icons -->",
-  brandIconLinks(settings, ".."),
-)
+const template = await fs.readFile("admin/index.html", "utf8")
+const connections = "connect-src 'self' https://api.github.com;"
+if (!template.includes(connections))
+  throw new Error("The admin connection policy template changed.")
+const loginOrigin = authConfig.brokerOrigin ? ` ${brokerOrigin(authConfig.brokerOrigin)}` : ""
+const adminHtml = template
+  .replace("<!-- brand-icons -->", brandIconLinks(settings, ".."))
+  .replace(connections, `connect-src 'self' https://api.github.com${loginOrigin};`)
 if (process.env.GITHUB_REF === "refs/heads/main" && !authConfig.brokerOrigin)
   throw new Error("Account login must be configured before deploying main.")
 await fs.mkdir("public/admin/katex", { recursive: true })

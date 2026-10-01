@@ -1,8 +1,9 @@
 // GitHub App authorization bridge. Secrets stay on the server; user access tokens
-// are delivered only to the initiating admin window and kept in its memory.
+// are claimed once by the initiating admin page and kept in its memory.
 const encoder = new TextEncoder()
 const COOKIE = "__Host-howard-flow"
 const FLOW_SECONDS = 600
+const RESULT_SECONDS = 300
 const random = (length = 32) => encode(crypto.getRandomValues(new Uint8Array(length)))
 const encode = (bytes) =>
   btoa(String.fromCharCode(...bytes))
@@ -128,7 +129,36 @@ async function github(fetcher, path, token) {
   if (!response.ok) throw new Error("GitHub 授权未完成，请确认已将应用安装到 howard-notes 仓库。")
   return response.json()
 }
-function complete(env, flow, payload) {
+async function complete(env, flow, payload) {
+  if (flow.challenge) {
+    const result = { type: "howard-github-auth", channel: flow.channel, ...payload }
+    const saved = await env.DB.prepare(
+      "UPDATE login_results SET encrypted = ?, expires = ? WHERE channel = ? AND challenge = ? AND expires >= ? AND encrypted IS NULL",
+    )
+      .bind(
+        await seal(result, env, "login-result"),
+        Date.now() + RESULT_SECONDS * 1000,
+        flow.channel,
+        flow.challenge,
+        Date.now(),
+      )
+      .run()
+    if (!saved.meta.changes) throw new Error("登录已失效，请重新登录。")
+    if (flow.mode === "redirect") {
+      const target = new URL(env.ADMIN_URL)
+      target.searchParams.set("login", flow.channel)
+      return redirect(target.href, clearCookie())
+    }
+    // This page contains no user token and works even after the opener was severed.
+    return page(
+      payload.error ? "未能登录" : "登录成功",
+      `<p>${escape(payload.error || "请返回原来的管理页面，登录会自动完成。")}</p><a href="${escape(env.ADMIN_URL)}">返回管理后台</a>`,
+      'history.replaceState(null,"","/complete");window.close();',
+      { "Set-Cookie": clearCookie() },
+      payload.error ? 400 : 200,
+    )
+  }
+  // Compatibility for admin pages cached before the handoff protocol was deployed.
   return page(
     payload.error ? "未能登录" : "登录成功",
     `<p>${escape(payload.error || "正在返回管理后台…")}</p><a href="${escape(env.ADMIN_URL)}">返回管理后台</a>`,
@@ -138,10 +168,112 @@ function complete(env, flow, payload) {
   )
 }
 
+function resultHeaders(env, allowed = true) {
+  return headers({
+    "Content-Type": "application/json; charset=utf-8",
+    Vary: "Origin",
+    ...(allowed ? { "Access-Control-Allow-Origin": new URL(env.ADMIN_URL).origin } : {}),
+  })
+}
+
+async function loginBridge(request, env, prepare = false) {
+  const allowed = request.headers.get("Origin") === new URL(env.ADMIN_URL).origin
+  const response = (value, status) =>
+    Response.json(value, { status, headers: resultHeaders(env, allowed) })
+  if (!allowed) return response({ error: "登录来源不正确。" }, 403)
+  if (request.method === "OPTIONS") {
+    const requested = (request.headers.get("Access-Control-Request-Headers") || "")
+      .split(",")
+      .map((value) => value.trim().toLowerCase())
+      .filter(Boolean)
+    if (
+      request.headers.get("Access-Control-Request-Method") !== "POST" ||
+      requested.some((value) => value !== "content-type")
+    )
+      return response({ error: "登录请求不正确。" }, 403)
+    return new Response(null, {
+      status: 204,
+      headers: {
+        ...resultHeaders(env),
+        "Access-Control-Allow-Methods": "POST",
+        "Access-Control-Allow-Headers": "Content-Type",
+        "Access-Control-Max-Age": "600",
+      },
+    })
+  }
+  if (request.method !== "POST") return response({ error: "登录请求不正确。" }, 405)
+  try {
+    if (
+      request.headers.get("Content-Type")?.split(";")[0].trim() !== "application/json" ||
+      Number(request.headers.get("Content-Length")) > 1024
+    )
+      return response({ error: "登录请求不正确。" }, 400)
+    // Bound the body even when Content-Length is omitted (e.g. chunked transfer).
+    const reader = request.body?.getReader()
+    if (!reader) return response({ error: "登录请求不正确。" }, 400)
+    let bytes = 0
+    const chunks = []
+    while (true) {
+      const next = await reader.read()
+      if (next.done) break
+      bytes += next.value.byteLength
+      if (bytes > 1024) {
+        await reader.cancel()
+        return response({ error: "登录请求不正确。" }, 400)
+      }
+      chunks.push(next.value)
+    }
+    const body = new Uint8Array(bytes)
+    let offset = 0
+    for (const chunk of chunks) {
+      body.set(chunk, offset)
+      offset += chunk.byteLength
+    }
+    const { channel, secret, challenge: supplied } = JSON.parse(new TextDecoder().decode(body))
+    if (
+      !/^[a-zA-Z0-9_-]{43}$/.test(channel || "") ||
+      !/^[a-zA-Z0-9_-]{43}$/.test((prepare ? supplied : secret) || "")
+    )
+      return response({ error: "登录请求不正确。" }, 400)
+    if (prepare) {
+      await env.DB.prepare("DELETE FROM login_results WHERE expires < ?").bind(Date.now()).run()
+      const created = await env.DB.prepare(
+        "INSERT OR IGNORE INTO login_results (channel, challenge, expires) VALUES (?, ?, ?)",
+      )
+        .bind(channel, supplied, Date.now() + FLOW_SECONDS * 1000)
+        .run()
+      if (!created.meta.changes) return response({ error: "请重新发起登录。" }, 409)
+      return response({ ready: true }, 201)
+    }
+    const challenge = encode(
+      new Uint8Array(await crypto.subtle.digest("SHA-256", encoder.encode(secret))),
+    )
+    const pending = await env.DB.prepare(
+      "SELECT encrypted FROM login_results WHERE channel = ? AND challenge = ? AND expires >= ?",
+    )
+      .bind(channel, challenge, Date.now())
+      .first()
+    if (!pending) return response({ error: "登录已失效，请重新登录。" }, 403)
+    if (!pending.encrypted) return response({ pending: true }, 202)
+    // The proof must match in the same statement that consumes the result.
+    const claimed = await env.DB.prepare(
+      "DELETE FROM login_results WHERE channel = ? AND challenge = ? AND expires >= ? AND encrypted IS NOT NULL RETURNING encrypted",
+    )
+      .bind(channel, challenge, Date.now())
+      .first()
+    if (!claimed) return response({ error: "登录已失效，请重新登录。" }, 403)
+    return response(await unseal(claimed.encrypted, env, "login-result"), 200)
+  } catch {
+    return response({ error: "登录服务暂时不可用，请重新登录。" }, 400)
+  }
+}
+
 export async function handle(request, env, fetcher = (...args) => fetch(...args)) {
   const url = new URL(request.url),
     path = url.pathname
   try {
+    if (path === "/result" || path === "/prepare")
+      return loginBridge(request, env, path === "/prepare")
     if (path === "/health" && request.method === "GET")
       return Response.json({ ok: true, configured: !!(await config(env)) }, { headers: headers() })
     if (path === "/setup" && request.method === "GET") {
@@ -257,14 +389,43 @@ export async function handle(request, env, fetcher = (...args) => fetch(...args)
     if (path === "/login" && request.method === "GET") {
       const channel = url.searchParams.get("channel")
       if (!/^[a-zA-Z0-9_-]{43}$/.test(channel || "")) throw new Error("请从管理后台发起登录。")
+      const challenge = url.searchParams.get("challenge")
+      const mode = url.searchParams.get("mode") ?? "popup"
+      if (
+        (url.searchParams.has("challenge") && !/^[a-zA-Z0-9_-]{43}$/.test(challenge || "")) ||
+        !["popup", "redirect"].includes(mode) ||
+        (!challenge && mode === "redirect")
+      )
+        throw new Error("请从管理后台重新发起登录。")
       const app = await config(env)
       if (!app) throw new Error("账号登录尚未开通，请先完成首次配置。")
+      if (challenge) {
+        await env.DB.prepare("DELETE FROM login_results WHERE expires < ?").bind(Date.now()).run()
+        await env.DB.prepare(
+          "INSERT OR IGNORE INTO login_results (channel, challenge, expires) VALUES (?, ?, ?)",
+        )
+          .bind(channel, challenge, Date.now() + FLOW_SECONDS * 1000)
+          .run()
+        const registered = await env.DB.prepare(
+          "SELECT challenge, encrypted, expires FROM login_results WHERE channel = ?",
+        )
+          .bind(channel)
+          .first()
+        if (
+          !registered ||
+          registered.challenge !== challenge ||
+          registered.encrypted !== null ||
+          registered.expires <= Date.now()
+        )
+          throw new Error("请从管理后台重新发起登录。")
+      }
       const verifier = random()
       const pending = await createFlow(env, {
         kind: "login",
         origin: url.origin,
         verifier,
         channel,
+        ...(challenge ? { challenge, mode } : {}),
       })
       const authorize = new URL("https://github.com/login/oauth/authorize")
       authorize.search = new URLSearchParams({
@@ -314,13 +475,13 @@ export async function handle(request, env, fetcher = (...args) => fetch(...args)
         if (!Number.isFinite(token.expires_in) || token.expires_in <= 0 || token.expires_in > 28800)
           throw new Error("请在 GitHub 应用设置中启用短期用户授权，然后重新登录。")
         // Refresh tokens and the App private key are deliberately never stored or sent to the browser.
-        return complete(env, flow, {
+        return await complete(env, flow, {
           token: token.access_token,
           login: user.login,
           expiresAt: Date.now() + token.expires_in * 1000,
         })
       } catch (error) {
-        return complete(env, flow, { error: error.message })
+        return await complete(env, flow, { error: error.message })
       }
     }
     if (path === "/" && request.method === "GET") return redirect(env.ADMIN_URL)

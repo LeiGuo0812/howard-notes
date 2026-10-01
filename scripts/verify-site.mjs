@@ -3,6 +3,7 @@ import path from "node:path"
 import { fromHtml } from "hast-util-from-html"
 import { visit } from "unist-util-visit"
 import YAML from "yaml"
+import { brokerOrigin } from "../admin/auth.mjs"
 
 const publicDir = path.resolve("public")
 const config = YAML.parse(await fs.readFile("quartz.config.yaml", "utf8")).configuration
@@ -35,6 +36,33 @@ for (const file of files.filter((file) => file.endsWith(".html"))) {
   pages.set(file, { ids, links })
 }
 const failures = []
+// Validate the emitted policy: the OAuth result requests must be permitted by the browser.
+const authConfig = JSON.parse(await fs.readFile("public/admin/auth-config.json", "utf8"))
+const adminTree = fromHtml(await fs.readFile("public/admin/index.html", "utf8"))
+let adminPolicy = ""
+visit(adminTree, "element", (node) => {
+  if (
+    node.tagName === "meta" &&
+    String(node.properties.httpEquiv).toLowerCase() === "content-security-policy"
+  )
+    adminPolicy = String(node.properties.content)
+})
+const connections = adminPolicy
+  .split(";")
+  .map((value) => value.trim())
+  .find((value) => value.startsWith("connect-src "))
+  ?.split(/\s+/)
+  .slice(1)
+  .sort()
+const allowedConnections = [
+  "'self'",
+  "https://api.github.com",
+  ...(authConfig.brokerOrigin ? [brokerOrigin(authConfig.brokerOrigin)] : []),
+].sort()
+if (JSON.stringify(connections) !== JSON.stringify(allowedConnections))
+  failures.push(
+    "Admin connection policy must permit only the configured login origin and GitHub API",
+  )
 for (const [file, { links }] of pages) {
   const route = path
     .relative(publicDir, file)

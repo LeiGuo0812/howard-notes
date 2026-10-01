@@ -85,7 +85,7 @@ function callback(pending, additions = "code=code-from-github-123") {
     { headers: { Cookie: pending.cookie } },
   )
 }
-function upstream({ user = 50766698, push = true } = {}) {
+function upstream({ user = 50766698, push = true, expires = 28800 } = {}) {
   const calls = []
   return {
     calls,
@@ -95,7 +95,7 @@ function upstream({ user = 50766698, push = true } = {}) {
         return Response.json({
           access_token: "ghu_mock-short-lived-access",
           token_type: "bearer",
-          expires_in: 28800,
+          expires_in: expires,
           refresh_token: "must-not-reach-browser",
         })
       if (url.endsWith("/user")) return Response.json({ id: user, login: "LeiGuo0812" })
@@ -249,4 +249,572 @@ test("manifest setup stores only encrypted credentials, checks ownership and can
       assert.equal(repeated.status, 400)
     }
   }
+})
+
+const resultSecret = Buffer.alloc(32, 7).toString("base64url")
+const resultChannel = Buffer.alloc(32, 9).toString("base64url")
+const wrongSecret = Buffer.alloc(32, 11).toString("base64url")
+async function secretChallenge(secret = resultSecret) {
+  return Buffer.from(
+    await crypto.subtle.digest("SHA-256", new TextEncoder().encode(secret)),
+  ).toString("base64url")
+}
+async function startResult(env, mode = "popup", requestChannel = resultChannel) {
+  const challenge = await secretChallenge()
+  const url = new URL(`${origin}/login`)
+  url.search = new URLSearchParams({ channel: requestChannel, challenge, mode }).toString()
+  assert.ok(!url.href.includes(resultSecret))
+  const response = await handle(new Request(url), env)
+  assert.equal(response.status, 302)
+  const authorize = new URL(response.headers.get("Location"))
+  assert.equal(authorize.origin, "https://github.com")
+  assert.equal(authorize.searchParams.get("code_challenge_method"), "S256")
+  assert.ok(!authorize.href.includes(resultSecret))
+  return {
+    authorize,
+    cookie: response.headers.get("Set-Cookie").split(";")[0],
+    channel: requestChannel,
+    challenge,
+  }
+}
+function resultRequest(env, options = {}) {
+  const {
+    requestOrigin = new URL(env.ADMIN_URL).origin,
+    secret = resultSecret,
+    requestChannel = resultChannel,
+    contentType = "application/json",
+    body = JSON.stringify({ channel: requestChannel, secret }),
+    endpoint = "/result",
+  } = options
+  const headers = { "Content-Type": contentType }
+  if (requestOrigin !== null) headers.Origin = requestOrigin
+  return new Request(`${origin}${endpoint}`, { method: "POST", headers, body })
+}
+function assertPrivateResponse(response, allowedOrigin = null) {
+  assert.equal(response.headers.get("Cache-Control"), "no-store")
+  assert.equal(response.headers.get("Access-Control-Allow-Origin"), allowedOrigin)
+  assert.notEqual(response.headers.get("Access-Control-Allow-Credentials"), "true")
+}
+function assertNoCredentials(text) {
+  for (const value of [
+    "ghu_mock-short-lived-access",
+    "must-not-reach-browser",
+    app.clientSecret,
+    "code-from-github-123",
+    resultSecret,
+  ])
+    assert.ok(!text.includes(value), `Response unexpectedly included ${value}`)
+}
+
+test("result-based login starts pending with only a hashed secret and never consumes a pending result", async () => {
+  const { env, sqlite } = await configured()
+  const pending = await startResult(env)
+  const row = sqlite.prepare("SELECT * FROM login_results WHERE channel = ?").get(resultChannel)
+  assert.equal(row.challenge, pending.challenge)
+  assert.equal(row.encrypted, null)
+  assert.ok(row.expires > Date.now())
+  assert.ok(!JSON.stringify(row).includes(resultSecret))
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const response = await handle(resultRequest(env), env)
+    assert.equal(response.status, 202)
+    assertPrivateResponse(response, new URL(env.ADMIN_URL).origin)
+    assertNoCredentials(await response.text())
+    assert.equal(
+      sqlite
+        .prepare("SELECT count(*) AS count FROM login_results WHERE channel = ?")
+        .get(resultChannel).count,
+      1,
+    )
+  }
+})
+
+test("popup callback stores an encrypted five-minute result and its HTML contains no token", async () => {
+  const { env, sqlite } = await configured()
+  const pending = await startResult(env)
+  const api = upstream()
+  const before = Date.now()
+  const response = await handle(callback(pending), env, api.fetcher)
+  const after = Date.now()
+  assert.equal(response.status, 200)
+  const body = await response.text()
+  assertNoCredentials(body)
+  assert.ok(!body.includes("postMessage"))
+  assertPrivateResponse(response)
+  assert.match(response.headers.get("Set-Cookie"), /Max-Age=0/)
+  const row = sqlite.prepare("SELECT * FROM login_results WHERE channel = ?").get(resultChannel)
+  assert.ok(row.expires >= before + 300000)
+  assert.ok(row.expires <= after + 300000)
+  assert.ok(!row.encrypted.includes("ghu_mock"))
+  const payload = await unseal(row.encrypted, env, "login-result")
+  assert.equal(payload.token, "ghu_mock-short-lived-access")
+  assert.equal(payload.login, "LeiGuo0812")
+  assert.ok(payload.expiresAt > Date.now())
+  assert.ok(!JSON.stringify(payload).includes("must-not-reach-browser"))
+  await assert.rejects(unseal(row.encrypted, env, "config"))
+  await assert.rejects(unseal(row.encrypted, env, "flow"))
+})
+
+test("same-page callback returns only to the fixed admin URL with a non-secret login channel", async () => {
+  const { env } = await configured()
+  const pending = await startResult(env, "redirect")
+  const api = upstream()
+  const response = await handle(callback(pending), env, api.fetcher)
+  assert.equal(response.status, 302)
+  const returned = new URL(response.headers.get("Location"))
+  const fixed = new URL(env.ADMIN_URL)
+  assert.equal(returned.origin, fixed.origin)
+  assert.equal(returned.pathname, fixed.pathname)
+  assert.deepEqual([...returned.searchParams], [["login", resultChannel]])
+  assert.equal(returned.hash, "")
+  assertNoCredentials(returned.href)
+  assertNoCredentials(await response.text())
+  assertPrivateResponse(response)
+})
+
+test("the initiating secret retrieves exactly one result and replay is rejected", async () => {
+  const { env, sqlite } = await configured()
+  const pending = await startResult(env)
+  const api = upstream()
+  await handle(callback(pending), env, api.fetcher)
+  const response = await handle(resultRequest(env), env)
+  assert.equal(response.status, 200)
+  assertPrivateResponse(response, new URL(env.ADMIN_URL).origin)
+  const payload = await response.json()
+  assert.equal(payload.type, "howard-github-auth")
+  assert.equal(payload.channel, resultChannel)
+  assert.equal(payload.token, "ghu_mock-short-lived-access")
+  assert.equal(payload.login, "LeiGuo0812")
+  assert.ok(payload.expiresAt > Date.now())
+  assert.ok(!JSON.stringify(payload).includes("must-not-reach-browser"))
+  assert.equal(
+    sqlite
+      .prepare("SELECT count(*) AS count FROM login_results WHERE channel = ?")
+      .get(resultChannel).count,
+    0,
+  )
+  const replay = await handle(resultRequest(env), env)
+  assert.equal(replay.status, 403)
+  assertNoCredentials(await replay.text())
+  assert.equal((await handle(callback(pending), env, api.fetcher)).status, 400)
+  assert.equal(api.calls.length, 3)
+})
+
+test("concurrent result retrieval has only one winner in real SQLite", async () => {
+  const { env } = await configured()
+  const pending = await startResult(env)
+  await handle(callback(pending), env, upstream().fetcher)
+  const responses = await Promise.all(
+    Array.from({ length: 8 }, () => handle(resultRequest(env), env)),
+  )
+  assert.equal(responses.filter((response) => response.status === 200).length, 1)
+  assert.equal(responses.filter((response) => response.status === 403).length, 7)
+  for (const response of responses) {
+    const body = await response.text()
+    if (response.status === 200) assert.match(body, /ghu_mock-short-lived-access/)
+    else assertNoCredentials(body)
+  }
+})
+
+test("wrong origins and secrets cannot read or consume a completed result", async () => {
+  const { env, sqlite } = await configured()
+  const pending = await startResult(env)
+  await handle(callback(pending), env, upstream().fetcher)
+  const legitimateOrigin = new URL(env.ADMIN_URL).origin
+  for (const requestOrigin of [
+    null,
+    "null",
+    "https://attacker.test",
+    legitimateOrigin + ".attacker.test",
+    legitimateOrigin + "/",
+    origin,
+  ]) {
+    const response = await handle(resultRequest(env, { requestOrigin }), env)
+    assert.equal(response.status, 403)
+    assertPrivateResponse(response)
+    assertNoCredentials(await response.text())
+  }
+  const wrong = await handle(resultRequest(env, { secret: wrongSecret }), env)
+  assert.equal(wrong.status, 403)
+  assertNoCredentials(await wrong.text())
+  assert.equal(
+    sqlite
+      .prepare("SELECT count(*) AS count FROM login_results WHERE channel = ?")
+      .get(resultChannel).count,
+    1,
+  )
+  assert.equal((await handle(resultRequest(env), env)).status, 200)
+})
+
+test("invalid result bodies or content types cannot consume a valid result", async () => {
+  const { env, sqlite } = await configured()
+  const pending = await startResult(env)
+  await handle(callback(pending), env, upstream().fetcher)
+  for (const options of [
+    { contentType: "text/plain" },
+    { contentType: "application/x-www-form-urlencoded" },
+    { body: "{" },
+    { body: "null" },
+    { body: "[]" },
+    { body: JSON.stringify({ channel: resultChannel }) },
+    { secret: "bad-secret" },
+    { requestChannel: "bad-channel" },
+    {
+      body: JSON.stringify({
+        channel: resultChannel,
+        secret: resultSecret,
+        padding: "x".repeat(1024),
+      }),
+    },
+  ]) {
+    const response = await handle(resultRequest(env, options), env)
+    assert.equal(response.status, 400)
+    assertNoCredentials(await response.text())
+  }
+  assert.equal(
+    sqlite
+      .prepare("SELECT count(*) AS count FROM login_results WHERE channel = ?")
+      .get(resultChannel).count,
+    1,
+  )
+  assert.equal((await handle(resultRequest(env), env)).status, 200)
+})
+
+test("pending and completed result expiry fail without returning credentials", async () => {
+  for (const complete of [false, true]) {
+    const { env, sqlite } = await configured()
+    const pending = await startResult(env)
+    if (complete) await handle(callback(pending), env, upstream().fetcher)
+    sqlite.prepare("UPDATE login_results SET expires = ? WHERE channel = ?").run(1, resultChannel)
+    const response = await handle(resultRequest(env), env)
+    assert.equal(response.status, 403)
+    assertNoCredentials(await response.text())
+  }
+})
+
+test("result preflight admits only the admin origin, POST method and content-type header", async () => {
+  const { env } = await configured()
+  const legitimateOrigin = new URL(env.ADMIN_URL).origin
+  const preflight = (requestOrigin, method = "POST", requestHeaders = "content-type") =>
+    new Request(`${origin}/result`, {
+      method: "OPTIONS",
+      headers: {
+        Origin: requestOrigin,
+        "Access-Control-Request-Method": method,
+        "Access-Control-Request-Headers": requestHeaders,
+      },
+    })
+  const response = await handle(preflight(legitimateOrigin), env)
+  assert.equal(response.status, 204)
+  assertPrivateResponse(response, legitimateOrigin)
+  assert.equal(response.headers.get("Access-Control-Allow-Methods"), "POST")
+  assert.equal(response.headers.get("Access-Control-Allow-Headers")?.toLowerCase(), "content-type")
+  assert.match(response.headers.get("Vary"), /Origin/i)
+  for (const request of [
+    preflight("https://attacker.test"),
+    preflight("null"),
+    preflight(legitimateOrigin, "GET"),
+    preflight(legitimateOrigin, "PUT"),
+    preflight(legitimateOrigin, "POST", "content-type,authorization"),
+    preflight(legitimateOrigin, "POST", "x-custom-header"),
+  ]) {
+    const denied = await handle(request, env)
+    assert.equal(denied.status, 403)
+    assert.notEqual(denied.headers.get("Access-Control-Allow-Origin"), "*")
+    assert.notEqual(denied.headers.get("Access-Control-Allow-Headers"), "*")
+    assertNoCredentials(await denied.text())
+  }
+})
+
+test("result-based errors remain retrievable once without exposing access or refresh tokens", async () => {
+  for (const scenario of [
+    { options: { user: 1234 }, message: /所有者/ },
+    { options: { push: false }, message: /写入权限/ },
+    { options: { expires: 0 }, message: /短期/ },
+    { options: { expires: 28801 }, message: /短期/ },
+    { cancelled: true, message: /取消 GitHub 授权/ },
+  ]) {
+    const { env, sqlite } = await configured()
+    const pending = await startResult(env, "redirect")
+    const api = upstream(scenario.options)
+    const completed = await handle(
+      callback(
+        pending,
+        scenario.cancelled
+          ? "error=access_denied&error_description=untrusted-text"
+          : "code=code-from-github-123",
+      ),
+      env,
+      api.fetcher,
+    )
+    assert.equal(completed.status, 302)
+    assertNoCredentials(completed.headers.get("Location"))
+    assertNoCredentials(await completed.text())
+    const row = sqlite
+      .prepare("SELECT encrypted FROM login_results WHERE channel = ?")
+      .get(resultChannel)
+    const stored = await unseal(row.encrypted, env, "login-result")
+    assert.match(stored.error, scenario.message)
+    assert.equal(stored.token, undefined)
+    const response = await handle(resultRequest(env), env)
+    assert.equal(response.status, 200)
+    const payload = await response.json()
+    assert.equal(payload.type, "howard-github-auth")
+    assert.equal(payload.channel, resultChannel)
+    assert.match(payload.error, scenario.message)
+    assertNoCredentials(JSON.stringify(payload))
+    assert.ok(!JSON.stringify(payload).includes("untrusted-text"))
+    assert.equal((await handle(resultRequest(env), env)).status, 403)
+    if (scenario.cancelled) assert.equal(api.calls.length, 0)
+  }
+})
+
+test("invalid challenges and transport modes are rejected before creating a pending result", async () => {
+  const { env, sqlite } = await configured()
+  const validChallenge = await secretChallenge()
+  for (const parameters of [
+    { challenge: "short", mode: "popup" },
+    { challenge: "a".repeat(44), mode: "popup" },
+    { challenge: "+".repeat(43), mode: "popup" },
+    { challenge: validChallenge, mode: "unsupported" },
+    { challenge: validChallenge, mode: "" },
+    { challenge: validChallenge, mode: "https://attacker.test/" },
+  ]) {
+    const url = new URL(`${origin}/login`)
+    url.search = new URLSearchParams({ channel: resultChannel, ...parameters }).toString()
+    const response = await handle(new Request(url), env)
+    assert.equal(response.status, 400)
+    assert.equal(response.headers.get("Location"), null)
+    assertNoCredentials(await response.text())
+  }
+  assert.equal(sqlite.prepare("SELECT count(*) AS count FROM login_results").get().count, 0)
+  assert.equal(sqlite.prepare("SELECT count(*) AS count FROM login_flows").get().count, 0)
+})
+
+test("a repeated channel cannot replace a pending or completed proof-bound result", async () => {
+  for (const complete of [false, true]) {
+    const { env, sqlite } = await configured()
+    const pending = await startResult(env)
+    if (complete) await handle(callback(pending), env, upstream().fetcher)
+    const previous = sqlite
+      .prepare("SELECT * FROM login_results WHERE channel = ?")
+      .get(resultChannel)
+    const url = new URL(`${origin}/login`)
+    url.search = new URLSearchParams({
+      channel: resultChannel,
+      challenge: await secretChallenge(wrongSecret),
+      mode: "redirect",
+    }).toString()
+    const repeated = await handle(new Request(url), env)
+    assert.equal(repeated.status, 400)
+    assert.equal(repeated.headers.get("Location"), null)
+    assertNoCredentials(await repeated.text())
+    assert.deepEqual(
+      sqlite.prepare("SELECT * FROM login_results WHERE channel = ?").get(resultChannel),
+      previous,
+    )
+    assert.equal((await handle(resultRequest(env, { secret: wrongSecret }), env)).status, 403)
+    assert.equal((await handle(resultRequest(env), env)).status, complete ? 200 : 202)
+  }
+})
+
+test("popup authorization errors expose only a bounded message while their result remains consumable", async () => {
+  const { env } = await configured()
+  const pending = await startResult(env)
+  const api = upstream()
+  const response = await handle(
+    callback(pending, "error=access_denied&error_description=untrusted-text"),
+    env,
+    api.fetcher,
+  )
+  assert.equal(response.status, 400)
+  const body = await response.text()
+  assert.match(body, /取消 GitHub 授权/)
+  assertNoCredentials(body)
+  assert.ok(!body.includes("untrusted-text"))
+  assert.ok(!body.includes("postMessage"))
+  const result = await handle(resultRequest(env), env)
+  assert.equal(result.status, 200)
+  const payload = await result.json()
+  assert.match(payload.error, /取消 GitHub 授权/)
+  assert.equal(payload.token, undefined)
+  assert.equal(api.calls.length, 0)
+})
+
+async function prepareRequest(env, options = {}) {
+  return resultRequest(env, {
+    endpoint: "/prepare",
+    body: JSON.stringify({ channel: resultChannel, challenge: await secretChallenge() }),
+    ...options,
+  })
+}
+
+test("preparing the proof before opening GitHub permits polling without a navigation race", async () => {
+  const { env, sqlite } = await configured()
+  const response = await handle(await prepareRequest(env), env)
+  assert.equal(response.status, 201)
+  assert.deepEqual(await response.json(), { ready: true })
+  assertPrivateResponse(response, new URL(env.ADMIN_URL).origin)
+  const row = sqlite.prepare("SELECT * FROM login_results WHERE channel = ?").get(resultChannel)
+  assert.equal(row.challenge, await secretChallenge())
+  assert.equal(row.encrypted, null)
+  assert.equal(sqlite.prepare("SELECT count(*) AS count FROM login_flows").get().count, 0)
+  const polled = await handle(resultRequest(env), env)
+  assert.equal(polled.status, 202)
+  assertNoCredentials(await polled.text())
+  assert.deepEqual(
+    sqlite.prepare("SELECT * FROM login_results WHERE channel = ?").get(resultChannel),
+    row,
+  )
+})
+
+test("a prepared login can finish through popup or same-page return and retrieve the result", async () => {
+  for (const mode of ["popup", "redirect"]) {
+    const { env } = await configured()
+    assert.equal((await handle(await prepareRequest(env), env)).status, 201)
+    const pending = await startResult(env, mode)
+    const response = await handle(callback(pending), env, upstream().fetcher)
+    assert.equal(response.status, mode === "popup" ? 200 : 302)
+    assertNoCredentials(await response.text())
+    const result = await handle(resultRequest(env), env)
+    assert.equal(result.status, 200)
+    assert.equal((await result.json()).token, "ghu_mock-short-lived-access")
+  }
+})
+
+test("duplicate prepares cannot replace pending or completed login results", async () => {
+  for (const complete of [false, true]) {
+    const { env, sqlite } = await configured()
+    assert.equal((await handle(await prepareRequest(env), env)).status, 201)
+    if (complete) {
+      const pending = await startResult(env)
+      await handle(callback(pending), env, upstream().fetcher)
+    }
+    const previous = sqlite
+      .prepare("SELECT * FROM login_results WHERE channel = ?")
+      .get(resultChannel)
+    for (const challenge of [await secretChallenge(), await secretChallenge(wrongSecret)]) {
+      const response = await handle(
+        await prepareRequest(env, { body: JSON.stringify({ channel: resultChannel, challenge }) }),
+        env,
+      )
+      assert.equal(response.status, 409)
+      assertNoCredentials(await response.text())
+      assert.deepEqual(
+        sqlite.prepare("SELECT * FROM login_results WHERE channel = ?").get(resultChannel),
+        previous,
+      )
+    }
+    assert.equal((await handle(resultRequest(env), env)).status, complete ? 200 : 202)
+  }
+})
+
+test("preparation rejects wrong origins and malformed inputs before allocating any login state", async () => {
+  const { env, sqlite } = await configured()
+  for (const requestOrigin of [null, "null", "https://attacker.test", origin]) {
+    const response = await handle(await prepareRequest(env, { requestOrigin }), env)
+    assert.equal(response.status, 403)
+    assertPrivateResponse(response)
+    assertNoCredentials(await response.text())
+  }
+  for (const options of [
+    { contentType: "text/plain" },
+    { body: "{" },
+    { body: "null" },
+    { body: "[]" },
+    { body: JSON.stringify({ channel: resultChannel }) },
+    { body: JSON.stringify({ channel: "short", challenge: await secretChallenge() }) },
+    { body: JSON.stringify({ channel: resultChannel, challenge: "short" }) },
+    {
+      body: JSON.stringify({
+        channel: resultChannel,
+        challenge: await secretChallenge(),
+        padding: "x".repeat(1024),
+      }),
+    },
+  ]) {
+    const response = await handle(await prepareRequest(env, options), env)
+    assert.equal(response.status, 400)
+    assertNoCredentials(await response.text())
+  }
+  assert.equal(sqlite.prepare("SELECT count(*) AS count FROM login_results").get().count, 0)
+  assert.equal(sqlite.prepare("SELECT count(*) AS count FROM login_flows").get().count, 0)
+})
+
+test("prepare preflight is restricted to the admin origin and JSON POSTs", async () => {
+  const { env } = await configured()
+  const allowedOrigin = new URL(env.ADMIN_URL).origin
+  const makeRequest = (requestOrigin, method = "POST", requestedHeaders = "content-type") =>
+    new Request(`${origin}/prepare`, {
+      method: "OPTIONS",
+      headers: {
+        Origin: requestOrigin,
+        "Access-Control-Request-Method": method,
+        "Access-Control-Request-Headers": requestedHeaders,
+      },
+    })
+  const allowed = await handle(makeRequest(allowedOrigin), env)
+  assert.equal(allowed.status, 204)
+  assertPrivateResponse(allowed, allowedOrigin)
+  assert.equal(allowed.headers.get("Access-Control-Allow-Methods"), "POST")
+  for (const request of [
+    makeRequest("https://attacker.test"),
+    makeRequest(allowedOrigin, "GET"),
+    makeRequest(allowedOrigin, "POST", "content-type,authorization"),
+  ]) {
+    const response = await handle(request, env)
+    assert.equal(response.status, 403)
+    assertNoCredentials(await response.text())
+  }
+})
+
+test("matching pending GET login retries preserve the proof while completed results reject a new flow", async () => {
+  const { env, sqlite } = await configured()
+  await handle(await prepareRequest(env), env)
+  const previous = sqlite
+    .prepare("SELECT * FROM login_results WHERE channel = ?")
+    .get(resultChannel)
+  const pending = await startResult(env)
+  await startResult(env)
+  assert.deepEqual(
+    sqlite.prepare("SELECT * FROM login_results WHERE channel = ?").get(resultChannel),
+    previous,
+  )
+  await handle(callback(pending), env, upstream().fetcher)
+  const completed = sqlite
+    .prepare("SELECT * FROM login_results WHERE channel = ?")
+    .get(resultChannel)
+  const url = new URL(`${origin}/login`)
+  url.search = new URLSearchParams({
+    channel: resultChannel,
+    challenge: await secretChallenge(),
+    mode: "popup",
+  }).toString()
+  const again = await handle(new Request(url), env)
+  assert.equal(again.status, 400)
+  assertNoCredentials(await again.text())
+  assert.deepEqual(
+    sqlite.prepare("SELECT * FROM login_results WHERE channel = ?").get(resultChannel),
+    completed,
+  )
+  assert.equal((await handle(resultRequest(env), env)).status, 200)
+})
+
+test("a later callback from a pending retry cannot replace the first completed result", async () => {
+  const { env, sqlite } = await configured()
+  const first = await startResult(env)
+  const retry = await startResult(env)
+  assert.equal((await handle(callback(first), env, upstream().fetcher)).status, 200)
+  const completed = sqlite
+    .prepare("SELECT * FROM login_results WHERE channel = ?")
+    .get(resultChannel)
+  const late = await handle(callback(retry), env, upstream().fetcher)
+  assert.equal(late.status, 400)
+  assertNoCredentials(await late.text())
+  assert.deepEqual(
+    sqlite.prepare("SELECT * FROM login_results WHERE channel = ?").get(resultChannel),
+    completed,
+  )
+  const result = await handle(resultRequest(env), env)
+  assert.equal(result.status, 200)
+  assert.equal((await result.json()).token, "ghu_mock-short-lived-access")
 })

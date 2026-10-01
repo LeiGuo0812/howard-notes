@@ -4,7 +4,7 @@ import { topicList } from "../scripts/lib/site-settings.mjs"
 import { formatSelection, TextHistory } from "./formatting.mjs"
 import { createPreview } from "./preview.mjs"
 import { createSettings } from "./settings.mjs"
-import { signIn } from "./auth.mjs"
+import { resumeSignIn, signIn } from "./auth.mjs"
 import { GitHubImageHost, prepareImage } from "./images.mjs"
 import { imageHostSettings } from "../scripts/lib/image-host.mjs"
 import { mountFrostedSpotlight } from "../scripts/lib/frosted-spotlight.mjs"
@@ -305,29 +305,32 @@ function showMode(mode) {
   $("focus-mode").setAttribute("aria-pressed", "false")
   $("focus-mode").textContent = "专注"
 }
+async function connect(credentials) {
+  if (!credentials) return
+  const connection = new GitHubLibrary(credentials.token)
+  const account = await connection.authenticate()
+  if (!client) {
+    snapshot = await connection.snapshot()
+    client = connection
+    showMode("articles")
+    renderList()
+    settings.load(snapshot)
+  } else {
+    // Reauthentication preserves unsaved text/settings and their original conflict baselines.
+    client.token = ""
+    client = connection
+  }
+  $("account").textContent = account
+  $("logout").hidden = false
+  $("reconnect").hidden = false
+  $("login-panel").hidden = true
+  $("admin-tabs").hidden = false
+  $("status").hidden = true
+}
 function login() {
   action(async () => {
     message("等待 GitHub 登录…")
-    const credentials = await signIn()
-    const connection = new GitHubLibrary(credentials.token)
-    const account = await connection.authenticate()
-    if (!client) {
-      snapshot = await connection.snapshot()
-      client = connection
-      showMode("articles")
-      renderList()
-      settings.load(snapshot)
-    } else {
-      // Reauthentication preserves unsaved text/settings and their original conflict baselines.
-      client.token = ""
-      client = connection
-    }
-    $("account").textContent = account
-    $("logout").hidden = false
-    $("reconnect").hidden = false
-    $("login-panel").hidden = true
-    $("admin-tabs").hidden = false
-    $("status").hidden = true
+    await connect(await signIn({ preservePage: !!client }))
   })
 }
 $("login-button").onclick = login
@@ -623,3 +626,8 @@ window.onbeforeunload = (event) => {
     event.returnValue = ""
   }
 }
+
+void action(async () => {
+  const credentials = await resumeSignIn()
+  await connect(credentials)
+})

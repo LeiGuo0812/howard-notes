@@ -1,6 +1,6 @@
 # GitHub 账号登录
 
-GitHub Pages 继续托管博客和编辑器。这个小型 Cloudflare Worker 仅负责 GitHub App 授权，使用 D1 保存加密的应用凭据和一次性登录状态。
+GitHub Pages 继续托管博客和编辑器。这个小型 Cloudflare Worker 仅负责 GitHub App 授权，使用 D1 保存加密的应用凭据、一次性登录状态与短时加密登录结果。
 
 ## 首次开通
 
@@ -18,7 +18,11 @@ GitHub Pages 继续托管博客和编辑器。这个小型 Cloudflare Worker 仅
 
 访问后台，点击“使用 GitHub 登录”。密码与二次验证仅在 GitHub 官方页面输入。服务端按固定的 GitHub 用户 ID 验证博客所有者，并检查仓库写入权限。应用只申请 Contents 写入与 Metadata 读取权限。
 
-授权使用一次性 state、PKCE、加密 HttpOnly Cookie；回调页无缓存，不加载第三方资源。短期用户凭据只通过精确来源、窗口与随机请求标识校验的 `postMessage` 交给发起登录的后台，保存在页面内存，刷新或退出即清除。授权最长八小时；点击“重新登录”可保留当前未保存编辑。刷新凭据和 GitHub App 私钥不保存。退出后台不退出 GitHub 本身。
+授权使用一次性 state、PKCE、加密 HttpOnly Cookie；回调页无缓存，不加载第三方资源。手机首次登录采用同页跳转，授权后自动返回管理页；桌面和保留未保存修改的重新登录使用授权窗口。登录完成不再依赖窗口的 `opener` 或 `closed`，避免手机标签页或跨域窗口断链被误判为取消。
+
+后台生成 32 字节随机领取密钥，先等待 `/prepare` 登记成功再导航，防止首次领取早于登录登记；授权链接只携带密钥的 SHA-256 与随机请求标识。服务端完成所有者与写入权限校验后加密暂存结果，领取有效期为五分钟，过期记录在后续准备或登录请求时清理。后台通过精确来源限制的 `/result` POST 提交领取密钥，结果原子消费一次。手机同页跳转期间仅在 `sessionStorage` 保存领取密钥和请求信息，返回后校验、领取并清除；GitHub 用户令牌不进入 URL 或浏览器存储。桌面领取密钥只在内存，用户令牌始终只在页面内存，刷新或退出即清除。授权最长八小时；点击“重新登录”保留当前未保存编辑。刷新令牌和 GitHub App 私钥不保存。退出后台不退出 GitHub 本身。
+
+`/login` 暂时保留旧版无 challenge 的 `postMessage` 协议，确保部署服务端时仍在使用旧后台的窗口能继续登录；新版后台只使用一次性领取协议。授权被拒绝时返回明确的 GitHub 取消消息；浏览器断开窗口引用本身不表示取消。
 
 修改应用设置或安装后可打开 Worker 的 `/ready` 页面重新进入仓库安装流程。图片托管设置中的“仓库授权”会显示当前图片仓库；保留博客仓库并添加图床仓库，保存后重新登录。不要取消 GitHub App 的短期用户授权设置。应用密钥加密保存在 D1，解密密钥是 Worker Secret；不要把任何密钥填入前端配置。
 
@@ -30,6 +34,13 @@ npm test
 npx wrangler deploy --dry-run
 ```
 
-GitHub 项目根目录的 `npm run test:publish` 同时验证登录服务与编辑器。已开通的 Worker 更新使用 `npx wrangler deploy --config wrangler.local.json`；常规文章与页面设置保存仍由现有 GitHub Pages 工作流发布。
+GitHub 项目根目录的 `npm run test:publish` 同时验证登录服务与编辑器。本次更新需要先添加结果表，再部署 Worker，最后发布静态后台：
 
-参考：[GitHub App 授权](https://docs.github.com/en/apps/creating-github-apps/authenticating-with-a-github-app/generating-a-user-access-token-for-a-github-app)、[Workers 免费额度](https://developers.cloudflare.com/workers/platform/pricing/)。
+```bash
+npx wrangler d1 execute DB --remote --config wrangler.local.json --file schema.sql
+npx wrangler deploy --config wrangler.local.json
+```
+
+表结构更新使用 `CREATE TABLE IF NOT EXISTS`，保留现有应用配置与登录状态。常规文章与页面设置保存仍由现有 GitHub Pages 工作流发布。
+
+参考：[GitHub App 授权](https://docs.github.com/en/apps/creating-github-apps/authenticating-with-a-github-app/generating-a-user-access-token-for-a-github-app)、[窗口跨域隔离与 Window.open](https://developer.mozilla.org/en-US/docs/Web/API/Window/open)、[Workers 免费额度](https://developers.cloudflare.com/workers/platform/pricing/)。
