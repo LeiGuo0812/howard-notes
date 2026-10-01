@@ -600,7 +600,6 @@ test("Chinese literal searches longer than D1's 50-byte LIKE limit remain usable
 test("native and fallback chunk decoders reject malformed and noncanonical base64 before D1 writes", async (t) => {
   const descriptor = Object.getOwnPropertyDescriptor(Uint8Array, "fromBase64")
   const native = Uint8Array.fromBase64
-  assert.equal(typeof native, "function")
   const malformed = [
     "-w==",
     "_w==",
@@ -621,7 +620,7 @@ test("native and fallback chunk decoders reject malformed and noncanonical base6
     "Zm9=", // nonzero overflow bits encode the same bytes loosely
   ]
   for (const mode of ["native", "fallback"])
-    await t.test(mode, async () => {
+    await t.test(mode, { skip: mode === "native" && typeof native !== "function" }, async () => {
       let strictCalls = 0
       Object.defineProperty(Uint8Array, "fromBase64", {
         configurable: true,
