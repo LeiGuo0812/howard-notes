@@ -25,6 +25,7 @@ async function request(siteBase, options) {
   const url = await endpoint(siteBase)
   if (!url) return null
   const response = await fetch(url, { credentials: "same-origin", cache: "no-store", ...options })
+  if (response.status >= 500) throw new Error("登录状态暂时无法验证。")
   if (!response.ok) return null
   return response.json()
 }
