@@ -700,6 +700,25 @@ function ListingPage({ props, listing }: { props: QuartzComponentProps; listing:
         ))}
       </ol>
       <div class="article-timeline" id="article-timeline" hidden aria-label="文章时间线" />
+      <details class="timeline-sidebar" id="timeline-sidebar" hidden>
+        <summary
+          aria-label="展开时间线年月导航"
+          aria-controls="timeline-navigation"
+          title="年月导航"
+        >
+          <svg
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="1.6"
+            aria-hidden="true"
+          >
+            <path d="M5 5h14v15H5zM8 3v4M16 3v4M5 10h14M9 14h.01M15 14h.01M9 17h.01M15 17h.01" />
+          </svg>
+          <span>年月</span>
+        </summary>
+        <nav id="timeline-navigation" aria-label="时间线年份与月份导航" />
+      </details>
       <nav class="pagination" id="listing-pagination" aria-label="文章分页">
         <button type="button" id="listing-previous" disabled>
           上一页
