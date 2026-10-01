@@ -484,24 +484,8 @@ a.note-preview.internal {
   }
 }
 .lucky-previews {
-  position: relative;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: var(--site-card-gap);
-  border-radius: var(--site-radius);
-  // These fixed low-chroma shapes sit behind the cards, not on their glass.
-  // They remain distinct enough to see the backdrop filter soften their edges.
-  background:
-    radial-gradient(ellipse 30% 70% at 8% 25%, var(--frost-ambient-cyan), transparent 90%),
-    radial-gradient(ellipse 35% 65% at 55% 92%, var(--frost-ambient-blue), transparent 90%),
-    radial-gradient(ellipse 30% 80% at 100% 22%, var(--frost-ambient-violet), transparent 90%),
-    linear-gradient(
-      115deg,
-      transparent 12%,
-      var(--frost-ambient-cyan) 18% 29%,
-      transparent 35% 61%,
-      var(--frost-ambient-violet) 67% 80%,
-      transparent 86%
-    );
 }
 .lucky-previews a.note-preview.internal {
   display: flex;
@@ -1131,12 +1115,9 @@ a.article-row.internal {
   justify-self: start;
   padding: 0;
   z-index: auto;
-  border-radius: var(--site-radius);
-  background: radial-gradient(
-    ellipse 90% 280px at 20% 70%,
-    var(--frost-ambient-blue),
-    transparent 100%
-  );
+  // The rail is only a layout container. Each panel owns its material so the
+  // space between the graph and directory remains part of the page background.
+  background: none;
 }
 .reading-tools {
   width: 100%;
@@ -1287,6 +1268,12 @@ a.article-row.internal {
     background: var(--frost-fill);
     -webkit-backdrop-filter: blur(var(--frost-blur)) saturate(var(--frost-saturation));
     backdrop-filter: blur(var(--frost-blur)) saturate(var(--frost-saturation));
+  }
+}
+.reading-toc-surface {
+  min-width: 0;
+  > .toc {
+    margin: 0;
   }
 }
 .article-backlinks {
@@ -1462,40 +1449,25 @@ a.article-row.internal {
     width: 100%;
   }
   .reading-tools {
-    position: relative;
-    isolation: isolate;
     max-height: none;
     overflow: visible;
-    padding: 14px 18px;
-    &::before {
-      @include material.glass(var(--site-radius));
-      content: "";
-      position: absolute;
-      inset: 0;
-      z-index: -1;
-      pointer-events: none;
-    }
+    padding: 0;
     > summary {
+      @include material.glass(var(--site-radius));
       display: list-item;
       cursor: pointer;
       color: var(--secondary);
       font-size: 13px;
+      list-style-position: inside;
+      padding: 14px 18px;
+      // A compact control has its own shadow, without a backing across panels.
+      box-shadow:
+        var(--glass-inset),
+        0 5px 12px -9px rgb(42 69 99 / 22%);
     }
   }
   .reading-tool-panels {
     margin-top: 20px;
-    .toc,
-    .toc.frosted-panel {
-      background: none;
-      -webkit-backdrop-filter: none;
-      backdrop-filter: none;
-      border: 0;
-      box-shadow: none;
-      padding: 0 8px 4px;
-    }
-    .toc.frosted-panel::before {
-      background: none;
-    }
   }
   .brand-subtitle {
     display: none;
@@ -1634,7 +1606,7 @@ a.article-row.internal {
   .blog-layout .article-title {
     font-size: 26px;
   }
-  .reading-tools::before {
+  .reading-tools > summary {
     background: var(--glass-solid);
     -webkit-backdrop-filter: none;
     backdrop-filter: none;

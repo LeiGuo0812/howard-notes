@@ -33,7 +33,10 @@ function setupNoteBrowser() {
           const card = note.cloneNode(true) as HTMLElement
           card.classList.add("frosted-panel")
           card.setAttribute("data-spotlight", "")
-          return card
+          const surface = document.createElement("div")
+          surface.className = "frost-environment lucky-preview-surface"
+          surface.append(card)
+          return surface
         }),
       )
     }

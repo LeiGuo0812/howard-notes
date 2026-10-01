@@ -210,7 +210,7 @@ function NotePreview({
   hidden?: boolean
   frosted?: boolean
 }) {
-  return (
+  const card = (
     <a
       class={`internal note-preview${compact ? " compact-preview" : ""}${frosted ? " frosted-panel" : ""}`}
       data-spotlight={frosted ? "" : undefined}
@@ -228,6 +228,7 @@ function NotePreview({
       {!compact && <small data-category={row.categoryKey || row.category}>{row.category}</small>}
     </a>
   )
+  return frosted ? <div class="frost-environment lucky-preview-surface">{card}</div> : card
 }
 function TopicDirectory({ props }: { props: QuartzComponentProps }) {
   return (
@@ -682,13 +683,16 @@ export const BlogFrame: PageFrame = {
               <details class="reading-tools" open>
                 <summary>目录与图谱</summary>
                 <div class="reading-tool-panels">
-                  {left.map((Component) =>
-                    Component.name === "Graph" ? (
-                      <ReadingGraph props={componentData} Component={Component} />
+                  {left.map((Component) => {
+                    if (Component.name === "Graph")
+                      return <ReadingGraph props={componentData} Component={Component} />
+                    const panel = Component(componentData)
+                    return panel && Component.name === "TableOfContents" ? (
+                      <div class="frost-environment reading-toc-surface">{panel}</div>
                     ) : (
-                      <Component {...componentData} />
-                    ),
-                  )}
+                      panel
+                    )
+                  })}
                 </div>
               </details>
             </aside>

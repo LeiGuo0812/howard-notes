@@ -6,6 +6,8 @@
   --frost-shine: rgb(255 255 255 / 19%);
   --frost-shade: rgb(92 128 162 / 7%);
   --frost-shadow: 0 20px 38px -20px rgb(42 69 99 / 26%), 0 4px 10px -6px rgb(42 69 99 / 15%);
+  --frost-independent-shadow:
+    0 8px 14px -10px rgb(42 69 99 / 26%), 0 2px 6px -4px rgb(42 69 99 / 15%);
   --frost-ambient-cyan: rgb(94 183 201 / 34%);
   --frost-ambient-blue: rgb(113 158 204 / 33%);
   --frost-ambient-violet: rgb(156 162 198 / 29%);
@@ -23,12 +25,46 @@
   --frost-shine: rgb(216 235 255 / 7%);
   --frost-shade: rgb(5 13 23 / 15%);
   --frost-shadow: 0 22px 40px -16px rgb(2 8 18 / 46%), 0 5px 12px -6px rgb(2 8 18 / 24%);
+  --frost-independent-shadow: 0 8px 14px -10px rgb(2 8 18 / 46%), 0 2px 6px -4px rgb(2 8 18 / 24%);
   --frost-ambient-cyan: rgb(56 135 154 / 29%);
   --frost-ambient-blue: rgb(70 116 159 / 34%);
   --frost-ambient-violet: rgb(116 106 164 / 28%);
   --frost-light-core: rgb(200 225 255 / 20%);
   --frost-light-halo: rgb(137 188 236 / 13%);
   --frost-light-rim: rgb(202 231 255 / 82%);
+}
+
+/* Each backdrop ends at its own rounded panel. The wrapper remains transparent
+   and does not create a backdrop root or a containing block for fixed dialogs. */
+.frost-environment {
+  position: relative;
+  display: grid;
+  min-width: 0;
+  border-radius: var(--frost-radius);
+}
+.frost-environment::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  background:
+    radial-gradient(ellipse 70% 85% at 8% 18%, var(--frost-ambient-cyan), transparent 90%),
+    radial-gradient(ellipse 60% 75% at 82% 95%, var(--frost-ambient-blue), transparent 90%),
+    radial-gradient(ellipse 60% 80% at 100% 20%, var(--frost-ambient-violet), transparent 90%),
+    linear-gradient(
+      115deg,
+      transparent 12%,
+      var(--frost-ambient-cyan) 18% 29%,
+      transparent 35% 61%,
+      var(--frost-ambient-violet) 67% 80%,
+      transparent 86%
+    );
+}
+.frost-environment > .frosted-panel {
+  position: relative;
+  z-index: 1;
+  --frost-shadow: var(--frost-independent-shadow);
 }
 
 /* Use RGBA fills, never opacity/filter on the environment or content. */
