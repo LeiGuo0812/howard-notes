@@ -40,12 +40,18 @@ const failures = []
 const authConfig = JSON.parse(await fs.readFile("public/admin/auth-config.json", "utf8"))
 const adminTree = fromHtml(await fs.readFile("public/admin/index.html", "utf8"))
 let adminPolicy = ""
+let adminVersion = ""
+let adminEntry = ""
 visit(adminTree, "element", (node) => {
   if (
     node.tagName === "meta" &&
     String(node.properties.httpEquiv).toLowerCase() === "content-security-policy"
   )
     adminPolicy = String(node.properties.content)
+  if (node.tagName === "meta" && node.properties.name === "howard-admin-version")
+    adminVersion = String(node.properties.content)
+  if (node.tagName === "script" && node.properties.type === "module")
+    adminEntry = String(node.properties.src)
 })
 const connections = adminPolicy
   .split(";")
@@ -63,6 +69,11 @@ if (JSON.stringify(connections) !== JSON.stringify(allowedConnections))
   failures.push(
     "Admin connection policy must permit only the configured login origin and GitHub API",
   )
+if (!/^[a-f0-9]{16}$/.test(adminVersion) || !/^admin-[A-Z0-9]+\.js$/.test(adminEntry))
+  failures.push("Admin HTML must identify its release and load a versioned bundle")
+const legacyEntry = await fs.readFile("public/admin/admin.js", "utf8")
+if (!legacyEntry.includes(adminVersion) || legacyEntry.includes("已取消登录"))
+  failures.push("The legacy admin entry must upgrade to the current release")
 for (const [file, { links }] of pages) {
   const route = path
     .relative(publicDir, file)

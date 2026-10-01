@@ -151,6 +151,31 @@ test("mobile login navigates in the same tab with only a hash challenge, never i
   })
   assert.ok(!prepared.options.body.includes(pending.secret))
 })
+test("desktop initial login uses the same tab without popups or device detection and resumes after return", async (t) => {
+  const page = browser(t, { popupAllowed: false })
+  page.window.matchMedia = () => {
+    throw new Error("Initial login must not depend on pointer type")
+  }
+  Object.defineProperty(page.window, "innerWidth", {
+    get() {
+      throw new Error("Initial login must not depend on viewport width")
+    },
+  })
+  assert.equal(await signIn(), null)
+  assert.equal(page.opened, 0)
+  const pending = JSON.parse(page.store.get(pendingKey))
+  const url = new URL(page.navigated)
+  assert.equal(url.searchParams.get("mode"), "redirect")
+  assert.equal(url.searchParams.get("channel"), pending.channel)
+  assert.ok(!url.href.includes(pending.secret))
+  assert.ok(!page.store.get(pendingKey).includes("token"))
+  assert.equal(page.resultCalls, 0)
+  page.location.search = `?login=${pending.channel}`
+  assert.equal((await resumeSignIn()).login, "LeiGuo0812")
+  assert.equal(page.location.search, "")
+  assert.equal(page.store.size, 0)
+  assert.equal(page.resultCalls, 1)
+})
 test("mobile callback resumes after reload, removes the return query and clears its one-use proof", async (t) => {
   const page = browser(t, { mobile: true })
   await signIn()
@@ -188,7 +213,7 @@ test("blocked mobile storage preserves the page and reports how to retry", async
 })
 test("blocked desktop popups report the failure before fetching configuration", async (t) => {
   const page = browser(t, { popupAllowed: false })
-  await assert.rejects(signIn(), /允许此网站打开登录窗口/)
+  await assert.rejects(signIn({ preservePage: true }), /允许此网站打开登录窗口/)
   assert.equal(page.calls.length, 0)
 })
 test("mismatched or expired callback proofs cannot claim credentials", async (t) => {
@@ -249,7 +274,10 @@ test("actual GitHub refusal and malformed result payloads never become editor cr
                   }
                 : result("attacker-channel"),
             )
-    await assert.rejects(signIn(), refused ? /取消 GitHub 授权/ : /返回信息不正确/)
+    await assert.rejects(
+      signIn({ preservePage: true }),
+      refused ? /取消 GitHub 授权/ : /返回信息不正确/,
+    )
   }
   assert.equal(page.closed, 2)
 })
@@ -259,7 +287,7 @@ test("the prepare handshake finishes before navigation; refusal never begins OAu
     String(url).endsWith("auth-config.json")
       ? Response.json({ brokerOrigin: "https://login.example.test" })
       : Response.json({ error: "登录已失效，请重新登录。" }, { status: 403 })
-  await assert.rejects(signIn(), /登录已失效/)
+  await assert.rejects(signIn({ preservePage: true }), /登录已失效/)
   assert.equal(page.navigated, "")
   assert.equal(page.closed, 1)
   assert.equal(page.store.size, 0)
@@ -276,7 +304,7 @@ test("foreground return retries temporary network failures and pending authoriza
     if (attempts === 2) return Response.json({ pending: true }, { status: 202 })
     return Response.json(result(JSON.parse(options.body).channel))
   }
-  const login = signIn()
+  const login = signIn({ preservePage: true })
   while (attempts < 1) await new Promise(setImmediate)
   await new Promise(setImmediate)
   assert.equal(attempts, 1)

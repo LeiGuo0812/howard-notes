@@ -138,12 +138,11 @@ function waitForResult(pending) {
 }
 
 // A popup is opened synchronously from the click when the current editor must stay intact.
-// On mobile, initial login uses the same tab; only a short-lived claim proof survives navigation.
+// Initial login always uses the same tab; only a short-lived claim proof survives navigation.
 // GitHub credentials remain in memory and never enter storage or URLs.
 export async function signIn({ preservePage = false } = {}) {
   const channel = encode(crypto.getRandomValues(new Uint8Array(32)))
-  const redirect =
-    !preservePage && (window.matchMedia("(pointer: coarse)").matches || window.innerWidth <= 600)
+  const redirect = !preservePage
   const popup = redirect
     ? null
     : window.open("", `howard-login-${channel}`, "popup,width=540,height=720")

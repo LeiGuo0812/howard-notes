@@ -1,7 +1,10 @@
 import fs from "node:fs/promises"
+import path from "node:path"
+import { createHash } from "node:crypto"
 import { build } from "esbuild"
 import { brandIconLinks } from "./lib/site-icon.mjs"
 import { brokerOrigin } from "../admin/auth.mjs"
+import { upgradeAdmin } from "./lib/admin-upgrade.mjs"
 const authConfig = JSON.parse(await fs.readFile("admin/auth-config.json", "utf8"))
 const settings = JSON.parse(await fs.readFile("library/site.json", "utf8"))
 const template = await fs.readFile("admin/index.html", "utf8")
@@ -9,31 +12,49 @@ const connections = "connect-src 'self' https://api.github.com;"
 if (!template.includes(connections))
   throw new Error("The admin connection policy template changed.")
 const loginOrigin = authConfig.brokerOrigin ? ` ${brokerOrigin(authConfig.brokerOrigin)}` : ""
-const adminHtml = template
+const preparedHtml = template
   .replace("<!-- brand-icons -->", brandIconLinks(settings, ".."))
   .replace(connections, `connect-src 'self' https://api.github.com${loginOrigin};`)
 if (process.env.GITHUB_REF === "refs/heads/main" && !authConfig.brokerOrigin)
   throw new Error("Account login must be configured before deploying main.")
 await fs.mkdir("public/admin/katex", { recursive: true })
+const bundle = await build({
+  entryPoints: ["admin/app.mjs"],
+  outdir: "public/admin",
+  entryNames: "admin-[hash]",
+  chunkNames: "chunks/[name]-[hash]",
+  format: "esm",
+  splitting: true,
+  bundle: true,
+  minify: true,
+  platform: "browser",
+  target: ["es2022"],
+  sourcemap: false,
+  metafile: true,
+})
+const entry = Object.entries(bundle.metafile.outputs).find(
+  ([, output]) =>
+    output.entryPoint && path.resolve(output.entryPoint) === path.resolve("admin/app.mjs"),
+)
+if (!entry) throw new Error("The admin bundle entry is missing.")
+const entryName = path.basename(entry[0])
+const htmlWithEntry = preparedHtml.replace("__ADMIN_SCRIPT__", entryName)
+const version = createHash("sha256")
+  .update(htmlWithEntry)
+  .update(JSON.stringify(authConfig))
+  .digest("hex")
+  .slice(0, 16)
+const adminHtml = htmlWithEntry.replace("__ADMIN_VERSION__", version)
 await Promise.all([
   fs.writeFile("public/admin/index.html", adminHtml),
   fs.copyFile("admin/admin.css", "public/admin/admin.css"),
   fs.copyFile("styles/frosted-glass.css", "public/admin/frosted-glass.css"),
   fs.copyFile("admin/auth-config.json", "public/admin/auth-config.json"),
-  build({
-    entryPoints: ["admin/app.mjs"],
-    outdir: "public/admin",
-    entryNames: "admin",
-    chunkNames: "chunks/[name]-[hash]",
-    format: "esm",
-    splitting: true,
-    bundle: true,
-    minify: true,
-    platform: "browser",
-    target: ["es2022"],
-    sourcemap: false,
-  }),
+  fs.writeFile(
+    "public/admin/admin.js",
+    `(${upgradeAdmin.toString()})(${JSON.stringify(version)});\n`,
+  ),
   fs.copyFile("node_modules/katex/dist/katex.min.css", "public/admin/katex/katex.min.css"),
   fs.cp("node_modules/katex/dist/fonts", "public/admin/katex/fonts", { recursive: true }),
 ])
-console.log("Built /admin with a self-hosted Markdown editor.")
+console.log(`Built /admin ${version} with a self-hosted Markdown editor.`)

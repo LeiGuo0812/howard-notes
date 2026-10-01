@@ -19,6 +19,13 @@ const escape = (value) =>
   )
 const json = (value) => JSON.stringify(value).replaceAll("<", "\\u003c")
 
+function authorizationFailure(code) {
+  if (code === "access_denied") return "你已取消 GitHub 授权。"
+  if (code === "redirect_uri_mismatch") return "GitHub 登录回调地址不匹配，请检查应用登录设置。"
+  if (code === "application_suspended") return "GitHub 登录应用已暂停，请检查应用状态。"
+  return "GitHub 未完成本次授权，请重新登录；若持续失败，请检查应用登录设置。"
+}
+
 async function key(env) {
   const bytes = decode(env.ENCRYPTION_KEY || "")
   if (bytes.length !== 32) throw new Error("登录服务尚未配置。")
@@ -444,7 +451,8 @@ export async function handle(request, env, fetcher = (...args) => fetch(...args)
     if (path === "/oauth/callback" && request.method === "GET") {
       const flow = await consumeFlow(request, env, "login")
       try {
-        if (url.searchParams.has("error")) throw new Error("你已取消 GitHub 授权。")
+        if (url.searchParams.has("error"))
+          throw new Error(authorizationFailure(url.searchParams.get("error")))
         const code = url.searchParams.get("code")
         if (!code || !/^[a-zA-Z0-9_\-]{10,200}$/.test(code))
           throw new Error("GitHub 未返回有效登录信息。")

@@ -180,6 +180,34 @@ test("cancelled authorization reports a bounded message and consumes the request
   assert.equal(api.calls.length, 0)
   assert.equal((await handle(callback(pending), env, api.fetcher)).status, 400)
 })
+test("GitHub configuration errors are distinguished from an explicit authorization refusal", async () => {
+  for (const [code, message] of [
+    ["redirect_uri_mismatch", /回调地址不匹配/],
+    ["application_suspended", /登录应用已暂停/],
+    ["unknown_error", /未完成本次授权/],
+    ["", /未完成本次授权/],
+  ]) {
+    const { env } = await configured()
+    const pending = await startResult(env)
+    const api = upstream()
+    const response = await handle(
+      callback(
+        pending,
+        new URLSearchParams({ error: code, error_description: "untrusted-detail" }),
+      ),
+      env,
+      api.fetcher,
+    )
+    assert.equal(response.status, 400)
+    const payload = await (await handle(resultRequest(env), env)).json()
+    assert.match(payload.error, message)
+    assert.ok(!payload.error.includes("取消"))
+    assert.ok(!payload.error.includes("untrusted-detail"))
+    assert.equal(payload.token, undefined)
+    assert.equal(api.calls.length, 0)
+    assert.equal((await handle(resultRequest(env), env)).status, 403)
+  }
+})
 test("setup requires a secret and same origin before creating a GitHub manifest", async () => {
   const { env } = environment()
   const entry = await handle(new Request(`${origin}/setup`), env)
