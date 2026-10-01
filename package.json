@@ -24,7 +24,7 @@
     "export": "node scripts/prepare-content.mjs",
     "sync": "node scripts/sync-notes.mjs",
     "preview": "node scripts/preview.mjs",
-    "test:publish": "node --test scripts/library.test.mjs scripts/site-pages.test.mjs scripts/site-icon.test.mjs scripts/sync.test.mjs scripts/sync.integration.test.mjs admin/github.test.mjs admin/images.test.mjs admin/formatting.test.mjs admin/auth.test.mjs auth-service/worker.test.mjs",
+    "test:publish": "node --test scripts/library.test.mjs scripts/site-pages.test.mjs scripts/site-icon.test.mjs scripts/sync.test.mjs scripts/sync.integration.test.mjs admin/github.test.mjs admin/images.test.mjs admin/formatting.test.mjs admin/article-recovery.test.mjs admin/deployment.test.mjs admin/auth.test.mjs auth-service/worker.test.mjs && tsx --test quartz/util/article-links.test.ts",
     "verify:site": "node scripts/verify-site.mjs"
   },
   "engines": {

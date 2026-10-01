@@ -1,8 +1,10 @@
 import { paginateItems, sampleItems } from "./browsing"
 import { setupLayoutPreview } from "./layout-preview"
 import { mountFrostedSpotlight } from "../../../scripts/lib/frosted-spotlight.mjs"
+import { setupMaintenance } from "../../../admin/maintenance-loader.mjs"
 
 function setupNoteBrowser() {
+  setupMaintenance()
   const recommendations = document.querySelector<HTMLElement>("#random-notes")
   const pool = document.querySelector<HTMLTemplateElement>("#random-note-pool")
   let redraw = () => {}

@@ -110,7 +110,7 @@ export function createPreview(element, context) {
               article.file.split("/").pop().replace(/\.md$/, "") === target,
           )
           return matches.length === 1
-            ? `<a href="../notes/${matches[0].id}${anchor ? "#" + encodeURIComponent(anchor) : ""}">${escape(label)}</a>`
+            ? `<a href="${escape(new URL(`notes/${matches[0].id}${anchor ? "#" + encodeURIComponent(anchor) : ""}`, context().siteBase || new URL("../", location.href)).href)}">${escape(label)}</a>`
             : `<span class="unavailable-note">${escape(label)}</span>`
         },
       },

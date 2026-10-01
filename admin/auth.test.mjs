@@ -198,6 +198,70 @@ test("mobile callback resumes after reload, removes the return query and clears 
   })
   assert.ok(!request.url.includes(pending.secret))
 })
+test("main-site login uses the shared config and resumes with the article query and fragment intact", async (t) => {
+  const page = browser(t, { mobile: true, popupAllowed: false })
+  page.location.href =
+    "https://leiguo0812.github.io/howard-notes/notes/article-one?sort=latest&tag=%E6%8A%80%E6%9C%AF#heading-two"
+  const returnTo = page.location.href
+  const configUrl = "https://leiguo0812.github.io/howard-notes/admin/auth-config.json"
+  assert.equal(await signIn({ configUrl, returnTo }), null)
+  assert.equal(page.opened, 0)
+  const login = new URL(page.navigated)
+  const pending = JSON.parse(page.store.get(pendingKey))
+  assert.equal(login.searchParams.get("returnTo"), returnTo)
+  assert.ok(!login.href.includes(pending.secret))
+  assert.deepEqual(Object.keys(pending).sort(), ["channel", "expires", "origin", "secret"])
+  const returned = new URL(returnTo)
+  returned.searchParams.set("login", pending.channel)
+  page.location.href = returned.href
+  assert.equal((await resumeSignIn({ configUrl })).login, "LeiGuo0812")
+  assert.equal(page.location.href, returnTo)
+  assert.equal(page.store.size, 0)
+  assert.equal(page.resultCalls, 1)
+  assert.equal(page.calls.filter((request) => request.url === configUrl).length, 2)
+})
+test("main-site reauthentication keeps the current page and proof in memory", async (t) => {
+  const page = browser(t)
+  page.location.href = "https://leiguo0812.github.io/howard-notes/notes/article-one#section"
+  const returnTo = page.location.href
+  const credentials = await signIn({
+    preservePage: true,
+    configUrl: "/howard-notes/admin/auth-config.json",
+    returnTo,
+  })
+  assert.equal(credentials.login, "LeiGuo0812")
+  assert.equal(page.location.href, returnTo)
+  assert.equal(new URL(page.navigated).searchParams.get("returnTo"), returnTo)
+  assert.equal(page.opened, 1)
+  assert.equal(page.closed, 1)
+  assert.equal(page.store.size, 0)
+})
+test("unsafe client return addresses never prepare or navigate an authorization", async (t) => {
+  const page = browser(t)
+  for (const returnTo of [
+    "https://attacker.test/howard-notes/",
+    "//attacker.test/howard-notes/",
+    "javascript:alert(1)",
+    "https://user:pass@leiguo0812.github.io/howard-notes/",
+    "",
+    "https://leiguo0812.github.io/howard-notes/\nnotes/one",
+    "https://leiguo0812.github.io/howard-notes/\\notes/one",
+    "/howard-notes/" + "x".repeat(2048),
+  ])
+    await assert.rejects(signIn({ returnTo }), /登录返回地址不正确/)
+  assert.equal(page.calls.length, 0)
+  assert.equal(page.navigated, "")
+  assert.equal(page.store.size, 0)
+})
+test("shared config URL cannot fetch a cross-origin credential configuration", async (t) => {
+  const page = browser(t)
+  await assert.rejects(
+    signIn({ configUrl: "https://attacker.test/auth-config.json" }),
+    /登录设置地址/,
+  )
+  assert.equal(page.calls.length, 0)
+  assert.equal(page.navigated, "")
+})
 test("desktop and mobile reauthentication claim results without reading the popup closed flag", async (t) => {
   const page = browser(t, { mobile: true })
   const credentials = await signIn({ preservePage: true })

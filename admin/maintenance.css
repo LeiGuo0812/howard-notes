@@ -1,0 +1,145 @@
+/* These overrides are loaded inside the maintenance ShadowRoot only. */
+:host {
+  display: block;
+  background: var(--paper);
+  color: var(--ink);
+  border-radius: inherit;
+  overflow: clip;
+}
+.workspace-body {
+  min-height: 0;
+  padding: 0;
+  background: none;
+}
+.maintenance-heading {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 20px;
+  border-bottom: 1px solid var(--line);
+  background: var(--surface);
+}
+.maintenance-heading strong {
+  font-size: 14px;
+  font-weight: 600;
+  margin-right: auto;
+}
+.maintenance-menu {
+  position: relative;
+  font-size: 12px;
+  border: 0;
+  padding: 0;
+  margin: 0;
+}
+.maintenance-menu summary {
+  cursor: pointer;
+  padding: 6px 10px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  list-style: none;
+}
+.maintenance-menu summary:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+}
+.maintenance-menu nav {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 6px);
+  z-index: 50;
+  display: grid;
+  gap: 4px;
+  padding: 6px;
+  min-width: 130px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  box-shadow: 0 8px 20px rgb(12 24 40 / 15%);
+}
+.maintenance-heading button {
+  padding: 6px 10px;
+  font-size: 12px;
+}
+.maintenance-deployment {
+  padding: 10px 20px;
+  font-size: 12px;
+  color: var(--accent);
+  background: var(--wash);
+}
+.workspace,
+.settings-workspace {
+  width: 100%;
+  margin: 0;
+  max-width: none;
+  padding: 16px;
+}
+.article-sidebar {
+  position: sticky;
+  top: 8px;
+  max-height: calc(100dvh - 160px);
+}
+.admin-tabs {
+  margin: 12px 16px;
+}
+.format-toolbar {
+  top: 0;
+}
+.settings-grid {
+  gap: 18px;
+}
+.layout-preview-panel {
+  top: 0;
+}
+.layout-preview-panel.expanded {
+  z-index: 100;
+}
+#body,
+#preview {
+  height: min(66dvh, 760px);
+  min-height: 380px;
+}
+#status {
+  padding: 12px 18px;
+  font-size: 13px;
+}
+:host([data-mode="inline"]) .article-sidebar,
+:host([data-mode="inline"]) .admin-tabs {
+  display: none;
+}
+:host([data-mode="inline"]) .workspace {
+  display: block;
+  padding: 16px 20px;
+}
+:host([data-mode="inline"]) .editor-panel {
+  padding: 0;
+}
+.focus-editor .editor-panel {
+  margin: 0;
+  max-width: none;
+}
+@media (max-width: 800px) {
+  .maintenance-heading {
+    padding: 12px;
+  }
+  .workspace,
+  :host([data-mode="inline"]) .workspace,
+  .settings-workspace {
+    padding: 12px;
+  }
+  .settings-fields {
+    padding: 16px 12px;
+  }
+  .settings-grid {
+    display: flex;
+    flex-direction: column;
+  }
+  :host([data-writing-view="edit"]) #writing-area {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  #body,
+  #preview {
+    height: 58dvh;
+    min-height: 320px;
+  }
+}

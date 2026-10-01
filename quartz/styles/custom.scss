@@ -1,5 +1,6 @@
 @use "./liquid-glass" as material;
 @use "../../styles/frosted-glass";
+@use "./maintenance";
 
 html {
   width: 100%;

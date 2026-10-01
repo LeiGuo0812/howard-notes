@@ -1,0 +1,112 @@
+.maintenance-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  max-width: 1200px;
+  margin: 16px auto 0;
+  padding: 0 12px;
+  font-size: 12px;
+  color: var(--gray);
+}
+.maintenance-toolbar[hidden],
+[data-maintenance-slot][hidden],
+.maintenance-edit[hidden],
+.maintenance-host[hidden] {
+  display: none !important;
+}
+.maintenance-toolbar button,
+.maintenance-edit {
+  font: inherit;
+  padding: 7px 12px;
+  color: var(--secondary);
+  border: 1px solid var(--lightgray);
+  border-radius: var(--glass-radius-control, 12px);
+  background: var(--glass-fill, var(--light));
+  cursor: pointer;
+  transition: background 180ms ease;
+  &:hover {
+    background: var(--highlight);
+  }
+  &:focus-visible {
+    outline: 2px solid var(--secondary);
+    outline-offset: 3px;
+  }
+}
+.maintenance-account {
+  margin-left: auto;
+  overflow-wrap: anywhere;
+}
+.maintenance-edit {
+  font-size: 12px;
+  margin-top: 16px;
+}
+.maintenance-notice {
+  max-width: 1040px;
+  margin: 18px auto;
+  padding: 10px 16px;
+  font-size: 13px;
+  color: var(--secondary);
+  background: var(--highlight);
+  border-radius: 12px;
+}
+.maintenance-host {
+  display: block;
+  min-width: 0;
+  scroll-margin-top: var(--glass-anchor-offset, 120px);
+}
+.maintenance-host.is-panel {
+  position: fixed;
+  inset: auto 20px 20px auto;
+  top: var(--maintenance-panel-top, 160px);
+  width: min(1340px, calc(100vw - 40px));
+  z-index: var(--glass-z-maintenance);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  border: 1px solid var(--lightgray);
+  border-radius: 22px;
+  background: var(--light);
+  box-shadow: 0 22px 60px -18px rgb(12 24 40 / 32%);
+}
+.maintenance-host.is-inline {
+  margin: 20px 0 36px;
+  border-radius: 20px;
+  border: 1px solid var(--lightgray);
+  background: var(--light);
+}
+.center.maintenance-editing > article,
+.center.maintenance-editing > .page-footer {
+  display: none;
+}
+@media (max-width: 800px) {
+  .maintenance-toolbar {
+    margin-top: 10px;
+    padding-inline: 0;
+  }
+  .maintenance-toolbar button {
+    min-height: 36px;
+    padding: 5px 9px;
+  }
+  .maintenance-account {
+    width: 100%;
+    margin-left: 4px;
+  }
+  .maintenance-host.is-panel {
+    inset: 12px 8px;
+    width: auto;
+    border-radius: 16px;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .maintenance-toolbar button,
+  .maintenance-edit {
+    transition: none;
+  }
+}
+:root {
+  --glass-z-maintenance: 40;
+}
+
+.blog-header:has(.search-container.active) {
+  z-index: var(--glass-z-modal);
+}

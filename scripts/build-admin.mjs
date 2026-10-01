@@ -5,6 +5,7 @@ import { build } from "esbuild"
 import { brandIconLinks } from "./lib/site-icon.mjs"
 import { brokerOrigin } from "../admin/auth.mjs"
 import { upgradeAdmin } from "./lib/admin-upgrade.mjs"
+import { buildMaintenance } from "./build-maintenance.mjs"
 const authConfig = JSON.parse(await fs.readFile("admin/auth-config.json", "utf8"))
 const settings = JSON.parse(await fs.readFile("library/site.json", "utf8"))
 const template = await fs.readFile("admin/index.html", "utf8")
@@ -58,3 +59,4 @@ await Promise.all([
   fs.cp("node_modules/katex/dist/fonts", "public/admin/katex/fonts", { recursive: true }),
 ])
 console.log(`Built /admin ${version} with a self-hosted Markdown editor.`)
+await buildMaintenance(template)

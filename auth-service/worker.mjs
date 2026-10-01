@@ -1,5 +1,5 @@
 // GitHub App authorization bridge. Secrets stay on the server; user access tokens
-// are claimed once by the initiating admin page and kept in its memory.
+// are claimed once by the initiating maintenance page and kept in its memory.
 const encoder = new TextEncoder()
 const COOKIE = "__Host-howard-flow"
 const FLOW_SECONDS = 600
@@ -136,7 +136,50 @@ async function github(fetcher, path, token) {
   if (!response.ok) throw new Error("GitHub 授权未完成，请确认已将应用安装到 howard-notes 仓库。")
   return response.json()
 }
+function returnLocation(value, env) {
+  if (
+    typeof value !== "string" ||
+    !value ||
+    value.length > 2048 ||
+    /[\u0000-\u0020\u007f\\]/.test(value)
+  )
+    throw new Error("登录返回地址不正确。")
+  const admin = new URL(env.ADMIN_URL)
+  const target = new URL(value, admin)
+  const prefix = admin.pathname.replace(/admin\/?$/, "")
+  if (
+    !/\/admin\/?$/.test(admin.pathname) ||
+    target.protocol !== "https:" ||
+    target.origin !== admin.origin ||
+    target.username ||
+    target.password ||
+    target.href.length > 2048
+  )
+    throw new Error("登录返回地址不正确。")
+  // Check decoded paths too: escaped separators or traversal must not make another
+  // GitHub Pages repository a valid destination. Query and fragment remain intact.
+  let path = target.pathname
+  while (true) {
+    if (
+      !path.startsWith(prefix) ||
+      /[\u0000-\u001f\u007f\\]/.test(path) ||
+      /%(?:2f|5c)/i.test(path) ||
+      path.split("/").some((part) => part === "." || part === "..")
+    )
+      throw new Error("登录返回地址不正确。")
+    let decoded
+    try {
+      decoded = decodeURIComponent(path)
+    } catch {
+      break // A decoded literal percent is a filename character, not another escape.
+    }
+    if (decoded === path) break
+    path = decoded
+  }
+  return target.href
+}
 async function complete(env, flow, payload) {
+  const returnTo = flow.returnTo ? returnLocation(flow.returnTo, env) : env.ADMIN_URL
   if (flow.challenge) {
     const result = { type: "howard-github-auth", channel: flow.channel, ...payload }
     const saved = await env.DB.prepare(
@@ -152,14 +195,14 @@ async function complete(env, flow, payload) {
       .run()
     if (!saved.meta.changes) throw new Error("登录已失效，请重新登录。")
     if (flow.mode === "redirect") {
-      const target = new URL(env.ADMIN_URL)
+      const target = new URL(returnTo)
       target.searchParams.set("login", flow.channel)
       return redirect(target.href, clearCookie())
     }
     // This page contains no user token and works even after the opener was severed.
     return page(
       payload.error ? "未能登录" : "登录成功",
-      `<p>${escape(payload.error || "请返回原来的管理页面，登录会自动完成。")}</p><a href="${escape(env.ADMIN_URL)}">返回管理后台</a>`,
+      `<p>${escape(payload.error || "请返回原来的页面，登录会自动完成。")}</p><a href="${escape(returnTo)}">返回原页面</a>`,
       'history.replaceState(null,"","/complete");window.close();',
       { "Set-Cookie": clearCookie() },
       payload.error ? 400 : 200,
@@ -418,6 +461,10 @@ export async function handle(request, env, fetcher = (...args) => fetch(...args)
         (!challenge && mode === "redirect")
       )
         throw new Error("请从管理后台重新发起登录。")
+      const returnTo = url.searchParams.has("returnTo")
+        ? returnLocation(url.searchParams.get("returnTo"), env)
+        : null
+      if (returnTo && !challenge) throw new Error("请从网站重新发起登录。")
       const app = await config(env)
       if (!app) throw new Error("账号登录尚未开通，请先完成首次配置。")
       if (challenge) {
@@ -447,6 +494,7 @@ export async function handle(request, env, fetcher = (...args) => fetch(...args)
         verifier,
         channel,
         ...(challenge ? { challenge, mode } : {}),
+        ...(returnTo ? { returnTo } : {}),
       })
       const authorize = new URL("https://github.com/login/oauth/authorize")
       authorize.search = new URLSearchParams({

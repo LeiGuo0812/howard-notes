@@ -14,7 +14,6 @@ import { GitHubImageHost } from "./images.mjs"
 import { brokerOrigin } from "./auth.mjs"
 import { createSitePreview } from "./site-preview.mjs"
 import { readLayoutDraft, writeLayoutDraft, clearLayoutDraft } from "./layout-draft.mjs"
-const $ = (id) => document.getElementById(id)
 const node = (tag, text, cls) => {
   const el = document.createElement(tag)
   if (text !== undefined) el.textContent = text
@@ -28,7 +27,21 @@ const set = (obj, path, value) => {
   const target = parts.length ? get(obj, parts.join(".")) : obj
   target[key] = value
 }
-export function createSettings({ getSnapshot, action, message, onSaved, refresh }) {
+export function createSettings({
+  root = document,
+  siteBase = new URL("../", location.href),
+  getSnapshot,
+  action,
+  message,
+  onSaved,
+  refresh,
+}) {
+  const $ = (id) => root.querySelector(`[data-admin-id="${id}"]`) || root.querySelector(`#${id}`)
+  const listeners = new AbortController()
+  const listen = (target, type, handler, options = {}) =>
+    target.addEventListener(type, handler, { ...options, signal: listeners.signal })
+  const dragCleanups = new Set()
+  let disposed = false
   let working,
     baseline = "",
     openedSha,
@@ -37,7 +50,7 @@ export function createSettings({ getSnapshot, action, message, onSaved, refresh 
     storage = localStorage
   } catch {}
   const dirty = () => !!working && JSON.stringify(working) !== baseline
-  const preview = createSitePreview(() => working, getSnapshot)
+  const preview = createSitePreview(() => working, getSnapshot, { root, siteBase })
   for (const [path, fonts] of [
     ["design.chineseFont", CHINESE_FONTS],
     ["design.englishFont", ENGLISH_FONTS],
@@ -133,9 +146,24 @@ export function createSettings({ getSnapshot, action, message, onSaved, refresh 
         const move = (event) => {
           if (event.pointerId !== pointerId) return
           event.preventDefault()
-          const target = document
-            .elementFromPoint(event.clientX, event.clientY)
-            ?.closest(".setting-row")
+          const tree = root.getRootNode()
+          const hit = (
+            tree.elementFromPoint?.(event.clientX, event.clientY) ||
+            document.elementFromPoint(event.clientX, event.clientY)
+          )?.closest(".setting-row")
+          // Some browsers expose only the shadow host through document hit testing.
+          const target =
+            hit?.parentElement === root
+              ? hit
+              : [...root.children].find((candidate) => {
+                  const bounds = candidate.getBoundingClientRect()
+                  return (
+                    event.clientX >= bounds.left &&
+                    event.clientX <= bounds.right &&
+                    event.clientY >= bounds.top &&
+                    event.clientY <= bounds.bottom
+                  )
+                })
           if (
             target &&
             target.parentElement === root &&
@@ -149,22 +177,36 @@ export function createSettings({ getSnapshot, action, message, onSaved, refresh 
             root.append(...items.map((entry) => rows.get(entry.id)))
             changed()
           }
-          if (event.clientY < 75) window.scrollBy(0, -14)
-          if (event.clientY > innerHeight - 75) window.scrollBy(0, 14)
+          // The overlay scrolls at its host; inline editing shares the page's scroll container.
+          const scroller = tree.host?.classList.contains("is-panel")
+            ? tree.host
+            : root.closest(".maintenance-scroll") || document.scrollingElement
+          const bounds =
+            scroller === document.scrollingElement
+              ? { top: 0, bottom: innerHeight }
+              : scroller.getBoundingClientRect()
+          if (event.clientY < bounds.top + 75) scroller.scrollBy(0, -14)
+          if (event.clientY > bounds.bottom - 75) scroller.scrollBy(0, 14)
         }
-        const end = (event) => {
-          if (event.pointerId !== pointerId) return
+        const cleanup = () => {
           window.removeEventListener("pointermove", move)
           window.removeEventListener("pointerup", end)
           window.removeEventListener("pointercancel", end)
+          dragCleanups.delete(cleanup)
+          row.classList.remove("dragging")
+        }
+        const end = (event) => {
+          if (event.pointerId !== pointerId) return
+          cleanup()
           renderRows()
           $(container)
             .querySelector(`[data-item-id="${item.id}"] .drag-handle`)
             ?.focus({ preventScroll: true })
         }
-        window.addEventListener("pointermove", move, { passive: false })
-        window.addEventListener("pointerup", end)
-        window.addEventListener("pointercancel", end)
+        dragCleanups.add(cleanup)
+        listen(window, "pointermove", move, { passive: false })
+        listen(window, "pointerup", end)
+        listen(window, "pointercancel", end)
       }
       const check = node("input")
       check.type = "checkbox"
@@ -277,9 +319,10 @@ export function createSettings({ getSnapshot, action, message, onSaved, refresh 
     renderRows()
     changed()
     preview.load()
-    fetch(new URL("auth-config.json", location.href), { cache: "no-store" })
+    fetch(new URL("admin/auth-config.json", siteBase), { cache: "no-store" })
       .then((response) => response.json())
       .then((config) => {
+        if (disposed) return
         const link = new URL("/ready", brokerOrigin(config.brokerOrigin))
         link.searchParams.set("repository", working.imageHost.repository)
         $("authorize-images").href = link.href
@@ -363,11 +406,14 @@ export function createSettings({ getSnapshot, action, message, onSaved, refresh 
     action(async () => {
       validateSite(working)
       message("正在发布页面…")
-      await getSnapshot().client.saveSettings({ openedSha, settings: structuredClone(working) })
+      const result = await getSnapshot().client.saveSettings({
+        openedSha,
+        settings: structuredClone(working),
+      })
       if (storage) clearLayoutDraft(storage)
       const latest = await refresh()
       load(latest, false)
-      onSaved(latest)
+      onSaved(latest, result)
       message("页面已发布，正在部署。", false, "https://github.com/LeiGuo0812/howard-notes/actions")
     })
   }
@@ -390,5 +436,14 @@ export function createSettings({ getSnapshot, action, message, onSaved, refresh 
     link.click()
     setTimeout(() => URL.revokeObjectURL(url), 1000)
   }
-  return { load, dirty }
+  return {
+    load,
+    dirty,
+    dispose() {
+      disposed = true
+      listeners.abort()
+      for (const cleanup of dragCleanups) cleanup()
+      preview.dispose()
+    },
+  }
 }

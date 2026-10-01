@@ -57,8 +57,11 @@ async function requestJSON(url, options = {}) {
     clearTimeout(timeout)
   }
 }
-async function loginOrigin() {
-  const { response, data } = await requestJSON(new URL("auth-config.json", location.href))
+async function loginOrigin(configUrl) {
+  const url = new URL(configUrl ?? "auth-config.json", location.href)
+  if (url.origin !== location.origin || url.username || url.password)
+    throw new Error("登录设置地址不正确。")
+  const { response, data } = await requestJSON(url)
   if (!response.ok) throw new Error("无法读取登录设置，请刷新后重试。")
   if (!data.brokerOrigin) throw new Error("账号登录尚未开通，请先完成首次配置。")
   return brokerOrigin(data.brokerOrigin)
@@ -142,7 +145,7 @@ function waitForResult(pending) {
 // A popup is opened synchronously from the click when the current editor must stay intact.
 // Initial login always uses the same tab; only a short-lived claim proof survives navigation.
 // GitHub credentials remain in memory and never enter storage or URLs.
-export async function signIn({ preservePage = false } = {}) {
+export async function signIn({ preservePage = false, configUrl, returnTo } = {}) {
   const channel = encode(crypto.getRandomValues(new Uint8Array(32)))
   const redirect = !preservePage
   const popup = redirect
@@ -154,7 +157,26 @@ export async function signIn({ preservePage = false } = {}) {
     popup.document.body.textContent = "正在连接 GitHub…"
   }
   try {
-    const origin = await loginOrigin()
+    let returnUrl
+    if (returnTo !== undefined) {
+      if (
+        typeof returnTo !== "string" ||
+        !returnTo ||
+        returnTo.length > 2048 ||
+        /[\u0000-\u0020\u007f\\]/.test(returnTo)
+      )
+        throw new Error("登录返回地址不正确。")
+      const target = new URL(returnTo, location.href)
+      if (
+        target.origin !== location.origin ||
+        target.username ||
+        target.password ||
+        target.href.length > 2048
+      )
+        throw new Error("登录返回地址不正确。")
+      returnUrl = target.href
+    }
+    const origin = await loginOrigin(configUrl)
     const secret = encode(crypto.getRandomValues(new Uint8Array(32)))
     const challenge = encode(
       new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(secret))),
@@ -178,6 +200,7 @@ export async function signIn({ preservePage = false } = {}) {
       channel,
       challenge,
       mode: redirect ? "redirect" : "popup",
+      ...(returnUrl ? { returnTo: returnUrl } : {}),
     }).toString()
     if (redirect) {
       try {
@@ -201,7 +224,7 @@ export async function signIn({ preservePage = false } = {}) {
   }
 }
 
-export async function resumeSignIn() {
+export async function resumeSignIn({ configUrl } = {}) {
   const url = new URL(location.href)
   const channel = url.searchParams.get("login")
   if (url.searchParams.has("login")) {
@@ -226,7 +249,7 @@ export async function resumeSignIn() {
       !Number.isFinite(pending.expires) ||
       pending.expires <= Date.now() ||
       pending.expires > Date.now() + LOGIN_MS ||
-      brokerOrigin(pending.origin) !== (await loginOrigin())
+      brokerOrigin(pending.origin) !== (await loginOrigin(configUrl))
     )
       throw new Error("登录已失效，请重新登录。")
     return await waitForResult(pending)

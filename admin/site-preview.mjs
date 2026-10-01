@@ -1,5 +1,11 @@
-export function createSitePreview(getSettings, getSnapshot) {
-  const $ = (id) => document.getElementById(id)
+export function createSitePreview(
+  getSettings,
+  getSnapshot,
+  { root = document, siteBase = new URL("../", location.href) } = {},
+) {
+  const $ = (id) => root.querySelector(`[data-admin-id="${id}"]`) || root.querySelector(`#${id}`)
+  const listeners = new AbortController()
+  let disposed = false
   const frame = $("site-preview-frame"),
     stage = $("site-preview-stage"),
     panel = $("site-preview-panel")
@@ -16,7 +22,7 @@ export function createSitePreview(getSettings, getSnapshot) {
     stage.style.height = height * scale + "px"
   }
   const update = () => {
-    if (!ready || !getSettings()) return
+    if (disposed || !ready || !getSettings()) return
     try {
       frame.contentWindow.postMessage(
         { type: "howard-layout-preview", settings: getSettings(), theme: $("preview-theme").value },
@@ -45,22 +51,26 @@ export function createSitePreview(getSettings, getSnapshot) {
     timer = setTimeout(() => {
       if (!ready) $("site-preview-state").textContent = "加载失败，可重试"
     }, 15000)
-    const url = new URL("../" + routes[type], location.href)
+    const url = new URL(routes[type], siteBase)
     url.searchParams.set("site-preview", "1")
     frame.src = url.href
     resize()
   }
-  window.addEventListener("message", (event) => {
-    if (event.origin !== location.origin || event.source !== frame.contentWindow) return
-    if (event.data?.type === "howard-preview-ready") {
-      ready = true
-      clearTimeout(timer)
-      update()
-    }
-    if (event.data?.type === "howard-preview-applied") $("site-preview-state").textContent = ""
-    if (event.data?.type === "howard-preview-error")
-      $("site-preview-state").textContent = "请检查设置"
-  })
+  window.addEventListener(
+    "message",
+    (event) => {
+      if (event.origin !== location.origin || event.source !== frame.contentWindow) return
+      if (event.data?.type === "howard-preview-ready") {
+        ready = true
+        clearTimeout(timer)
+        update()
+      }
+      if (event.data?.type === "howard-preview-applied") $("site-preview-state").textContent = ""
+      if (event.data?.type === "howard-preview-error")
+        $("site-preview-state").textContent = "请检查设置"
+    },
+    { signal: listeners.signal },
+  )
   $("preview-page").onchange = open
   $("preview-article").onchange = open
   $("preview-device").onchange = resize
@@ -73,13 +83,25 @@ export function createSitePreview(getSettings, getSnapshot) {
       : "展开预览"
     resize()
   }
-  window.addEventListener("keydown", (event) => {
-    if (event.key === "Escape" && panel.classList.contains("expanded"))
-      $("expand-site-preview").click()
-  })
-  new ResizeObserver(resize).observe(stage)
+  window.addEventListener(
+    "keydown",
+    (event) => {
+      if (event.key === "Escape" && panel.classList.contains("expanded"))
+        $("expand-site-preview").click()
+    },
+    { signal: listeners.signal },
+  )
+  const observer = new ResizeObserver(resize)
+  observer.observe(stage)
   return {
     update,
+    dispose() {
+      disposed = true
+      clearTimeout(timer)
+      listeners.abort()
+      observer.disconnect()
+      frame.src = "about:blank"
+    },
     load() {
       const articles = getSnapshot().catalog.articles.filter((article) => article.published)
       const select = $("preview-article"),

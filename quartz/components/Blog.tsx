@@ -7,6 +7,7 @@ import { cloneElement, isValidElement, ComponentChildren } from "preact"
 import siteSettings from "../../library/site.json"
 import { ARTICLES_PER_PAGE } from "./scripts/browsing"
 import { prepareArticleImages } from "../util/article-images"
+import { prepareArticleLinks } from "../util/article-links"
 import {
   designStyle,
   orderedSections,
@@ -117,7 +118,12 @@ export const BlogNav: QuartzComponent = (props) => (
           {item.label}
         </a>
       ))}
-      <a class="blog-admin" href={`${root(props)}/admin/`} data-router-ignore>
+      <a
+        class="blog-admin"
+        href={`${root(props)}/admin/`}
+        data-router-ignore
+        data-maintenance-login
+      >
         <svg
           viewBox="0 0 24 24"
           fill="none"
@@ -131,7 +137,7 @@ export const BlogNav: QuartzComponent = (props) => (
             stroke-linecap="round"
           />
         </svg>
-        管理
+        登录
       </a>
     </nav>
   </>
@@ -675,6 +681,27 @@ export const BlogFrame: PageFrame = {
             <Component {...componentData} />
           ))}
         </header>
+        <nav class="maintenance-toolbar" aria-label="网站维护" hidden>
+          <button type="button" data-maintenance-action="new">
+            新建
+          </button>
+          <button type="button" data-maintenance-action="drafts">
+            草稿箱
+          </button>
+          <button type="button" data-maintenance-action="articles">
+            文章管理
+          </button>
+          <button type="button" data-maintenance-action="settings">
+            页面设置
+          </button>
+          <button type="button" data-maintenance-action="reconnect">
+            重新登录
+          </button>
+          <button type="button" data-maintenance-action="logout">
+            退出
+          </button>
+          <span class="maintenance-account" />
+        </nav>
         <div
           class={`blog-layout ${home ? "is-home" : ""} ${article ? "is-article" : ""} ${hub || listing ? "is-directory" : ""}`}
         >
@@ -697,7 +724,7 @@ export const BlogFrame: PageFrame = {
               </details>
             </aside>
           )}
-          <main class="center" id="main-content">
+          <main class="center" id="main-content" data-maintenance-article={current?.id}>
             <div class="page-header">
               <div class="popover-hint">
                 {beforeBody.map((Component) => (
@@ -715,7 +742,18 @@ export const BlogFrame: PageFrame = {
                   )}
                 </div>
               )}
+              {current && (
+                <button
+                  class="maintenance-edit"
+                  type="button"
+                  data-maintenance-action="edit"
+                  hidden
+                >
+                  编辑文章
+                </button>
+              )}
             </div>
+            <div data-maintenance-slot hidden />
             {!home &&
               (type === "topic-hub" ? (
                 <TopicDirectory props={componentData} />
@@ -726,7 +764,11 @@ export const BlogFrame: PageFrame = {
               ) : (
                 <Content
                   {...componentData}
-                  tree={article ? prepareArticleImages(componentData.tree) : componentData.tree}
+                  tree={
+                    article
+                      ? prepareArticleLinks(prepareArticleImages(componentData.tree))
+                      : componentData.tree
+                  }
                 />
               ))}
             {article && (

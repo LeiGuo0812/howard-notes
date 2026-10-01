@@ -287,10 +287,15 @@ async function secretChallenge(secret = resultSecret) {
     await crypto.subtle.digest("SHA-256", new TextEncoder().encode(secret)),
   ).toString("base64url")
 }
-async function startResult(env, mode = "popup", requestChannel = resultChannel) {
+async function startResult(env, mode = "popup", requestChannel = resultChannel, returnTo) {
   const challenge = await secretChallenge()
   const url = new URL(`${origin}/login`)
-  url.search = new URLSearchParams({ channel: requestChannel, challenge, mode }).toString()
+  url.search = new URLSearchParams({
+    channel: requestChannel,
+    challenge,
+    mode,
+    ...(returnTo !== undefined ? { returnTo } : {}),
+  }).toString()
   assert.ok(!url.href.includes(resultSecret))
   const response = await handle(new Request(url), env)
   assert.equal(response.status, 302)
@@ -397,6 +402,141 @@ test("same-page callback returns only to the fixed admin URL with a non-secret l
   assertNoCredentials(returned.href)
   assertNoCredentials(await response.text())
   assertPrivateResponse(response)
+})
+
+test("main-site callback preserves its validated article path, query and anchor without exposing credentials", async () => {
+  for (const returnTo of [
+    "https://leiguo0812.github.io/howard-notes/",
+    "https://leiguo0812.github.io/howard-notes/notes/article-one?sort=latest&tag=%E6%8A%80%E6%9C%AF#heading-two",
+    "/howard-notes/tags/learning?order=oldest#top",
+    "https://leiguo0812.github.io/howard-notes/notes/%E4%B8%AD%E6%96%87#%E7%AB%A0%E8%8A%82",
+  ]) {
+    const { env } = await configured()
+    const pending = await startResult(env, "redirect", resultChannel, returnTo)
+    assert.ok(!pending.authorize.href.includes("returnTo"))
+    const encryptedFlow = pending.cookie.slice(pending.cookie.indexOf("=") + 1)
+    const flow = await unseal(encryptedFlow, env, "flow")
+    assert.equal(flow.returnTo, new URL(returnTo, env.ADMIN_URL).href)
+    const response = await handle(callback(pending), env, upstream().fetcher)
+    assert.equal(response.status, 302)
+    const returned = new URL(response.headers.get("Location"))
+    const expected = new URL(returnTo, env.ADMIN_URL)
+    expected.searchParams.set("login", resultChannel)
+    assert.equal(returned.href, expected.href)
+    assertNoCredentials(returned.href)
+    assertNoCredentials(await response.text())
+    const claimed = await handle(resultRequest(env), env)
+    assert.equal(claimed.status, 200)
+    const credentials = await claimed.json()
+    assert.equal(credentials.token, "ghu_mock-short-lived-access")
+    assert.ok(credentials.serverTime > 0)
+    assert.equal((await handle(resultRequest(env), env)).status, 403)
+  }
+})
+
+test("declined main-site authorization still returns to the initiating page with a one-use error", async () => {
+  const { env } = await configured()
+  const returnTo = "https://leiguo0812.github.io/howard-notes/notes/one?view=reading#part-three"
+  const pending = await startResult(env, "redirect", resultChannel, returnTo)
+  const api = upstream()
+  const response = await handle(callback(pending, "error=access_denied"), env, api.fetcher)
+  const expected = new URL(returnTo)
+  expected.searchParams.set("login", resultChannel)
+  assert.equal(response.status, 302)
+  assert.equal(response.headers.get("Location"), expected.href)
+  assertNoCredentials(expected.href)
+  const claimed = await handle(resultRequest(env), env)
+  assert.match((await claimed.json()).error, /取消 GitHub 授权/)
+  assert.equal(api.calls.length, 0)
+  assert.equal((await handle(resultRequest(env), env)).status, 403)
+})
+
+test("main-site return scope follows the deployment base for root sites and slashless admin configuration", async () => {
+  for (const [adminUrl, returnTo] of [
+    ["https://notes.example.test/admin/", "https://notes.example.test/notes/one#chapter"],
+    [
+      "https://leiguo0812.github.io/howard-notes/admin",
+      "https://leiguo0812.github.io/howard-notes/?sort=latest#activity",
+    ],
+  ]) {
+    const { env } = await configured()
+    env.ADMIN_URL = adminUrl
+    const pending = await startResult(env, "redirect", resultChannel, returnTo)
+    const response = await handle(callback(pending), env, upstream().fetcher)
+    const expected = new URL(returnTo)
+    expected.searchParams.set("login", resultChannel)
+    assert.equal(response.status, 302)
+    assert.equal(response.headers.get("Location"), expected.href)
+    const claimed = await handle(resultRequest(env), env)
+    assert.equal(claimed.status, 200)
+    assert.equal(claimed.headers.get("Access-Control-Allow-Origin"), new URL(adminUrl).origin)
+  }
+})
+
+test("external, sibling repository and ambiguous return URLs fail before any login state is created", async () => {
+  const { env, sqlite } = await configured()
+  const challenge = await secretChallenge()
+  for (const returnTo of [
+    "https://attacker.test/howard-notes/",
+    "//attacker.test/howard-notes/",
+    "javascript:alert(1)",
+    "http://leiguo0812.github.io/howard-notes/",
+    "https://user:pass@leiguo0812.github.io/howard-notes/",
+    "https://leiguo0812.github.io/another-repository/",
+    "https://leiguo0812.github.io/howard-notes-evil/",
+    "/",
+    "/howard-notes/../another-repository/",
+    "/howard-notes/%2e%2e/another-repository/",
+    "/howard-notes/%252e%252e/another-repository/",
+    "/howard-notes/%25252e%25252e/another-repository/",
+    "/howard-notes/%2fnotes/one",
+    "/howard-notes/%252fnotes/one",
+    "/howard-notes/%5cnotes/one",
+    "/howard-notes/%00notes/one",
+    "/howard-notes/\\notes/one",
+    "/howard-notes/\nnotes/one",
+    "",
+    "/howard-notes/" + "x".repeat(2048),
+  ]) {
+    const login = new URL(`${origin}/login`)
+    login.search = new URLSearchParams({
+      channel: resultChannel,
+      challenge,
+      mode: "redirect",
+      returnTo,
+    }).toString()
+    const response = await handle(new Request(login), env)
+    assert.equal(response.status, 400, returnTo)
+    assert.equal(response.headers.get("Location"), null, returnTo)
+    assertNoCredentials(await response.text())
+    assert.equal(sqlite.prepare("SELECT count(*) AS count FROM login_flows").get().count, 0)
+    assert.equal(sqlite.prepare("SELECT count(*) AS count FROM login_results").get().count, 0)
+  }
+})
+
+test("completion revalidates the encrypted return destination instead of trusting stored redirect text", async () => {
+  const { env, sqlite } = await configured()
+  const pending = await startResult(
+    env,
+    "redirect",
+    resultChannel,
+    "/howard-notes/notes/one#section",
+  )
+  const flow = await unseal(pending.cookie.slice(pending.cookie.indexOf("=") + 1), env, "flow")
+  pending.cookie = `__Host-howard-flow=${await seal(
+    { ...flow, returnTo: "https://attacker.test/howard-notes/" },
+    env,
+    "flow",
+  )}`
+  const response = await handle(callback(pending), env, upstream().fetcher)
+  assert.equal(response.status, 400)
+  assert.equal(response.headers.get("Location"), null)
+  assertNoCredentials(await response.text())
+  assert.equal(
+    sqlite.prepare("SELECT encrypted FROM login_results WHERE channel = ?").get(resultChannel)
+      .encrypted,
+    null,
+  )
 })
 
 test("the initiating secret retrieves exactly one result and replay is rejected", async () => {
