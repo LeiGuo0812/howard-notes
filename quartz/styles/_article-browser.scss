@@ -391,12 +391,23 @@
 }
 
 .timeline-sidebar {
+  --timeline-sidebar-top: max(
+    calc(var(--glass-anchor-offset) + 24px),
+    calc(var(--timeline-header-bottom, 0px) + 16px)
+  );
+  --timeline-panel-height: min(
+    480px,
+    60dvh,
+    max(0px, calc(100dvh - var(--timeline-sidebar-top) - 24px))
+  );
   position: fixed;
   z-index: var(--glass-z-controls);
-  top: calc(var(--glass-anchor-offset) + 24px);
+  top: var(--timeline-sidebar-top);
   left: max(16px, calc(50% - 704px));
   width: 160px;
+  max-height: var(--timeline-panel-height);
   padding: 12px;
+  overflow: hidden;
   border: 1px solid var(--glass-edge);
   border-radius: 16px;
   background: var(--glass-solid);
@@ -409,6 +420,7 @@
     color: var(--darkgray);
     font-size: 12px;
     font-weight: 600;
+    line-height: 18px;
     list-style: none;
     pointer-events: none;
     &::-webkit-details-marker {
@@ -421,7 +433,7 @@
     }
   }
   > nav {
-    max-height: calc(100dvh - var(--glass-anchor-offset) - 98px);
+    max-height: max(0px, calc(var(--timeline-panel-height) - 60px));
     overflow-y: auto;
     overscroll-behavior: contain;
     scrollbar-width: thin;
@@ -480,7 +492,9 @@
     right: max(16px, env(safe-area-inset-right));
     bottom: max(20px, env(safe-area-inset-bottom));
     width: auto;
+    max-height: none;
     padding: 0;
+    overflow: visible;
     border: 0;
     background: none;
     box-shadow: none;
@@ -488,6 +502,8 @@
       @include material.control;
       min-height: 44px;
       padding: 10px 14px;
+      font-size: 12px;
+      line-height: 20px;
       border-radius: 13px;
       box-shadow: var(--glass-inset), var(--frost-independent-shadow);
       cursor: pointer;
@@ -498,7 +514,14 @@
       right: 0;
       bottom: calc(100% + 10px);
       width: min(280px, calc(100vw - 32px));
-      max-height: min(560px, calc(100dvh - var(--glass-anchor-offset) - 104px));
+      max-height: min(
+        400px,
+        50dvh,
+        max(
+          0px,
+          calc(100dvh - var(--timeline-sidebar-top) - 54px - max(20px, env(safe-area-inset-bottom)))
+        )
+      );
       padding: 14px;
       border: 1px solid var(--glass-edge);
       border-radius: 16px;

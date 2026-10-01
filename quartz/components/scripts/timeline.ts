@@ -8,6 +8,7 @@ export function setupTimeline({ onViewChange }: { onViewChange: () => void }) {
   const sidebar = document.querySelector<HTMLDetailsElement>("#timeline-sidebar")
   const navigation = document.querySelector<HTMLElement>("#timeline-navigation")
   const sidebarSummary = sidebar?.querySelector<HTMLElement>(":scope > summary")
+  const header = document.querySelector<HTMLElement>(".blog-header")
   const desktopSidebar = matchMedia("(min-width: 1400px)")
   const controls = [...document.querySelectorAll<HTMLButtonElement>("[data-listing-view]")]
   if (!surface || !jump || !controls.length) return
@@ -90,6 +91,17 @@ export function setupTimeline({ onViewChange }: { onViewChange: () => void }) {
     if (desktopSidebar.matches) sidebarSummary?.setAttribute("tabindex", "-1")
     else sidebarSummary?.removeAttribute("tabindex")
   }
+  const measureHeader = () => {
+    if (!sidebar || !header) return
+    sidebar.style.setProperty(
+      "--timeline-header-bottom",
+      `${Math.ceil(header.getBoundingClientRect().bottom)}px`,
+    )
+  }
+  const headerResize =
+    sidebar && header && typeof ResizeObserver !== "undefined"
+      ? new ResizeObserver(measureHeader)
+      : undefined
   const dismissSidebar = (event: PointerEvent) => {
     if (event.target instanceof Node && !sidebar?.contains(event.target)) closeSidebar()
   }
@@ -237,6 +249,8 @@ export function setupTimeline({ onViewChange }: { onViewChange: () => void }) {
   jump.addEventListener("change", jumpToMonth)
   navigation?.addEventListener("click", choosePeriod)
   desktopSidebar.addEventListener("change", resizeSidebar)
+  headerResize?.observe(header!)
+  window.addEventListener("resize", measureHeader, { passive: true })
   document.addEventListener("pointerdown", dismissSidebar, { passive: true })
   document.addEventListener("keydown", escapeSidebar, { capture: true })
   window.addCleanup(() => {
@@ -244,10 +258,13 @@ export function setupTimeline({ onViewChange }: { onViewChange: () => void }) {
     jump.removeEventListener("change", jumpToMonth)
     navigation?.removeEventListener("click", choosePeriod)
     desktopSidebar.removeEventListener("change", resizeSidebar)
+    headerResize?.disconnect()
+    window.removeEventListener("resize", measureHeader)
     document.removeEventListener("pointerdown", dismissSidebar)
     document.removeEventListener("keydown", escapeSidebar, { capture: true })
   })
   resizeSidebar()
+  measureHeader()
   applyView()
   return { isActive: () => view === "timeline", update, setView }
 }
