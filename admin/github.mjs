@@ -206,9 +206,75 @@ export class GitHubLibrary {
     const blob = await this.repo(`contents/${SITE_PATH}?ref=${encodeURIComponent(commits[1].sha)}`)
     return validateSite(JSON.parse(decodeBase64(blob.content)))
   }
+  async removePublishedArticle({ opened, openedSha, openedDrafts = [] }) {
+    if (!opened || opened.published !== true) throw new Error("只能通过此操作删除已发布文章。")
+    if (
+      typeof openedSha !== "string" ||
+      !openedSha ||
+      !Array.isArray(openedDrafts) ||
+      openedDrafts.some(
+        (draft) =>
+          draft?.article?.draftOf !== opened.id ||
+          draft.article.published !== false ||
+          typeof draft.sha !== "string" ||
+          !draft.sha,
+      )
+    )
+      throw new Error("文章删除版本信息不完整，请重新载入。")
+    // Validate every deletion path before requesting a tree change, including draft paths.
+    validateCatalog({
+      version: 2,
+      articles: [opened, ...openedDrafts.map((draft) => draft.article)],
+    })
+    const latest = await this.snapshot()
+    validateCatalog(latest.catalog)
+    const current = latest.catalog.articles.find((article) => article.id === opened.id)
+    if (!equal(current, opened) || latest.entries.get(`library/${opened.file}`)?.sha !== openedSha)
+      throw new Error("已发布文章已在另一端更改，请重新载入；本次没有删除远端内容。")
+    const drafts = latest.catalog.articles.filter((article) => article.draftOf === opened.id)
+    if (
+      drafts.length !== openedDrafts.length ||
+      drafts.some((draft) => {
+        const baseline = openedDrafts.find((item) => item.article.id === draft.id)
+        return (
+          !baseline ||
+          !equal(draft, baseline.article) ||
+          latest.entries.get(`library/${draft.file}`)?.sha !== baseline.sha
+        )
+      })
+    )
+      throw new Error("这篇文章的修改草稿已在另一端更改，请重新载入；文章和草稿均未删除。")
+    const removed = [opened, ...openedDrafts.map((draft) => draft.article)]
+    const removedIds = removed.map((article) => article.id)
+    const catalog = structuredClone(latest.catalog)
+    catalog.articles = catalog.articles.filter((article) => !removedIds.includes(article.id))
+    const result = await this.commit(
+      latest,
+      [
+        {
+          path: CATALOG_PATH,
+          mode: "100644",
+          type: "blob",
+          content: JSON.stringify(catalog, null, 2) + "\n",
+        },
+        ...removed.map((article) => ({
+          path: `library/${article.file}`,
+          mode: "100644",
+          type: "blob",
+          sha: null,
+        })),
+      ],
+      `Delete article: ${opened.title}`,
+    )
+    return { ...result, removedIds }
+  }
   async removeDraft({ opened, openedSha }) {
     if (!opened || opened.published !== false) throw new Error("只能删除未发布的草稿。")
+    if (typeof openedSha !== "string" || !openedSha)
+      throw new Error("草稿删除版本信息不完整，请重新载入。")
+    validateCatalog({ version: 2, articles: [opened] })
     const latest = await this.snapshot()
+    validateCatalog(latest.catalog)
     const current = latest.catalog.articles.find((article) => article.id === opened.id)
     if (!equal(current, opened) || latest.entries.get(`library/${opened.file}`)?.sha !== openedSha)
       throw new Error("草稿已在另一端更改，请重新载入；本次没有删除远端内容。")

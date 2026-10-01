@@ -17,10 +17,11 @@ body {
 }
 // Ambient light is static, stays at the edges, and recedes while reading.
 body:has(.blog-layout.is-article) {
+  --gray: var(--glass-reader-muted);
   background:
     radial-gradient(ellipse 300px 600px at 0 100px, var(--glass-reader-blue), transparent 80%),
     radial-gradient(ellipse 280px 560px at 100% 140px, var(--glass-reader-violet), transparent 80%),
-    var(--light);
+    var(--glass-reader-page);
 }
 * {
   box-sizing: border-box;

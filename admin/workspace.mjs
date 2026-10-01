@@ -38,6 +38,8 @@ export function createWorkspace(root, options = {}) {
     snapshot,
     current = null,
     openedSha = null,
+    publishedDeletion = null,
+    localRecoveryOnly = false,
     raw = "",
     savedForm = "",
     images = [],
@@ -240,6 +242,7 @@ export function createWorkspace(root, options = {}) {
     if (sameArticle) viewer.clear()
     else clearImages()
     current = article ? structuredClone(article) : null
+    localRecoveryOnly = false
     raw = text
     $("empty").hidden = true
     $("editor-form").hidden = false
@@ -251,6 +254,10 @@ export function createWorkspace(root, options = {}) {
     $("cancel-edit").hidden = !article
     $("save-draft").hidden = false
     $("delete-draft").hidden = !!article?.published
+    $("delete-draft").textContent = "删除草稿"
+    $("delete-article").hidden = !article?.published && !article?.draftOf
+    $("delete-article").textContent = article?.draftOf ? "删除已发布文章" : "删除文章"
+    if (!article) publishedDeletion = null
     $("unpublish").hidden = !article?.published
     $("publication-state").textContent = article?.published
       ? "已发布"
@@ -306,13 +313,38 @@ export function createWorkspace(root, options = {}) {
     if (recovery) restoreRecovery(recovery, article, loaded.sha)
     else {
       showEditor(article, loaded.text)
+      const published = article.published
+        ? article
+        : snapshot.catalog.articles.find((item) => item.id === article.draftOf && item.published)
+      publishedDeletion = published
+        ? {
+            opened: structuredClone(published),
+            openedSha: snapshot.entries.get(`library/${published.file}`)?.sha,
+            openedDrafts: snapshot.catalog.articles
+              .filter((item) => item.draftOf === published.id)
+              .map((item) => ({
+                article: structuredClone(item),
+                sha: snapshot.entries.get(`library/${item.file}`)?.sha,
+              })),
+          }
+        : null
       $("status").hidden = true
     }
   }
   function restoreRecovery(recovery, latestArticle, latestSha) {
     const restored = recoveredBaseline(recovery, latestArticle, latestSha)
+    // A recovery lacks the original linked-draft set. Never infer one from a newer remote read.
+    publishedDeletion = null
     openedSha = restored.openedSha
     showEditor(restored.article, restored.raw)
+    localRecoveryOnly = !latestArticle
+    if (localRecoveryOnly) {
+      // This recovery has no remote entry. Deleting it must never touch the old source version.
+      $("delete-draft").hidden = false
+      $("delete-draft").textContent = "删除本地草稿"
+      $("delete-article").hidden = true
+      $("unpublish").hidden = true
+    }
     // Never swap a restored edit's baseline for the freshly read remote version.
     current = restored.article
     raw = restored.raw
@@ -391,6 +423,8 @@ export function createWorkspace(root, options = {}) {
     clearImages()
     current = null
     openedSha = null
+    publishedDeletion = null
+    localRecoveryOnly = false
     raw = ""
     savedForm = ""
     $("editor-form").hidden = true
@@ -779,8 +813,14 @@ export function createWorkspace(root, options = {}) {
     })
   }
   $("delete-draft").onclick = () => {
-    if (!confirm("删除这篇草稿？")) return
-    if (!current) {
+    if (!client || busy || (current?.published && !localRecoveryOnly)) return
+    if (
+      !confirm(
+        localRecoveryOnly ? "仅删除当前浏览器中的这篇草稿？远端文章不受影响。" : "删除这篇草稿？",
+      )
+    )
+      return
+    if (!current || localRecoveryOnly) {
       closeEditor(true)
       options.onClose?.()
       return
@@ -788,10 +828,76 @@ export function createWorkspace(root, options = {}) {
     action(async () => {
       const deletedId = current.id
       const result = await client.removeDraft({ opened: current, openedSha })
-      snapshot = await client.snapshot()
+      snapshot.catalog.articles = snapshot.catalog.articles.filter(
+        (article) => article.id !== deletedId,
+      )
       closeEditor(true)
-      options.onSaved?.({ kind: "delete", articleId: deletedId, commit: result?.sha })
-      message("草稿已删除。")
+      setScope("draft")
+      let refreshed = true
+      try {
+        snapshot = await client.snapshot()
+        renderList()
+      } catch {
+        refreshed = false
+      }
+      options.onSaved?.({
+        kind: "delete",
+        scope: "draft",
+        articleId: deletedId,
+        removedIds: [deletedId],
+        commit: result?.sha,
+      })
+      message(refreshed ? "草稿已删除。" : "草稿已删除；列表刷新失败，请重新载入。")
+    })
+  }
+  $("delete-article").onclick = () => {
+    if (!client || busy || (!current?.published && !current?.draftOf)) return
+    if (!publishedDeletion) {
+      persistRecovery()
+      message("请先下载当前编辑，再重新载入文章确认最新版本，然后删除。", true)
+      return
+    }
+    const baseline = structuredClone(publishedDeletion)
+    const drafts = baseline.openedDrafts.length
+      ? `及 ${baseline.openedDrafts.length} 篇修改草稿`
+      : ""
+    if (
+      !confirm(
+        `删除网站上的“${baseline.opened.title}”${drafts}？\n未保存的修改也会丢弃，独立 Obsidian 原始笔记不受影响。`,
+      )
+    )
+      return
+    action(async () => {
+      message("正在删除…")
+      const result = await client.removePublishedArticle(baseline)
+      for (const id of result.removedIds) discardRecovery(id)
+      // The commit already succeeded. Clear the deleted editor even if a follow-up read fails.
+      snapshot.catalog.articles = snapshot.catalog.articles.filter(
+        (article) => !result.removedIds.includes(article.id),
+      )
+      closeEditor(true)
+      setScope("published")
+      $("workspace").hidden = false
+      $("settings-workspace").hidden = true
+      let refreshed = true
+      try {
+        snapshot = await client.snapshot()
+        renderList()
+      } catch {
+        refreshed = false
+      }
+      options.onSaved?.({
+        kind: "delete",
+        scope: "published",
+        articleId: baseline.opened.id,
+        removedIds: result.removedIds,
+        commit: result.sha,
+      })
+      message(
+        refreshed ? "文章已删除，正在部署。" : "文章已删除，正在部署；列表刷新失败，请重新载入。",
+        false,
+        "https://github.com/LeiGuo0812/howard-notes/actions",
+      )
     })
   }
   function canClose() {
@@ -814,7 +920,8 @@ export function createWorkspace(root, options = {}) {
     if (!mayLeaveArticle()) return false
     $("workspace").hidden = false
     $("settings-workspace").hidden = true
-    setScope("published")
+    const requested = snapshot.catalog.articles.find((article) => article.id === id)
+    setScope(requested?.published === false ? "draft" : "published")
     return action(() => loadArticle(id))
   }
   listen(document, "visibilitychange", () => {

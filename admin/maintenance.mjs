@@ -113,6 +113,7 @@ export async function createMaintenance({ siteBase, version }) {
     visible = false,
     authenticating = false,
     stopDeployment = () => {}
+  const removedArticles = new Set()
   const workspace = createWorkspace(container, {
     siteBase: base.href,
     onSession(session) {
@@ -131,7 +132,19 @@ export async function createMaintenance({ siteBase, version }) {
     onClose: hide,
     onSaved(result) {
       stopDeployment()
-      if (["article", "settings", "unpublish"].includes(result?.kind) && result.commit)
+      if (result?.kind === "delete") {
+        for (const id of result.removedIds || [result.articleId]) if (id) removedArticles.add(id)
+        if (removedArticles.has(currentRouteId()) || mode === "inline") {
+          mode = "panel"
+          activeAction = result.scope === "draft" ? "drafts" : "articles"
+        }
+        updateControls()
+        attach()
+      } else if (result?.kind === "article") {
+        removedArticles.delete(result.articleId)
+        updateControls()
+      }
+      if (["article", "settings", "unpublish", "delete"].includes(result?.kind) && result.commit)
         stopDeployment = trackDeployment(deployment, result.commit)
     },
   })
@@ -169,7 +182,8 @@ export async function createMaintenance({ siteBase, version }) {
     if (toolbar) toolbar.hidden = !account
     const label = document.querySelector(".maintenance-account")
     if (label) label.textContent = account || ""
-    for (const button of document.querySelectorAll(".maintenance-edit")) button.hidden = !account
+    for (const button of document.querySelectorAll(".maintenance-edit"))
+      button.hidden = !account || removedArticles.has(currentRouteId())
   }
   function currentRouteId() {
     return document.querySelector("[data-maintenance-article]")?.dataset.maintenanceArticle
