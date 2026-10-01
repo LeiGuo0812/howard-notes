@@ -61,6 +61,76 @@ const validDate = (value) => {
     throw new ImportError("来源时间缺失或不正确，导出不能被导入。")
   return value
 }
+const retryStatuses = new Set([429, 502, 503, 504])
+const safeNetworkCodes = new Set([
+  "ECONNRESET",
+  "ECONNREFUSED",
+  "ETIMEDOUT",
+  "ENOTFOUND",
+  "EAI_AGAIN",
+  "ENETUNREACH",
+  "EHOSTUNREACH",
+  "EPIPE",
+  "UND_ERR_CONNECT_TIMEOUT",
+  "UND_ERR_HEADERS_TIMEOUT",
+  "UND_ERR_BODY_TIMEOUT",
+  "UND_ERR_SOCKET",
+  "UND_ERR_ABORTED",
+])
+const safeNetworkError = (error) => {
+  const name = ["Error", "TypeError", "AbortError", "TimeoutError"].includes(error?.name)
+    ? error.name
+    : "Error"
+  const code = [error?.code, error?.cause?.code].find((value) => safeNetworkCodes.has(value))
+  return code ? `${name}/${code}` : name
+}
+const sourcePhase = (route) => {
+  if (route === "/api/v1/auth/signin") return "signin"
+  if (route === "/api/v1/auth/status") return "auth-status"
+  if (route.startsWith("/api/v1/memos?")) return "memo-pages"
+  if (/^\/api\/v1\/memos\/[^/]+\/(resources|relations|comments|reactions)$/.test(route))
+    return "memo-metadata"
+  if (route === "/api/v1/resources") return "resource-list"
+  return "source-metadata"
+}
+/** Retry only caller-approved idempotent requests, never logging URLs, bodies or errors' messages. */
+async function fetchWithRetry({
+  fetchImpl,
+  url,
+  options,
+  retry,
+  phase,
+  service,
+  allow500 = false,
+}) {
+  for (let attempt = 0; attempt < (retry ? 3 : 1); attempt++) {
+    try {
+      const response = await fetchImpl(url, {
+        ...options,
+        signal: AbortSignal.timeout(90000),
+      })
+      if (!response.ok) {
+        await response.body?.cancel().catch(() => {})
+        if (
+          retry &&
+          attempt < 2 &&
+          (retryStatuses.has(response.status) || (allow500 && response.status === 500))
+        ) {
+          await new Promise((resolve) => setTimeout(resolve, 250 * 2 ** attempt))
+          continue
+        }
+        return { response }
+      }
+      // Read the complete body inside the retry boundary to also handle interrupted downloads.
+      const bytes = Buffer.from(await response.arrayBuffer())
+      return { response, bytes }
+    } catch (error) {
+      if (!retry || attempt === 2)
+        throw new ImportError(`${service}请求失败或超时（${phase}; ${safeNetworkError(error)}）。`)
+      await new Promise((resolve) => setTimeout(resolve, 250 * 2 ** attempt))
+    }
+  }
+}
 
 /** No source credentials or response bodies are included in errors or progress. */
 function sourceClient({ sourceOrigin, username, password, fetchImpl, saveResponse }) {
@@ -69,29 +139,47 @@ function sourceClient({ sourceOrigin, username, password, fetchImpl, saveRespons
   const request = async (route, body, archive = true) => {
     const url = new URL(route, origin)
     if (url.origin !== origin) throw new ImportError("来源 API 请求必须同源。")
-    let response
-    try {
-      response = await fetchImpl(url, {
+    const form = body instanceof URLSearchParams
+    const phase = sourcePhase(route)
+    const { response, bytes } = await fetchWithRetry({
+      fetchImpl,
+      url,
+      retry: body == null,
+      phase,
+      service: "Memos 来源",
+      options: {
         method: body == null ? "GET" : "POST",
         redirect: "error",
         headers: {
           Accept: "application/json",
           ...(cookies.size ? { Cookie: [...cookies].map(([k, v]) => `${k}=${v}`).join("; ") } : {}),
-          ...(body == null ? {} : { "Content-Type": "application/json" }),
+          ...(body == null
+            ? {}
+            : {
+                "Content-Type": form ? "application/x-www-form-urlencoded" : "application/json",
+              }),
         },
-        body: body == null ? undefined : JSON.stringify(body),
-        signal: AbortSignal.timeout(90000),
-      })
-    } catch {
-      throw new ImportError("Memos 来源请求失败或超时。")
-    }
-    if (!response.ok) throw new ImportError(`Memos 来源接口返回 HTTP ${response.status}。`)
-    for (const cookie of response.headers.getSetCookie?.() ?? []) {
-      const pair = cookie.split(";", 1)[0]
+        body: body == null ? undefined : form ? body.toString() : JSON.stringify(body),
+      },
+    })
+    if (!response.ok)
+      throw new ImportError(`Memos 来源接口返回 HTTP ${response.status}（${phase}）。`)
+    // The v0.22.5 default gateway forwards gRPC Set-Cookie metadata under this header.
+    // Keep only cookie pairs in memory; attributes and responses are never persisted.
+    const cookieHeaders = [
+      ...(response.headers.getSetCookie?.() ?? []),
+      ...(response.headers.get("Set-Cookie") && !response.headers.getSetCookie
+        ? [response.headers.get("Set-Cookie")]
+        : []),
+      ...(response.headers.get("Grpc-Metadata-Set-Cookie")
+        ? [response.headers.get("Grpc-Metadata-Set-Cookie")]
+        : []),
+    ]
+    for (const cookie of cookieHeaders.flatMap((value) => value.split(/,\s*(?=[^\s;,=]+=[^;]*)/))) {
+      const pair = cookie.split(";", 1)[0].trim()
       const index = pair.indexOf("=")
       if (index > 0) cookies.set(pair.slice(0, index), pair.slice(index + 1))
     }
-    const bytes = Buffer.from(await response.arrayBuffer())
     let result
     try {
       result = JSON.parse(bytes.toString("utf8"))
@@ -109,7 +197,8 @@ function sourceClient({ sourceOrigin, username, password, fetchImpl, saveRespons
       // Exactly one login attempt. A rejected password is never retried.
       const user = await request(
         "/api/v1/auth/signin",
-        { username, password, neverExpire: false },
+        // This pinned gateway uses req.ParseForm, so JSON bodies are ignored.
+        new URLSearchParams({ username, password, neverExpire: "false" }),
         false,
       )
       const verified = await request("/api/v1/auth/status", {}, false)
@@ -124,19 +213,20 @@ function sourceClient({ sourceOrigin, username, password, fetchImpl, saveRespons
         throw new ImportError("来源附件地址不正确。")
       // Follow redirects manually: the Memos cookie is never forwarded to S3 or another host.
       for (let redirects = 0; redirects < 6; redirects++) {
-        let response
-        try {
-          response = await fetchImpl(url, {
+        const { response, bytes } = await fetchWithRetry({
+          fetchImpl,
+          url,
+          retry: true,
+          phase: "resource-file",
+          service: "Memos 附件",
+          options: {
             redirect: "manual",
             headers:
               url.origin === origin && cookies.size
                 ? { Cookie: [...cookies].map(([k, v]) => `${k}=${v}`).join("; ") }
                 : {},
-            signal: AbortSignal.timeout(90000),
-          })
-        } catch {
-          throw new ImportError("Memos 附件下载失败或超时。")
-        }
+          },
+        })
         if ([301, 302, 303, 307, 308].includes(response.status)) {
           const next = response.headers.get("Location")
           if (!next) throw new ImportError("来源附件重定向不正确。")
@@ -146,7 +236,7 @@ function sourceClient({ sourceOrigin, username, password, fetchImpl, saveRespons
           continue
         }
         if (!response.ok) throw new ImportError(`Memos 附件接口返回 HTTP ${response.status}。`)
-        return Buffer.from(await response.arrayBuffer())
+        return bytes
       }
       throw new ImportError("来源附件重定向过多。")
     },
@@ -228,7 +318,11 @@ export async function exportMemos({
       pages++
       for (const memo of list(page, "memos")) {
         sourceName(memo.name, "memos")
-        if (memo.creator !== account.name || memo.rowStatus !== status)
+        // CEL filters use store NORMAL while the v0.22.5 protobuf enum returns ACTIVE.
+        if (
+          memo.creator !== account.name ||
+          memo.rowStatus !== (status === "NORMAL" ? "ACTIVE" : status)
+        )
           throw new ImportError("来源列表未遵守账号与归档筛选，不能确认完整性。")
         if (memos.has(memo.name)) throw new ImportError("来源分页返回重复记录，不能确认完整性。")
         memos.set(memo.name, memo)
@@ -290,13 +384,15 @@ export async function exportMemos({
       sourceSha256: valueHash(memo),
       metadataSha256: valueHash(fullMemo),
     })
-    manifest.counts[memo.rowStatus === "NORMAL" ? "normal" : "archived"]++
+    manifest.counts[memo.rowStatus === "ACTIVE" ? "normal" : "archived"]++
     if (
       memo.parent ||
       memo.parentId ||
       (memo.relations || []).some((r) => r.type === "COMMENT" && r.memo === memo.name)
     )
       manifest.counts.comments++
+    if (manifest.memos.length % 20 === 0 || manifest.memos.length === first.size)
+      onProgress({ phase: "memo-metadata", count: manifest.memos.length, total: first.size })
   }
   const ownedNames = new Set(first.keys())
   for (const resource of resources.values()) {
@@ -364,7 +460,7 @@ export async function exportMemos({
   return { directory, counts: manifest.counts, snapshotSha256: manifest.snapshotSha256 }
 }
 
-/** Construct API cards without changing any source Markdown or uploading raw source responses. */
+/** Preserve source Markdown and complete metadata for owner-only API access. */
 export async function readMemosExport(directory) {
   const manifest = JSON.parse(await fs.readFile(path.join(directory, "manifest.json"), "utf8"))
   if (manifest.version !== 1 || !manifest.complete || manifest.memosVersion !== MEMOS_VERSION)
@@ -403,7 +499,7 @@ export async function readMemosExport(directory) {
     )
       throw new ImportError("Memos 原文或元信息校验失败。")
     if (
-      !["NORMAL", "ARCHIVED"].includes(memo.rowStatus) ||
+      !["ACTIVE", "ARCHIVED"].includes(memo.rowStatus) ||
       !["PUBLIC", "PROTECTED", "PRIVATE"].includes(memo.visibility)
     )
       throw new ImportError("Memos 来源状态或可见性不正确。")
@@ -438,12 +534,13 @@ export async function readMemosExport(directory) {
       content: memo.content,
       created: validDate(memo.createTime),
       modified: validDate(memo.updateTime),
-      status: memo.rowStatus,
+      status: memo.rowStatus === "ACTIVE" ? "NORMAL" : "ARCHIVED",
       visibility: memo.visibility,
       tags: memo.tags?.length ? memo.tags : memo.property?.tags || [],
       pinned: Boolean(memo.pinned),
       attachments,
       relations: exported.relations,
+      raw: exported,
       source: {
         id: memo.name,
         origin: sourceOrigin,
@@ -482,9 +579,22 @@ export async function importMemosExport({
   if (!/^https?:$/.test(api.protocol) || api.username || api.password)
     throw new ImportError("目标 API 地址不正确。")
   const request = async (route, body) => {
-    let response
-    try {
-      response = await fetchImpl(new URL(route, api), {
+    const importing = ["memories/import", "memories/import/files"].includes(route)
+    const phase = importing
+      ? route.endsWith("/files")
+        ? "upload-file"
+        : "upload-cards"
+      : route.includes("/files/")
+        ? "verify-files"
+        : "verify-cards"
+    const { response, bytes } = await fetchWithRetry({
+      fetchImpl,
+      url: new URL(route, api),
+      retry: body == null || importing,
+      allow500: importing,
+      phase,
+      service: "记忆卡目标接口",
+      options: {
         method: body == null ? "GET" : "POST",
         redirect: "error",
         headers: {
@@ -494,13 +604,11 @@ export async function importMemosExport({
             : { "Content-Type": "application/json", "X-Howard-Sync-Key": syncKey }),
         },
         body: body == null ? undefined : JSON.stringify(body),
-        signal: AbortSignal.timeout(90000),
-      })
-    } catch {
-      throw new ImportError("记忆卡目标接口请求失败或超时。")
-    }
-    if (!response.ok) throw new ImportError(`记忆卡目标接口返回 HTTP ${response.status}。`)
-    return response
+      },
+    })
+    if (!response.ok)
+      throw new ImportError(`记忆卡目标接口返回 HTTP ${response.status}（${phase}）。`)
+    return new Response(bytes, { status: response.status, headers: response.headers })
   }
   for (const card of exported.cards) {
     if (
@@ -532,7 +640,11 @@ export async function importMemosExport({
       mimeType: resource.resource.type || "application/octet-stream",
       size: resource.size,
       sha256: resource.sha256,
-      source: { origin: exported.sourceOrigin, id: resource.sourceId },
+      source: {
+        origin: exported.sourceOrigin,
+        id: resource.sourceId,
+        memo: resource.resource.memo,
+      },
     }
     const total = Math.max(1, Math.ceil(bytes.length / FILE_CHUNK_BYTES))
     let complete = false
@@ -600,6 +712,11 @@ export async function importMemosExport({
     const response = await (await request(`memories/${id}`)).json()
     const actual = response.memory
     if (!actual || !response.owner) throw new ImportError("目标记忆卡身份验证不正确。")
+    if (
+      valueHash(actual.raw) !== valueHash(card.raw) ||
+      valueHash(actual.source) !== valueHash(card.source)
+    )
+      throw new ImportError("目标记忆卡原始元信息校验失败。")
     for (const field of ["content", "created", "modified", "status", "visibility", "pinned"])
       if (actual[field] !== card[field]) throw new ImportError("目标记忆卡原文或可见性校验失败。")
     if (
@@ -615,6 +732,8 @@ export async function importMemosExport({
     )
       throw new ImportError("目标记忆卡附件关联校验失败。")
     stats.verifiedCards++
+    if (stats.verifiedCards % 20 === 0 || stats.verifiedCards === importedIds.length)
+      onProgress({ phase: "verify-cards", count: stats.verifiedCards, total: importedIds.length })
   }
   for (const resource of exported.resources) {
     const bytes = Buffer.from(
@@ -623,6 +742,12 @@ export async function importMemosExport({
     if (bytes.length !== resource.size || digest(bytes) !== resource.sha256)
       throw new ImportError("目标附件下载哈希校验失败。")
     stats.verifiedFiles++
+    if (stats.verifiedFiles % 10 === 0 || stats.verifiedFiles === exported.resources.length)
+      onProgress({
+        phase: "verify-files",
+        count: stats.verifiedFiles,
+        total: exported.resources.length,
+      })
   }
   await writeJson(path.join(directory, "import-result.json"), {
     ...stats,

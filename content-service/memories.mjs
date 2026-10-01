@@ -460,6 +460,29 @@ async function importFile(db, body) {
     !/^[a-f0-9]{64}$/.test(file.sha256 || "")
   )
     throw new MemoryError("附件元信息不正确。")
+  const source = file.source ?? {}
+  if (!source || typeof source !== "object" || Array.isArray(source))
+    throw new MemoryError("附件来源元信息不正确。")
+  if (source.memo != null) {
+    if (
+      typeof source.memo !== "string" ||
+      !/^memos\/[a-zA-Z0-9_-]+$/.test(source.memo) ||
+      source.memo.length > 200
+    )
+      throw new MemoryError("附件所属记忆卡标识不正确。")
+    try {
+      const origin = new URL(source.origin)
+      if (
+        !/^https?:$/.test(origin.protocol) ||
+        origin.username ||
+        origin.password ||
+        origin.origin !== source.origin
+      )
+        throw new Error()
+    } catch {
+      throw new MemoryError("附件来源地址不正确。")
+    }
+  }
   if (
     !chunk ||
     !Number.isSafeInteger(chunk.index) ||
@@ -479,7 +502,23 @@ async function importFile(db, body) {
     (prior.sha256 !== file.sha256 || prior.size !== file.size || prior.total_chunks !== chunk.total)
   )
     throw new MemoryError("附件内容已有变化，请使用新的附件标识。", 409)
-  if (prior?.complete) return json({ id: file.id, complete: true, unchanged: true })
+  const previousSource = prior ? JSON.parse(prior.metadata) : {}
+  const metadata = JSON.stringify({
+    ...previousSource,
+    ...source,
+    // A retry from an older importer must not erase an already known owner.
+    ...(previousSource.memo && !source.memo
+      ? { memo: previousSource.memo, origin: previousSource.origin }
+      : {}),
+  })
+  if (prior?.complete) {
+    if (metadata !== prior.metadata)
+      await db
+        .prepare("UPDATE memory_files SET metadata=? WHERE id=?")
+        .bind(metadata, file.id)
+        .run()
+    return json({ id: file.id, complete: true, unchanged: true })
+  }
   await db.batch([
     db
       .prepare(
@@ -493,8 +532,11 @@ async function importFile(db, body) {
         file.sha256,
         chunk.total,
         Date.now(),
-        JSON.stringify(file.source ?? {}),
+        metadata,
       ),
+    ...(prior && metadata !== prior.metadata
+      ? [db.prepare("UPDATE memory_files SET metadata=? WHERE id=?").bind(metadata, file.id)]
+      : []),
     db
       .prepare(
         "INSERT OR REPLACE INTO memory_file_chunks(file_id,chunk_index,size,data) VALUES(?,?,?,?)",
@@ -525,7 +567,10 @@ async function fileRead(request, env, db, id, owner, extraHeaders) {
     .prepare(
       "SELECT * FROM memory_files WHERE id = ? AND complete = 1 AND EXISTS (SELECT 1 FROM memory_attachments a JOIN memory_cards m ON m.id = a.memory_id WHERE a.file_id = memory_files.id" +
         (owner ? "" : " AND m.visibility = 'PUBLIC' AND m.status = 'NORMAL'") +
-        ")",
+        ")" +
+        (owner
+          ? ""
+          : " AND (json_extract(memory_files.metadata,'$.memo') IS NULL OR EXISTS (SELECT 1 FROM memory_cards source_card WHERE source_card.source_origin=json_extract(memory_files.metadata,'$.origin') AND source_card.source_id=json_extract(memory_files.metadata,'$.memo') AND source_card.visibility='PUBLIC' AND source_card.status='NORMAL'))"),
     )
     .bind(id)
     .first()

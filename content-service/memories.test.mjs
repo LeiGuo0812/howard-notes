@@ -696,3 +696,80 @@ test("1,000-chunk attachments use bounded D1 reads, native streaming SHA validat
     416,
   )
 })
+
+test("a public cross-card reference cannot publish a file belonging to a private source memory", async () => {
+  const f = fixture()
+  await f.importFile({
+    ...f.file,
+    source: { origin: sourceOrigin, id: "resources/7", memo: "memos/1" },
+  })
+  const imported = await (
+    await f.importCards([
+      card("memos/1", { visibility: "PRIVATE", attachments: [{ fileId: f.file.id }] }),
+      card("memos/2", { visibility: "PUBLIC", attachments: [{ fileId: f.file.id }] }),
+    ])
+  ).json()
+  const id = imported.ids[0].id
+  const filePath = "memories/files/" + f.file.id
+  f.queries.length = 0
+  assert.equal((await f.call(filePath)).status, 404)
+  assert.equal(f.queries.length, 1, "visibility checks stay in the existing file SELECT")
+  assert.deepEqual(new Uint8Array(await (await f.owner(filePath)).arrayBuffer()), f.fileBytes)
+  let version = 1
+  const edit = async (fields, expected) => {
+    const saved = await f.owner("memories/" + id, { ...fields, version: version++ })
+    assert.equal(saved.status, 200)
+    assert.equal((await f.call(filePath)).status, expected)
+  }
+  await edit({ visibility: "PUBLIC" }, 200)
+  await edit({ visibility: "PROTECTED" }, 404)
+  await edit({ visibility: "PRIVATE" }, 404)
+  await edit({ visibility: "PUBLIC", status: "ARCHIVED" }, 404)
+  await edit({ status: "NORMAL" }, 200)
+  assert.equal((await f.owner(`memories/${id}/delete`, { version: version++ })).status, 200)
+  assert.equal((await f.call(filePath)).status, 404)
+  assert.equal((await f.owner(filePath)).status, 200)
+  assert.equal((await f.owner(`memories/${id}/restore`, { version: version++ })).status, 200)
+  assert.equal((await f.call(filePath)).status, 200)
+})
+
+test("missing or mismatched source owners fail closed and retried completed files retain upgraded provenance", async () => {
+  const f = fixture()
+  const filePath = "memories/files/" + f.file.id
+  await f.importFile({ ...f.file, source: { origin: sourceOrigin, id: "resources/7" } })
+  await f.importCards([card("memos/2", { attachments: [{ fileId: f.file.id }] })])
+  assert.equal(
+    (await f.call(filePath)).status,
+    200,
+    "files without a source owner retain ordinary public-reference behavior",
+  )
+  const protectedFile = {
+    ...f.file,
+    source: { origin: sourceOrigin, id: "resources/7", memo: "memos/1" },
+  }
+  await f.importFile(protectedFile)
+  assert.equal(
+    (await f.call(filePath)).status,
+    404,
+    "an owner not imported into the target cannot be inferred public",
+  )
+  assert.equal((await f.owner(filePath)).status, 200)
+  await f.importCards([card("memos/1", { visibility: "PUBLIC" })])
+  assert.equal((await f.call(filePath)).status, 200)
+  await f.importFile({
+    ...protectedFile,
+    source: { ...protectedFile.source, origin: "https://different-source.example" },
+  })
+  assert.equal((await f.call(filePath)).status, 404, "source IDs are scoped to their source origin")
+  await f.importFile({ ...f.file, source: { id: "resources/7" } })
+  assert.equal(
+    (await f.call(filePath)).status,
+    404,
+    "an older importer cannot erase a known source ownership guard",
+  )
+  const metadata = JSON.parse(
+    f.sqlite.prepare("SELECT metadata FROM memory_files WHERE id=?").get(f.file.id).metadata,
+  )
+  assert.equal(metadata.memo, "memos/1")
+  assert.equal(metadata.origin, "https://different-source.example")
+})

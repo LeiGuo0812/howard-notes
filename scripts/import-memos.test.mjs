@@ -18,7 +18,7 @@ const username = "Howard",
   cookie = "test-only-cookie"
 const user = { name: "users/7", username, role: "HOST" }
 const rawContent = "\uFEFF原文  \r\n#原始标签\r\n`code` 与 [链接](https://example.com)\r\n"
-const memo = (id, status = "NORMAL") => ({
+const memo = (id, status = "ACTIVE") => ({
   name: `memos/${id}`,
   uid: `uid-${id}`,
   creator: user.name,
@@ -42,6 +42,9 @@ function sourceMock({
   repeatToken = false,
   changedSecondPass = false,
   rejectLogin = false,
+  cookieTransport = "metadata",
+  expectedPassword = password,
+  failures = {},
 } = {}) {
   const normal = Array.from({ length: count }, (_, i) => memo(i + 1)),
     archived = [memo(501, "ARCHIVED"), memo(502, "ARCHIVED"), memo(503, "ARCHIVED")]
@@ -62,15 +65,41 @@ function sourceMock({
   }))
   const requests = [],
     passes = { NORMAL: 0, ARCHIVED: 0 }
+  const pendingFailures = new Map(
+    Object.entries(failures).map(([route, values]) => [route, [...values]]),
+  )
   const fetchImpl = async (input, options = {}) => {
     const url = new URL(input),
       headers = new Headers(options.headers)
     requests.push({ url, method: options.method || "GET", headers, body: options.body })
+    const failure = pendingFailures.get(url.pathname)?.shift()
+    if (failure instanceof Error) throw failure
+    if (typeof failure === "number")
+      return Response.json({ message: "never print " + expectedPassword }, { status: failure })
+    if (failure?.bodyError) {
+      const response = new Response("partial bytes")
+      response.arrayBuffer = async () => {
+        throw failure.bodyError
+      }
+      return response
+    }
     if (url.pathname === "/api/v1/auth/signin") {
-      assert.equal(JSON.parse(options.body).password, password)
-      if (rejectLogin) return Response.json({ message: "never print " + password }, { status: 400 })
+      // The v0.22.5 gateway calls req.ParseForm and ignores JSON credentials.
+      if (headers.get("Content-Type") !== "application/x-www-form-urlencoded")
+        return Response.json({ message: "unmatched email and password" }, { status: 400 })
+      assert.equal(options.method, "POST")
+      assert.equal(url.search, "", "credentials must stay out of request URLs")
+      const form = new URLSearchParams(options.body)
+      assert.equal(form.get("username"), username)
+      assert.equal(form.get("password"), expectedPassword)
+      assert.equal(form.get("neverExpire"), "false")
+      if (rejectLogin)
+        return Response.json({ message: "never print " + expectedPassword }, { status: 400 })
       return Response.json(user, {
-        headers: { "Set-Cookie": `memos.access-token=${cookie}; HttpOnly; Path=/` },
+        headers: {
+          [cookieTransport === "standard" ? "Set-Cookie" : "Grpc-Metadata-Set-Cookie"]:
+            `memos.access-token=${cookie}; Expires=Wed, 21 Oct 2037 07:28:00 GMT; HttpOnly; Path=/`,
+        },
       })
     }
     if (url.origin !== origin) {
@@ -84,7 +113,12 @@ function sourceMock({
       throw Error("unexpected external request")
     }
     assert.equal(headers.get("Cookie"), `memos.access-token=${cookie}`)
-    if (url.pathname === "/api/v1/auth/status") return Response.json(user)
+    if (url.pathname === "/api/v1/auth/status") {
+      assert.equal(options.method, "POST")
+      assert.equal(headers.get("Content-Type"), "application/json")
+      assert.deepEqual(JSON.parse(options.body), {})
+      return Response.json(user)
+    }
     if (url.pathname === "/api/v1/workspace/profile")
       return Response.json({ version: "0.22.5", owner: user.name })
     if (url.pathname === "/api/v1/memos") {
@@ -164,7 +198,7 @@ async function exportedFixture(t, options) {
   const result = await exportMemos({
     sourceOrigin: origin,
     username,
-    password,
+    password: options?.expectedPassword ?? password,
     outputDirectory: directory,
     fetchImpl: source.fetchImpl,
     onProgress: (value) => progress.push(value),
@@ -204,6 +238,8 @@ test("export exhausts NORMAL and ARCHIVED pagination including own comments, pre
   assert.equal(first.content, rawContent)
   assert.equal(first.visibility, "PRIVATE")
   assert.equal(first.modified, "2026-01-02T03:04:05.123Z")
+  assert.equal(first.status, "NORMAL")
+  assert.equal(first.raw.memo.rowStatus, "ACTIVE")
   assert.equal(exported.cards.find((card) => card.sourceId === "memos/2").visibility, "PROTECTED")
   assert.equal(exported.cards.find((card) => card.sourceId === "memos/501").status, "ARCHIVED")
   assert.equal(
@@ -213,6 +249,8 @@ test("export exhausts NORMAL and ARCHIVED pagination including own comments, pre
   const raw = JSON.parse(await fs.readFile(path.join(directory, exported.manifest.memos[0].file)))
   assert.equal(raw.comments.length, 3)
   assert.equal(raw.reactions.length, 1)
+  assert.deepEqual(first.raw, raw, "owner import retains full source metadata")
+  assert.equal(first.raw.comments[2].content, "另一位作者的评论")
   assert.deepEqual(
     await fs.readFile(path.join(directory, exported.manifest.memos[0].contentFile)),
     Buffer.from(rawContent),
@@ -229,6 +267,10 @@ test("export exhausts NORMAL and ARCHIVED pagination including own comments, pre
     assert.equal((await fs.stat(file)).mode & 0o777, 0o600)
   }
   assert.equal(JSON.stringify(progress).includes(rawContent), false)
+  assert.deepEqual(
+    progress.filter((value) => value.phase === "memo-metadata").map((value) => value.count),
+    [20, 40, 60, 80, 100, 120, 140, 146],
+  )
   assert.equal(source.requests.filter((r) => r.url.hostname === "storage.example").length, 1)
 })
 
@@ -248,6 +290,12 @@ test("import sends full hashed chunks before cards, batches at 100, verifies all
     else assert.equal(headers.get("X-Howard-Sync-Key"), null)
     if (url.pathname.endsWith("/import/files")) {
       assert.equal(cards.size, 0, "files must be imported before cards on initial run")
+      assert.equal(body.file.source.origin, origin)
+      assert.equal(
+        body.file.source.memo,
+        body.file.source.id === "resources/1" ? "memos/1" : "memos/501",
+        "original owning memo must reach the file permission boundary",
+      )
       let file = files.get(body.file.id)
       if (!file) files.set(body.file.id, (file = { metadata: body.file, chunks: new Map() }))
       const bytes = Buffer.from(body.chunk.data, "base64")
@@ -270,7 +318,13 @@ test("import sends full hashed chunks before cards, batches at 100, verifies all
       let imported = 0,
         unchanged = 0
       for (const card of body.memories) {
-        assert.equal(card.raw, undefined)
+        assert.equal(card.raw.memo.name, card.sourceId)
+        assert.equal(card.raw.memo.content, card.content)
+        if (card.sourceId === "memos/1") {
+          assert.equal(card.raw.comments.length, 3)
+          assert.equal(card.raw.reactions[0].reactionType, "👍")
+          assert.equal(card.raw.resources[0].name, "resources/1")
+        }
         const id = "memos-" + sha(origin + "\0" + card.sourceId).slice(0, 32)
         if (cards.has(id)) unchanged++
         else imported++
@@ -283,17 +337,27 @@ test("import sends full hashed chunks before cards, batches at 100, verifies all
       return new Response(files.get(url.pathname.split("/").pop()).bytes)
     return Response.json({ memory: cards.get(url.pathname.split("/").pop()), owner: true })
   }
+  const progress = []
   const first = await importMemosExport({
     directory,
     apiBase: "https://target.example/api/content",
     token: "test-github-token",
     syncKey: "test-sync-key",
     fetchImpl,
+    onProgress: (value) => progress.push(value),
   })
   assert.equal(first.imported, 146)
   assert.equal(first.verifiedCards, 146)
   assert.equal(first.files, 2)
   assert.equal(first.verifiedFiles, 2)
+  assert.deepEqual(
+    progress.filter((value) => value.phase === "verify-cards").map((value) => value.count),
+    [20, 40, 60, 80, 100, 120, 140, 146],
+  )
+  assert.deepEqual(
+    progress.filter((value) => value.phase === "verify-files").map((value) => value.count),
+    [2],
+  )
   assert.deepEqual(cardBatchSizes, [100, 46])
   assert.deepEqual(
     calls
@@ -319,6 +383,64 @@ test("import sends full hashed chunks before cards, batches at 100, verifies all
   assert.equal(repeated.imported, 0)
   assert.equal(repeated.unchanged, 146)
   assert.equal(cards.size, 146)
+  assert.equal(
+    [...cards.values()].find((card) => card.sourceId === "memos/1").raw.comments[2].creator,
+    "users/9",
+  )
+  for (const tamperedField of ["raw", "source"]) {
+    const alteredFetch = async (input, options) => {
+      const response = await retryFetch(input, options)
+      if (options.method !== "GET" || new URL(input).pathname.includes("/files/")) return response
+      const result = await response.json()
+      result.memory[tamperedField] = null
+      return Response.json(result)
+    }
+    await assert.rejects(
+      importMemosExport({
+        directory,
+        apiBase: "https://target.example/api/content",
+        token: "test-github-token",
+        syncKey: "test-sync-key",
+        fetchImpl: alteredFetch,
+      }),
+      /原始元信息校验失败/,
+    )
+  }
+})
+
+test("pinned gateway rejects JSON signin and accepts form credentials without URL exposure", async (t) => {
+  const source = sourceMock()
+  const response = await source.fetchImpl(new URL("/api/v1/auth/signin", origin), {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ username, password, neverExpire: false }),
+  })
+  assert.equal(response.status, 400)
+  const specialPassword = "  test-only +&=密码%?#  "
+  const {
+    directory,
+    source: encoded,
+    progress,
+  } = await exportedFixture(t, {
+    count: 5,
+    expectedPassword: specialPassword,
+  })
+  assert.ok(encoded.requests.every((request) => !request.url.href.includes(specialPassword)))
+  assert.equal(
+    encoded.requests.filter((request) => request.url.pathname.includes("signin")).length,
+    1,
+  )
+  for (const file of await allLocalFiles(directory))
+    assert.equal((await fs.readFile(file)).toString("utf8").includes(specialPassword), false)
+  assert.equal(JSON.stringify(progress).includes(specialPassword), false)
+})
+
+test("standard HTTP Set-Cookie also authenticates POST auth/status returning direct User", async (t) => {
+  const { source, result } = await exportedFixture(t, { count: 5, cookieTransport: "standard" })
+  assert.equal(result.counts.normal, 5)
+  const status = source.requests.find((request) => request.url.pathname === "/api/v1/auth/status")
+  assert.equal(status.method, "POST")
+  assert.equal(status.headers.get("Cookie"), `memos.access-token=${cookie}`)
 })
 
 test("repeated page tokens fail export and an incomplete dump cannot cause target writes", async (t) => {
@@ -404,4 +526,193 @@ test("a rejected login is attempted once and error messages do not expose the so
     (error) => error.message.includes("HTTP 400") && !error.message.includes(password),
   )
   assert.equal(source.requests.length, 1)
+})
+
+test("readonly source GETs retry transient HTTP/network/body failures and keep external cookies isolated", async (t) => {
+  const networkError = Object.assign(new TypeError("never print " + password), {
+    cause: { code: "ECONNRESET" },
+  })
+  const { source, result } = await exportedFixture(t, {
+    count: 5,
+    failures: {
+      "/api/v1/memos": [429, 503],
+      "/api/v1/memos/1/resources": [networkError],
+      [`/file/resources/1/${encodeURIComponent("资源 1.bin")}`]: [{ bodyError: networkError }],
+      "/full-file": [502, 504],
+    },
+  })
+  assert.equal(result.counts.normal, 5)
+  assert.equal(
+    source.requests.filter((request) => request.url.pathname === "/api/v1/memos").length,
+    6,
+  )
+  assert.equal(
+    source.requests.filter((request) => request.url.pathname === "/api/v1/memos/1/resources")
+      .length,
+    2,
+  )
+  const cdn = source.requests.filter((request) => request.url.hostname === "cdn.example")
+  assert.equal(cdn.length, 3)
+  assert.ok(cdn.every((request) => request.headers.get("Cookie") == null))
+  assert.equal(
+    source.requests.filter((request) => request.url.pathname === "/api/v1/auth/signin").length,
+    1,
+  )
+})
+
+test("retry is bounded to three GET attempts and final network errors expose only a safe phase/name/code", async (t) => {
+  const directory = await fs.mkdtemp(path.join(os.tmpdir(), "howard-memos-retry-"))
+  t.after(() => fs.rm(directory, { recursive: true, force: true }))
+  const error = Object.assign(
+    new TypeError(`secret ${password} https://private.example?q=${password}`),
+    { cause: { code: "ECONNRESET" } },
+  )
+  const source = sourceMock({ failures: { "/api/v1/memos": [error, error, error, error] } })
+  await assert.rejects(
+    exportMemos({
+      sourceOrigin: origin,
+      username,
+      password,
+      outputDirectory: directory,
+      fetchImpl: source.fetchImpl,
+    }),
+    (result) =>
+      /memo-pages; TypeError\/ECONNRESET/.test(result.message) &&
+      !result.message.includes(password) &&
+      !result.message.includes("private.example"),
+  )
+  assert.equal(
+    source.requests.filter((request) => request.url.pathname === "/api/v1/memos").length,
+    3,
+  )
+})
+
+test("signin and auth-status POSTs never retry, and source 400/401/403 responses never retry", async (t) => {
+  for (const [route, failure] of [
+    ["/api/v1/auth/signin", new TypeError("connection lost")],
+    ["/api/v1/auth/status", 503],
+    ["/api/v1/memos", 400],
+    ["/api/v1/memos", 401],
+    ["/api/v1/memos", 403],
+  ]) {
+    const directory = await fs.mkdtemp(path.join(os.tmpdir(), "howard-memos-noretry-"))
+    t.after(() => fs.rm(directory, { recursive: true, force: true }))
+    const source = sourceMock({ failures: { [route]: [failure, failure] } })
+    await assert.rejects(
+      exportMemos({
+        sourceOrigin: origin,
+        username,
+        password,
+        outputDirectory: directory,
+        fetchImpl: source.fetchImpl,
+      }),
+    )
+    assert.equal(source.requests.filter((request) => request.url.pathname === route).length, 1)
+  }
+})
+
+test("target idempotent import retries identical payloads after commit and verification GETs recover without duplicate data", async (t) => {
+  const { directory } = await exportedFixture(t, { count: 5 })
+  const files = new Map(),
+    cards = new Map(),
+    calls = []
+  let interruptedFile = false,
+    interruptedCards = false,
+    interruptedCardRead = false,
+    interruptedFileRead = false
+  const fetchImpl = async (input, options) => {
+    const url = new URL(input)
+    const body = options.body && JSON.parse(options.body)
+    calls.push({ route: url.pathname, body: options.body })
+    if (url.pathname.endsWith("/import/files")) {
+      let file = files.get(body.file.id)
+      if (!file) files.set(body.file.id, (file = { chunks: new Map() }))
+      file.chunks.set(body.chunk.index, Buffer.from(body.chunk.data, "base64"))
+      const complete = file.chunks.size === body.chunk.total
+      if (complete) {
+        file.bytes = Buffer.concat(
+          [...file.chunks].sort(([a], [b]) => a - b).map(([_, bytes]) => bytes),
+        )
+        assert.equal(sha(file.bytes), body.file.sha256)
+      }
+      if (!interruptedFile) {
+        interruptedFile = true
+        return Response.json({ message: "temporary internal response failure" }, { status: 500 })
+      }
+      return Response.json({ id: body.file.id, complete })
+    }
+    if (url.pathname.endsWith("/import")) {
+      const ids = []
+      let imported = 0,
+        unchanged = 0
+      for (const card of body.memories) {
+        const id = "memos-" + sha(origin + "\0" + card.sourceId).slice(0, 32)
+        if (cards.has(id)) unchanged++
+        else imported++
+        cards.set(id, { ...card, id })
+        ids.push({ sourceId: card.sourceId, id })
+      }
+      if (!interruptedCards) {
+        interruptedCards = true
+        throw new TypeError("connection failed after server committed")
+      }
+      return Response.json({ imported, unchanged, ids })
+    }
+    if (url.pathname.includes("/files/")) {
+      const response = new Response(files.get(url.pathname.split("/").pop()).bytes)
+      if (!interruptedFileRead) {
+        interruptedFileRead = true
+        response.arrayBuffer = async () => {
+          throw new TypeError("partial verification download")
+        }
+      }
+      return response
+    }
+    if (!interruptedCardRead) {
+      interruptedCardRead = true
+      return Response.json({ message: "temporary unavailable" }, { status: 503 })
+    }
+    return Response.json({ memory: cards.get(url.pathname.split("/").pop()), owner: true })
+  }
+  const result = await importMemosExport({
+    directory,
+    apiBase: "https://target.example/api/content",
+    token: "test-github-token",
+    syncKey: "test-sync-key",
+    fetchImpl,
+  })
+  assert.equal(cards.size, 8)
+  assert.equal(files.size, 2)
+  assert.equal(
+    [...files.values()].reduce((total, file) => total + file.chunks.size, 0),
+    3,
+  )
+  assert.equal(result.unchanged, 8)
+  assert.equal(result.verifiedCards, 8)
+  assert.equal(result.verifiedFiles, 2)
+  const cardWrites = calls.filter((call) => call.route.endsWith("/import"))
+  assert.equal(cardWrites.length, 2)
+  assert.equal(cardWrites[0].body, cardWrites[1].body)
+  const fileWrites = calls.filter((call) => call.route.endsWith("/import/files"))
+  assert.equal(fileWrites.length, 4)
+  assert.equal(fileWrites[0].body, fileWrites[1].body)
+})
+
+test("target authorization refusal is never retried even on idempotent import endpoints", async (t) => {
+  const { directory } = await exportedFixture(t, { count: 5 })
+  let calls = 0
+  await assert.rejects(
+    importMemosExport({
+      directory,
+      apiBase: "https://target.example/api/content",
+      token: "test-github-token",
+      syncKey: "test-sync-key",
+      fetchImpl: async () => {
+        calls++
+        return Response.json({ message: "private response body" }, { status: 403 })
+      },
+    }),
+    /HTTP 403.*upload-file/,
+  )
+  assert.equal(calls, 1)
 })
