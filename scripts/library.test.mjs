@@ -1,6 +1,10 @@
 import test from "node:test"
 import assert from "node:assert/strict"
-import { renderLibrary, splitNote, hash, extractNoteTags } from "./lib/library.mjs"
+import { renderLibrary, readLibrary, splitNote, hash, extractNoteTags } from "./lib/library.mjs"
+import fs from "node:fs/promises"
+import path from "node:path"
+import os from "node:os"
+import { trashRecordContent, TRASH_RETENTION_MS } from "../admin/trash.mjs"
 import { validateCatalog, mergeArticle } from "./lib/catalog.mjs"
 import { paginateItems, sampleItems } from "../quartz/components/scripts/browsing.ts"
 import { prepareArticleImages } from "../quartz/util/article-images.ts"
@@ -178,4 +182,62 @@ test("editing an article preserves unrelated remote additions", () => {
   const merged = mergeArticle({ version: 2, articles: [a, b] }, a, { ...a, published: false })
   assert.deepEqual(merged.articles[1], b)
   assert.equal(merged.articles[0].published, false)
+})
+
+test("library scanning excludes complete and malformed recycle archives from source maps and public export", async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "howard-public-library-"))
+  try {
+    const live = entry("live", { file: "notes/trash/legitimate.md" })
+    const archived = entry("deleted", { title: "ARCHIVED_PRIVATE_TITLE" })
+    const id = "11111111-2222-4333-8444-555555555555"
+    const deleted = Date.parse("2026-10-01T00:00:00.000Z")
+    const record = {
+      version: 1,
+      id,
+      articleId: archived.id,
+      title: archived.title,
+      published: true,
+      deletedAt: new Date(deleted).toISOString(),
+      expiresAt: new Date(deleted + TRASH_RETENTION_MS).toISOString(),
+      articles: [
+        {
+          article: archived,
+          sourcePath: `library/trash/${id}/sources/0.md`,
+          sha: "original",
+          mode: "100644",
+          index: 0,
+        },
+      ],
+    }
+    const files = new Map([
+      ["catalog.json", JSON.stringify({ version: 2, articles: [live] })],
+      [live.file, "public [[deleted|旧链接]]"],
+      [`trash/${id}/record.json`, trashRecordContent(record)],
+      [`trash/${id}/sources/0.md`, "\uFEFFARCHIVED_PRIVATE_BODY\r\n"],
+      ["trash/bad-record/record.json", "malformed archive must also stay excluded"],
+    ])
+    for (const [file, text] of files) {
+      await fs.mkdir(path.dirname(path.join(root, file)), { recursive: true })
+      await fs.writeFile(path.join(root, file), text)
+    }
+    const { catalog, sources } = await readLibrary(root)
+    assert.deepEqual([...sources.keys()], ["catalog.json", live.file])
+    assert.deepEqual(catalog.articles, [live])
+    const { output, records, warnings } = renderLibrary(catalog, sources)
+    assert.deepEqual([...output.keys()], ["notes/live.md"])
+    assert.deepEqual(
+      records.map((item) => item.id),
+      ["live"],
+    )
+    assert.equal(warnings.length, 1)
+    assert.ok([...output.values()].every((value) => !value.toString().includes("ARCHIVED_PRIVATE")))
+    assert.equal(
+      await fs.readFile(path.join(root, `trash/${id}/sources/0.md`), "utf8"),
+      "\uFEFFARCHIVED_PRIVATE_BODY\r\n",
+    )
+    await fs.writeFile(path.join(root, "unexpected.json"), "outside archive remains invalid")
+    await assert.rejects(readLibrary(root), /不支持的文库文件/)
+  } finally {
+    await fs.rm(root, { recursive: true, force: true })
+  }
 })

@@ -18,6 +18,7 @@ self.onmessage = async ({ data: { id, input } }) => {
       id,
       result: {
         chunks: publicationChunks(documents, changed, Math.min(730000, maxChunkBytes || 730000)),
+        pageHashes: Object.fromEntries(pages.map((page, i) => [page.path, hashes[i]])),
         contentIndex: projection.contentIndex,
         blogData: projection.blogData,
       },

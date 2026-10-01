@@ -3,6 +3,7 @@ import { hasSessionHint } from "./session.mjs"
 let runtimePromise
 let runtime
 let mounted = false
+let invocation = 0
 const INTENT_KEY = "howard-maintenance-return"
 
 function siteBase() {
@@ -42,15 +43,24 @@ async function loadRuntime() {
   }
   return runtimePromise
 }
-async function invoke(callback) {
-  notice("正在加载…")
+async function invoke(callback, control) {
+  const request = ++invocation
+  control?.setAttribute("aria-busy", "true")
+  if (!runtime) notice("正在打开维护窗口…")
   try {
     const controller = await loadRuntime()
-    notice("")
+    if (request === invocation) notice("")
     await callback(controller)
   } catch (error) {
-    notice(error.message || "维护操作失败，请重试。")
+    if (request === invocation) notice(error.message || "维护操作失败，请重试。")
+  } finally {
+    control?.removeAttribute("aria-busy")
   }
+}
+function warmRuntime(event) {
+  if (runtimePromise || navigator.connection?.saveData) return
+  const target = event.target.closest?.("[data-maintenance-login],[data-maintenance-action]")
+  if (target) void loadRuntime().catch(() => {})
 }
 function hasReturn() {
   if (new URL(location.href).searchParams.has("login")) return true
@@ -71,8 +81,15 @@ export function setupMaintenance() {
       if (!target || event.ctrlKey || event.metaKey || event.shiftKey || event.altKey) return
       event.preventDefault()
       const action = target.dataset.maintenanceAction
-      void invoke((controller) => (action ? controller.perform(action) : controller.login()))
+      void invoke(
+        (controller) => (action ? controller.perform(action) : controller.login()),
+        target,
+      )
     })
+    // Pointer intent and keyboard focus warm the shared editor before the click;
+    // credentials stay on demand and data-saving browsers keep the lazy path.
+    document.addEventListener("pointerover", warmRuntime, { passive: true })
+    document.addEventListener("focusin", warmRuntime)
     document.addEventListener("prenav", () => runtime?.beforeNavigation())
     document.addEventListener("nav", () => runtime?.afterNavigation())
   }

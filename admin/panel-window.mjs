@@ -10,12 +10,20 @@ export function constrainWindow(position, size, viewport) {
   }
 }
 
+export function centerWindow(size, viewport) {
+  return constrainWindow(
+    { x: (viewport.width - size.width) / 2, y: (viewport.height - size.height) / 2 },
+    size,
+    viewport,
+  )
+}
+
 const maximizeIcon =
   '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 3H3v5m13-5h5v5M3 16v5h5m13-5v5h-5"/></svg>'
 const restoreIcon =
   '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 8h5V3m13 5h-5V3M8 21v-5H3m13 5v-5h5"/></svg>'
 
-export function createPanelWindow({ host, heading, caption, toggle, onChange, getTop }) {
+export function createPanelWindow({ host, heading, caption, toggle, onChange }) {
   let fullscreen = false
   let inline = false
   let position = null
@@ -38,8 +46,7 @@ export function createPanelWindow({ host, heading, caption, toggle, onChange, ge
       heading.releasePointerCapture(pointer)
   }
 
-  function moveTo(x, y) {
-    const rect = host.getBoundingClientRect()
+  function moveTo(x, y, rect = host.getBoundingClientRect()) {
     position = constrainWindow({ x, y }, rect, viewport())
     host.style.setProperty("--maintenance-window-x", `${position.x}px`)
     host.style.setProperty("--maintenance-window-y", `${position.y}px`)
@@ -141,7 +148,6 @@ export function createPanelWindow({ host, heading, caption, toggle, onChange, ge
 
   function onResize() {
     finishDrag()
-    getTop()
     updateHeading()
     queueClamp()
   }
@@ -161,6 +167,21 @@ export function createPanelWindow({ host, heading, caption, toggle, onChange, ge
   return {
     isFullscreen: () => fullscreen,
     restore: () => setFullscreen(false),
+    center() {
+      finishDrag()
+      fullscreen = false
+      position = null
+      host.classList.remove("is-fullscreen", "is-floating")
+      host.style.removeProperty("--maintenance-window-x")
+      host.style.removeProperty("--maintenance-window-y")
+      updateHeading()
+      onChange()
+      if (canMove() && host.isConnected && !host.hidden) {
+        const rect = host.getBoundingClientRect()
+        const centered = centerWindow(rect, viewport())
+        moveTo(centered.x, centered.y, rect)
+      }
+    },
     detach: finishDrag,
     sync(isInline) {
       inline = !!isInline

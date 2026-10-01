@@ -14,30 +14,36 @@ export function createPublicationWorker(siteBase) {
     }
     pending.clear()
   }
+  function start() {
+    if (worker) return
+    worker = new Worker(new URL("maintenance-assets/publication-worker.js", siteBase), {
+      type: "module",
+      name: "howard-publication",
+    })
+    worker.onmessage = ({ data }) => {
+      const request = pending.get(data.id)
+      if (!request) return
+      clearTimeout(request.timer)
+      pending.delete(data.id)
+      if (data.error) request.reject(new Error(data.error))
+      else request.resolve(data.result)
+      if (!pending.size) idleTimer = setTimeout(() => close(), 60000)
+    }
+    worker.onerror = (event) =>
+      close(new Error(`后台渲染无法启动：${event.message || "请刷新后重试同步。"}`))
+    idleTimer = setTimeout(() => close(), 60000)
+  }
   return {
+    // Load the lazy parser/render bundle while canonical Git/D1 checks are in flight.
+    // Failure is retried by preparePublication and must not prevent an already-live acknowledgement.
+    warm() {
+      try {
+        start()
+      } catch {}
+    },
     preparePublication(input) {
+      start()
       clearTimeout(idleTimer)
-      if (!worker) {
-        worker = new Worker(new URL("maintenance-assets/publication-worker.js", siteBase), {
-          type: "module",
-          name: "howard-publication",
-        })
-        worker.onmessage = ({ data }) => {
-          const request = pending.get(data.id)
-          if (!request) return
-          clearTimeout(request.timer)
-          pending.delete(data.id)
-          if (data.error) request.reject(new Error(data.error))
-          else request.resolve(data.result)
-          if (!pending.size)
-            idleTimer = setTimeout(() => {
-              worker?.terminate()
-              worker = null
-            }, 60000)
-        }
-        worker.onerror = (event) =>
-          close(new Error(`后台渲染无法启动：${event.message || "请刷新后重试同步。"}`))
-      }
       return new Promise((resolve, reject) => {
         const id = ++sequence
         const timer = setTimeout(() => close(new Error("后台准备超时，请重试同步。")), 120000)
@@ -45,9 +51,7 @@ export function createPublicationWorker(siteBase) {
         try {
           worker.postMessage({ id, input })
         } catch (error) {
-          clearTimeout(timer)
-          pending.delete(id)
-          reject(error)
+          close(error)
         }
       })
     },

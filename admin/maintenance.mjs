@@ -63,6 +63,7 @@ export async function createMaintenance({ siteBase, version }) {
   for (const [action, label] of [
     ["new", "新建"],
     ["drafts", "草稿箱"],
+    ["trash", "回收站"],
     ["articles", "文章管理"],
     ["settings", "页面设置"],
     ["reconnect", "重新登录"],
@@ -103,17 +104,70 @@ export async function createMaintenance({ siteBase, version }) {
   window.addEventListener("resize", fitMenu)
   window.visualViewport?.addEventListener("resize", fitMenu)
   const deployment = document.createElement("div")
-  deployment.className = "maintenance-deployment"
+  deployment.className = "maintenance-progress"
   deployment.hidden = true
   deployment.setAttribute("role", "status")
-  heading.after(deployment)
+  deployment.setAttribute("aria-live", "polite")
   let account = null,
     sessionDeadline = 0,
     mode = "panel",
     activeAction = "articles",
     visible = false,
     authenticating = false,
-    stopDeployment = () => {}
+    stopDeployment = () => {},
+    noticeTimer,
+    pendingSynchronization = null
+  const operationLabels = {
+    article: "正在发布文章…",
+    draft: "正在保存草稿…",
+    delete: "正在移入回收站…",
+    unpublish: "正在撤下文章…",
+    settings: "正在保存页面设置…",
+    restore: "正在恢复文章…",
+    purge: "正在清理回收站…",
+  }
+  function showProgress(text, state = "working", { retry = false, reopen = true } = {}) {
+    clearTimeout(noticeTimer)
+    if (state === "pending") pendingSynchronization = { text, retry, reopen }
+    deployment.dataset.state = state
+    deployment.hidden = false
+    deployment.replaceChildren(document.createTextNode(text))
+    function appendRetry(target) {
+      const button = document.createElement("button")
+      button.type = "button"
+      button.textContent = "重试同步"
+      button.title = "将 GitHub 中的最新内容同步到网站"
+      button.onclick = () => {
+        if (workspace.isBusy()) return showCurrentWindow()
+        showProgress("正在重新同步网站…")
+        void workspace.retrySynchronization()
+      }
+      target.append(button)
+    }
+    if (retry) appendRetry(deployment)
+    if (reopen) {
+      const button = document.createElement("button")
+      button.type = "button"
+      button.textContent = state === "error" ? "重新打开" : "查看进度"
+      button.title = "打开当前维护窗口"
+      button.onclick = showCurrentWindow
+      deployment.append(button)
+    }
+    if (pendingSynchronization && state !== "pending") {
+      const pending = document.createElement("div")
+      pending.className = "maintenance-pending-sync"
+      pending.append(document.createTextNode(pendingSynchronization.text))
+      appendRetry(pending)
+      deployment.append(pending)
+    }
+    document.body.append(deployment)
+    if (state === "done")
+      noticeTimer = setTimeout(() => {
+        if (pendingSynchronization)
+          showProgress(pendingSynchronization.text, "pending", pendingSynchronization)
+        else deployment.hidden = true
+      }, 6000)
+  }
   const removedArticles = new Set()
   const workspace = createWorkspace(container, {
     siteBase: base.href,
@@ -123,14 +177,44 @@ export async function createMaintenance({ siteBase, version }) {
         ? performance.now() + Math.max(0, session.expiresAt - session.serverTime)
         : 0
       if (!account) {
+        pendingSynchronization = null
+        clearTimeout(noticeTimer)
         hide()
         stopDeployment()
         deployment.hidden = true
+        deployment.remove()
       }
       updateControls()
     },
     onReauthenticate: () => (account ? reconnect() : login()),
     onClose: hide,
+    onStarted(result) {
+      if (!result.completion) showProgress(result.label)
+    },
+    onProgress(text) {
+      if (deployment.dataset.state === "working") showProgress(text)
+    },
+    onSettled(result) {
+      if (!result.completion && !result.failed && deployment.dataset.state === "working")
+        showProgress("操作已完成。", "done", { reopen: false })
+    },
+    onAccepted(result) {
+      stopDeployment()
+      hide()
+      showProgress(
+        result?.scope === "local"
+          ? "正在删除未保存的文章…"
+          : operationLabels[result?.kind] || "正在处理…",
+      )
+    },
+    onActionError(result) {
+      stopDeployment()
+      showProgress(result.error || "操作未完成，请重新打开窗口重试。", "error")
+    },
+    onCompleted(result) {
+      if (result?.scope === "local")
+        showProgress("已移入本地回收站，保留 30 天。", "done", { reopen: false })
+    },
     onSaved(result) {
       stopDeployment()
       if (result?.kind === "delete") {
@@ -141,8 +225,8 @@ export async function createMaintenance({ siteBase, version }) {
         }
         updateControls()
         attach()
-      } else if (result?.kind === "article") {
-        removedArticles.delete(result.articleId)
+      } else if (["article", "restore"].includes(result?.kind)) {
+        for (const id of result.restoredIds || [result.articleId]) removedArticles.delete(id)
         updateControls()
       }
       if (result.sync?.status === "synchronized" && Array.isArray(result.sync.publishedIds)) {
@@ -150,32 +234,34 @@ export async function createMaintenance({ siteBase, version }) {
         for (const id of removedArticles) if (published.has(id)) removedArticles.delete(id)
         updateControls()
       }
-      deployment.hidden = true
       const publicOperation =
-        ["article", "settings", "unpublish", "delete"].includes(result?.kind) &&
-        !(result.kind === "delete" && result.scope === "draft")
+        ["article", "settings", "unpublish", "delete", "restore"].includes(result?.kind) &&
+        !(result.scope === "draft" || result.scope === "local")
       if (publicOperation && result.sync?.status !== "static") {
-        deployment.hidden = false
-        deployment.replaceChildren(
-          document.createTextNode(
-            result.sync?.status === "synchronized"
-              ? "已上线。"
-              : result.sync?.status === "pending"
-                ? "已保存到 GitHub；线上同步待重试。 "
-                : "已保存到 GitHub，正在同步网站…",
-          ),
+        const state = result.sync?.status
+        if (state === "synchronized") pendingSynchronization = null
+        showProgress(
+          state === "synchronized"
+            ? "已上线。"
+            : state === "pending"
+              ? `已保存到 GitHub；线上同步待重试${result.sync.error ? `：${result.sync.error}` : "。"}`
+              : "已保存到 GitHub，正在同步网站…",
+          state === "synchronized" ? "done" : state === "pending" ? "pending" : "working",
+          { retry: state === "pending", reopen: state !== "synchronized" },
         )
-        if (result.sync?.status === "pending") {
-          const retry = document.createElement("button")
-          retry.type = "button"
-          retry.textContent = "重试同步"
-          retry.title = "将 GitHub 中的最新内容同步到网站"
-          retry.onclick = () => workspace.retrySynchronization()
-          deployment.append(retry)
+      } else if (!publicOperation) {
+        const completed = {
+          draft: "已存入草稿箱。",
+          delete: "已移入回收站，保留 30 天。",
+          restore: "已恢复文章。",
+          purge: "已清理回收站。",
         }
+        showProgress(completed[result.kind] || "已保存。", "done", { reopen: false })
       }
-      if (publicOperation && result.commit && result.sync?.status === "static")
+      if (publicOperation && result.commit && result.sync?.status === "static") {
+        document.body.append(deployment)
         stopDeployment = trackDeployment(deployment, result.commit)
+      }
     },
   })
   const windowState = createPanelWindow({
@@ -184,7 +270,6 @@ export async function createMaintenance({ siteBase, version }) {
     caption,
     toggle: maximize,
     onChange: attach,
-    getTop: updatePanelTop,
   })
   mountFrostedSpotlight(container)
   const theme = () =>
@@ -223,18 +308,6 @@ export async function createMaintenance({ siteBase, version }) {
     const slot = document.querySelector("[data-maintenance-slot]")
     if (slot) slot.hidden = true
   }
-  function updatePanelTop() {
-    const toolbar = document.querySelector(".maintenance-toolbar")
-    const toolbarBottom =
-      toolbar && !toolbar.classList.contains("is-reading")
-        ? toolbar.getBoundingClientRect().bottom
-        : 0
-    const headerBottom =
-      document.querySelector(".blog-header")?.getBoundingClientRect().bottom || 96
-    const top = Math.max(toolbarBottom, headerBottom) + 12
-    host.style.setProperty("--maintenance-panel-top", `${top}px`)
-    return top
-  }
   function attach() {
     resetReading()
     if (!account || !visible) {
@@ -250,11 +323,11 @@ export async function createMaintenance({ siteBase, version }) {
     host.classList.toggle("is-panel", !inline)
     host.dataset.mode = inline ? "inline" : "panel"
     host.hidden = false
-    updatePanelTop()
     const captions = {
       edit: "编辑文章",
       new: "新建文章",
       drafts: "草稿箱",
+      trash: "回收站",
       articles: "文章管理",
       settings: "页面设置",
     }
@@ -274,6 +347,17 @@ export async function createMaintenance({ siteBase, version }) {
     resetReading()
     host.hidden = true
     host.remove()
+  }
+  function showCurrentWindow() {
+    const opening = !visible || host.classList.contains("is-inline")
+    visible = true
+    if (opening && mode !== "inline") windowState.center()
+    else attach()
+  }
+  function showPanel(action) {
+    mode = "panel"
+    activeAction = action
+    showCurrentWindow()
   }
   minimize.onclick = hide
   document.addEventListener("keydown", (event) => {
@@ -373,40 +457,35 @@ export async function createMaintenance({ siteBase, version }) {
       () => {
         if (!workspace.newArticle()) return
         defaultMobileView()
-        mode = "panel"
-        activeAction = "new"
-        visible = true
-        attach()
+        showPanel("new")
       },
     ],
     [
       "articles",
       () => {
-        workspace.showMode("articles")
-        mode = "panel"
-        activeAction = "articles"
-        visible = true
-        attach()
+        if (workspace.showMode("articles") === false) return
+        showPanel("articles")
       },
     ],
     [
       "drafts",
       () => {
-        workspace.showMode("drafts")
-        mode = "panel"
-        activeAction = "drafts"
-        visible = true
-        attach()
+        if (workspace.showMode("drafts") === false) return
+        showPanel("drafts")
+      },
+    ],
+    [
+      "trash",
+      () => {
+        if (workspace.showMode("trash") === false) return
+        showPanel("trash")
       },
     ],
     [
       "settings",
       () => {
-        workspace.showMode("settings")
-        mode = "panel"
-        activeAction = "settings"
-        visible = true
-        attach()
+        if (workspace.showMode("settings") === false) return
+        showPanel("settings")
       },
     ],
     ["reconnect", reconnect],
@@ -418,7 +497,11 @@ export async function createMaintenance({ siteBase, version }) {
   }
   async function perform(action) {
     if (!account) return login()
-    if (workspace.isBusy()) return
+    if (workspace.isBusy()) {
+      showCurrentWindow()
+      showProgress("操作正在后台进行，可以收起窗口继续阅读。")
+      return
+    }
     await commands.get(action)?.()
   }
   menuItems.addEventListener("click", (event) => {
@@ -433,7 +516,9 @@ export async function createMaintenance({ siteBase, version }) {
     })
   })
   container.addEventListener("click", (event) => {
-    const control = event.target.closest("#tab-articles,#tab-drafts,#tab-settings,#new-article")
+    const control = event.target.closest(
+      "#tab-articles,#tab-drafts,#tab-trash,#tab-settings,#new-article",
+    )
     if (!control) return
     queueMicrotask(() => {
       if (control.id === "new-article" && !container.querySelector("#editor-form").hidden)
@@ -453,11 +538,13 @@ export async function createMaintenance({ siteBase, version }) {
       // micromorph replaces body children. Keep the same ShadowRoot, editor and listeners alive.
       windowState.detach()
       host.remove()
+      deployment.remove()
       resetReading()
     },
     afterNavigation() {
       updateControls()
       attach()
+      if (!deployment.hidden) document.body.append(deployment)
     },
     registerCommand(name, callback) {
       if (commands.has(name)) throw new Error(`维护操作已存在：${name}`)

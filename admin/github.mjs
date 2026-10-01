@@ -8,6 +8,15 @@ import {
   equal,
 } from "../scripts/lib/catalog.mjs"
 import { SITE_PATH, validateSite } from "../scripts/lib/site-settings.mjs"
+import {
+  TRASH_PREFIX,
+  TRASH_RETENTION_MS,
+  trashRecordPath,
+  trashRecordContent,
+  validateTrashRecord,
+  trashExpired,
+  trashPaths,
+} from "./trash.mjs"
 
 export function decodeBase64(base64) {
   return new TextDecoder("utf-8", { ignoreBOM: true }).decode(
@@ -52,9 +61,13 @@ export async function committedSnapshot(latest, changes) {
 }
 
 export class GitHubLibrary {
-  constructor(token, fetcher = (...args) => globalThis.fetch(...args)) {
+  constructor(token, fetcher = (...args) => globalThis.fetch(...args), options = {}) {
     this.token = token
     this.fetcher = fetcher
+    this.now = options.now || Date.now
+    this.trashId = options.trashId || (() => crypto.randomUUID())
+    this.trashCache = new Map()
+    this.textCache = new Map()
   }
   async request(endpoint, method = "GET", body) {
     const response = await this.fetcher(`https://api.github.com${endpoint}`, {
@@ -88,8 +101,10 @@ export class GitHubLibrary {
     return this.request(`/repos/${REPOSITORY}/${endpoint}`, method, body)
   }
   async authenticate() {
-    const user = await this.request("/user")
-    const repository = await this.request(`/repos/${REPOSITORY}`)
+    const [user, repository] = await Promise.all([
+      this.request("/user"),
+      this.request(`/repos/${REPOSITORY}`),
+    ])
     if (!repository.permissions?.push) throw new Error("当前账号没有此仓库的写入权限。")
     return user.login
   }
@@ -103,12 +118,14 @@ export class GitHubLibrary {
     )
     const catalogEntry = entries.get(CATALOG_PATH)
     if (!catalogEntry) throw new Error("尚未找到发布目录，请等待网站升级部署完成。")
-    const blob = await this.repo(`git/blobs/${catalogEntry.sha}`)
-    const catalog = validateCatalog(JSON.parse(decodeBase64(blob.content)))
     const siteEntry = entries.get(SITE_PATH)
     if (!siteEntry) throw new Error("页面设置尚未部署，请稍后刷新。")
-    const siteBlob = await this.repo(`git/blobs/${siteEntry.sha}`)
-    const settings = validateSite(JSON.parse(decodeBase64(siteBlob.content)))
+    const [catalogText, siteText] = await Promise.all([
+      this.blobText(catalogEntry.sha),
+      this.blobText(siteEntry.sha),
+    ])
+    const catalog = validateCatalog(JSON.parse(catalogText))
+    const settings = validateSite(JSON.parse(siteText))
     return {
       commit: ref.object.sha,
       tree: head.tree.sha,
@@ -123,8 +140,26 @@ export class GitHubLibrary {
     if (!entry) throw new Error("原文文件不存在，请重新载入目录。")
     if (snapshot.texts?.has(`library/${article.file}`))
       return { text: snapshot.texts.get(`library/${article.file}`), sha: entry.sha }
-    const blob = await this.repo(`git/blobs/${entry.sha}`)
-    return { text: decodeBase64(blob.content), sha: entry.sha }
+    return { text: await this.blobText(entry.sha), sha: entry.sha }
+  }
+  async blobText(sha) {
+    // Blob IDs are immutable. Cache/coalesce only those reads; branch/ref/tree reads always
+    // remain fresh so save, delete and restore retain their existing conflict detection.
+    let pending = this.textCache.get(sha)
+    if (pending) {
+      this.textCache.delete(sha)
+      this.textCache.set(sha, pending)
+    } else {
+      pending = this.repo(`git/blobs/${sha}`).then((blob) => decodeBase64(blob.content))
+      this.textCache.set(sha, pending)
+      if (this.textCache.size > 64) this.textCache.delete(this.textCache.keys().next().value)
+    }
+    try {
+      return await pending
+    } catch (error) {
+      if (this.textCache.get(sha) === pending) this.textCache.delete(sha)
+      throw error
+    }
   }
   async save({ opened, openedSha, edited, text, images = [] }) {
     const latest = await this.snapshot()
@@ -283,9 +318,183 @@ export class GitHubLibrary {
     )
       throw new Error("这篇文章的修改草稿已在另一端更改，请重新载入；文章和草稿均未删除。")
     const removed = [opened, ...openedDrafts.map((draft) => draft.article)]
+    return this.archiveArticles(latest, removed, `Delete article: ${opened.title}`)
+  }
+  async removeDraft({ opened, openedSha, openedDrafts = [] }) {
+    if (!opened || opened.published !== false) throw new Error("只能删除未发布的草稿。")
+    if (
+      typeof openedSha !== "string" ||
+      !openedSha ||
+      !Array.isArray(openedDrafts) ||
+      openedDrafts.some(
+        (draft) =>
+          draft?.article?.draftOf !== opened.id ||
+          draft.article.published !== false ||
+          typeof draft.sha !== "string" ||
+          !draft.sha,
+      )
+    )
+      throw new Error("草稿删除版本信息不完整，请重新载入。")
+    validateCatalog({
+      version: 2,
+      articles: [opened, ...openedDrafts.map((draft) => draft.article)],
+    })
+    const latest = await this.snapshot()
+    validateCatalog(latest.catalog)
+    const current = latest.catalog.articles.find((article) => article.id === opened.id)
+    if (!equal(current, opened) || latest.entries.get(`library/${opened.file}`)?.sha !== openedSha)
+      throw new Error("草稿已在另一端更改，请重新载入；本次没有删除远端内容。")
+    const drafts = latest.catalog.articles.filter((article) => article.draftOf === opened.id)
+    if (
+      drafts.length !== openedDrafts.length ||
+      drafts.some((draft) => {
+        const baseline = openedDrafts.find((item) => item.article.id === draft.id)
+        return (
+          !baseline ||
+          !equal(draft, baseline.article) ||
+          latest.entries.get(`library/${draft.file}`)?.sha !== baseline.sha
+        )
+      })
+    )
+      throw new Error("这篇文章的修改草稿已在另一端更改，请重新载入；文章和草稿均未删除。")
+    return this.archiveArticles(
+      latest,
+      [opened, ...openedDrafts.map((draft) => draft.article)],
+      `Delete draft: ${opened.title}`,
+    )
+  }
+  async archiveArticles(latest, removed, message) {
+    const deleted = this.now()
+    const id = this.trashId()
+    const path = trashRecordPath(id)
+    if ([...latest.entries.keys()].some((entry) => entry.startsWith(`${TRASH_PREFIX}${id}/`)))
+      throw new Error("回收站记录已存在，请重试。")
+    const record = validateTrashRecord({
+      version: 1,
+      id,
+      articleId: removed[0].id,
+      title: removed[0].title,
+      published: removed.some((article) => article.published),
+      deletedAt: new Date(deleted).toISOString(),
+      expiresAt: new Date(deleted + TRASH_RETENTION_MS).toISOString(),
+      articles: removed.map((article, position) => {
+        const entry = latest.entries.get(`library/${article.file}`)
+        return {
+          article: structuredClone(article),
+          sourcePath: `${TRASH_PREFIX}${id}/sources/${position}.md`,
+          sha: entry.sha,
+          mode: entry.mode || "100644",
+          index: latest.catalog.articles.findIndex((item) => item.id === article.id),
+        }
+      }),
+    })
     const removedIds = removed.map((article) => article.id)
     const catalog = structuredClone(latest.catalog)
     catalog.articles = catalog.articles.filter((article) => !removedIds.includes(article.id))
+    const changes = [
+      {
+        path: CATALOG_PATH,
+        mode: "100644",
+        type: "blob",
+        content: JSON.stringify(catalog, null, 2) + "\n",
+      },
+      ...removed.map((article) => ({
+        path: `library/${article.file}`,
+        mode: latest.entries.get(`library/${article.file}`).mode || "100644",
+        type: "blob",
+        sha: null,
+      })),
+      { path, mode: "100644", type: "blob", content: trashRecordContent(record) },
+      ...record.articles.map(({ sourcePath, sha, mode }) => ({
+        path: sourcePath,
+        mode,
+        type: "blob",
+        sha,
+      })),
+    ]
+    const result = await this.commit(latest, changes, message)
+    return {
+      ...result,
+      articleId: record.articleId,
+      removedIds,
+      published: record.published,
+      scope: record.published ? "published" : "draft",
+      trashId: id,
+      record: { ...record, path, sha: result.snapshot.entries.get(path).sha },
+    }
+  }
+  async readTrashRecord(path, snapshot) {
+    const entry = snapshot.entries.get(path)
+    if (!entry) throw new Error("回收站记录已在另一端移除，请刷新列表。")
+    let stored = this.trashCache.get(entry.sha)
+    if (!stored) {
+      const text = snapshot.texts?.has(path)
+        ? snapshot.texts.get(path)
+        : decodeBase64((await this.repo(`git/blobs/${entry.sha}`)).content)
+      stored = validateTrashRecord(JSON.parse(text))
+      this.trashCache.set(entry.sha, stored)
+    }
+    if (trashRecordPath(stored.id) !== path) throw new Error("回收站记录路径不正确。")
+    return { ...structuredClone(stored), path, sha: entry.sha }
+  }
+  async listTrash(snapshot) {
+    snapshot ||= await this.snapshot()
+    const paths = [...snapshot.entries.keys()].filter((path) =>
+      /^library\/trash\/[a-f0-9-]{36}\/record\.json$/.test(path),
+    )
+    const records = []
+    // Limit parallel GitHub reads. Cached manifests need no further repository requests.
+    for (let start = 0; start < paths.length; start += 6)
+      records.push(
+        ...(await Promise.all(
+          paths.slice(start, start + 6).map((path) => this.readTrashRecord(path, snapshot)),
+        )),
+      )
+    return records
+      .filter((record) => !trashExpired(record, this.now()))
+      .sort((a, b) => b.deletedAt.localeCompare(a.deletedAt))
+  }
+  async checkedTrash(record, latest) {
+    const path = trashRecordPath(validateTrashRecord(record).id)
+    if ((record.path && record.path !== path) || typeof record.sha !== "string" || !record.sha)
+      throw new Error("回收站版本信息不完整，请重新载入。")
+    if (latest.entries.get(path)?.sha !== record.sha)
+      throw new Error("回收站记录已在另一端更改，请重新载入；本次未覆盖任何内容。")
+    const current = await this.readTrashRecord(path, latest)
+    if (current.sha !== record.sha || trashRecordContent(current) !== trashRecordContent(record))
+      throw new Error("回收站记录已在另一端更改，请重新载入；本次未覆盖任何内容。")
+    for (const item of current.articles) {
+      const entry = latest.entries.get(item.sourcePath)
+      if (entry?.sha !== item.sha || (entry.mode && entry.mode !== item.mode))
+        throw new Error("回收站原文已在另一端更改，请重新载入。")
+    }
+    return current
+  }
+  async restoreTrash(record, _snapshot) {
+    validateTrashRecord(record)
+    const latest = await this.snapshot()
+    const current = await this.checkedTrash(record, latest)
+    if (trashExpired(current, this.now())) throw new Error("这篇文章已超过 30 天保留期，不能恢复。")
+    validateCatalog(latest.catalog)
+    const catalog = structuredClone(latest.catalog)
+    for (const { article } of current.articles) {
+      if (
+        catalog.articles.some((other) => other.id === article.id || other.file === article.file) ||
+        latest.entries.has(`library/${article.file}`)
+      )
+        throw new Error("同网址或原路径已有新文章，不能覆盖；请先处理冲突后再恢复。")
+      if (
+        article.draftOf &&
+        !current.articles.some((other) => other.article.id === article.draftOf) &&
+        !catalog.articles.some((other) => other.id === article.draftOf)
+      )
+        throw new Error("修改草稿的原文章尚未恢复，请先恢复原文章。")
+      if (article.draftOf && catalog.articles.some((other) => other.draftOf === article.draftOf))
+        throw new Error("这篇文章已有修改草稿，请先处理现有草稿后再恢复。")
+    }
+    for (const { article, index } of [...current.articles].sort((a, b) => a.index - b.index))
+      catalog.articles.splice(Math.min(index, catalog.articles.length), 0, article)
+    validateCatalog(catalog)
     const result = await this.commit(
       latest,
       [
@@ -295,41 +504,53 @@ export class GitHubLibrary {
           type: "blob",
           content: JSON.stringify(catalog, null, 2) + "\n",
         },
-        ...removed.map((article) => ({
+        ...current.articles.map(({ article, sha, mode }) => ({
           path: `library/${article.file}`,
-          mode: "100644",
+          mode,
           type: "blob",
-          sha: null,
+          sha,
         })),
+        ...trashPaths(current).map((path) => ({ path, mode: "100644", type: "blob", sha: null })),
       ],
-      `Delete article: ${opened.title}`,
+      `Restore article: ${current.title}`,
     )
-    return { ...result, removedIds }
+    return {
+      ...result,
+      articleId: current.articleId,
+      restoredIds: current.articles.map((item) => item.article.id),
+      published: current.published,
+      scope: current.published ? "published" : "draft",
+      trashId: current.id,
+    }
   }
-  async removeDraft({ opened, openedSha }) {
-    if (!opened || opened.published !== false) throw new Error("只能删除未发布的草稿。")
-    if (typeof openedSha !== "string" || !openedSha)
-      throw new Error("草稿删除版本信息不完整，请重新载入。")
-    validateCatalog({ version: 2, articles: [opened] })
+  async purgeTrash(record, _snapshot) {
+    validateTrashRecord(record)
     const latest = await this.snapshot()
-    validateCatalog(latest.catalog)
-    const current = latest.catalog.articles.find((article) => article.id === opened.id)
-    if (!equal(current, opened) || latest.entries.get(`library/${opened.file}`)?.sha !== openedSha)
-      throw new Error("草稿已在另一端更改，请重新载入；本次没有删除远端内容。")
-    const catalog = structuredClone(latest.catalog)
-    catalog.articles = catalog.articles.filter((article) => article.id !== opened.id)
+    const current = await this.checkedTrash(record, latest)
+    const result = await this.commit(
+      latest,
+      trashPaths(current).map((path) => ({ path, mode: "100644", type: "blob", sha: null })),
+      `Permanently remove recycled article: ${current.title}`,
+    )
+    return { ...result, trashId: current.id }
+  }
+  async pruneExpiredTrash(_snapshot) {
+    const latest = await this.snapshot()
+    const paths = [...latest.entries.keys()].filter((path) =>
+      /^library\/trash\/[a-f0-9-]{36}\/record\.json$/.test(path),
+    )
+    const expired = []
+    for (const path of paths) {
+      const record = await this.readTrashRecord(path, latest)
+      if (trashExpired(record, this.now())) expired.push(await this.checkedTrash(record, latest))
+    }
+    if (!expired.length) return null
     return this.commit(
       latest,
-      [
-        {
-          path: CATALOG_PATH,
-          mode: "100644",
-          type: "blob",
-          content: JSON.stringify(catalog, null, 2) + "\n",
-        },
-        { path: `library/${opened.file}`, mode: "100644", type: "blob", sha: null },
-      ],
-      `Delete draft: ${opened.title}`,
+      expired.flatMap((record) =>
+        trashPaths(record).map((path) => ({ path, mode: "100644", type: "blob", sha: null })),
+      ),
+      `Expire ${expired.length} recycled article groups after 30 days`,
     )
   }
   async readAsset(file, snapshot) {

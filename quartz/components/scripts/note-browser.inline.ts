@@ -127,13 +127,66 @@ function setupNoteBrowser() {
   const tools = document.querySelector<HTMLDetailsElement>(".reading-tools")
   if (tools) {
     const desktop = matchMedia("(min-width: 1240px)")
+    const mobile = matchMedia("(max-width: 800px)")
+    const summary = tools.querySelector<HTMLElement>(":scope > summary")
     const resize = () => {
       tools.open = desktop.matches
+    }
+    const close = (restoreFocus = true) => {
+      if (!mobile.matches || !tools.open) return
+      tools.open = false
+      if (restoreFocus) summary?.focus({ preventScroll: true })
+    }
+    const choose = (event: MouseEvent) => {
+      const target = event.target as HTMLElement
+      if (target.closest("[data-reading-close]")) close()
+      // Close before the SPA's bubbling anchor handler measures the heading.
+      // Existing Unicode anchors, URL history and scroll-padding stay intact.
+      if (
+        !event.ctrlKey &&
+        !event.metaKey &&
+        !event.shiftKey &&
+        !event.altKey &&
+        target.closest(".toc a[data-for]")
+      )
+        close()
+    }
+    const dismiss = (event: PointerEvent) => {
+      if (!(event.target instanceof Node) || tools.contains(event.target)) return
+      if (document.querySelector(".global-graph-outer.active")) return
+      close(false)
+    }
+    const escape = (event: KeyboardEvent) => {
+      if (event.key !== "Escape" || !mobile.matches || !tools.open) return
+      if (document.querySelector(".search-container.active,.global-graph-outer.active")) return
+      close()
+      event.preventDefault()
+      event.stopImmediatePropagation()
+    }
+    const opened = () => {
+      if (!mobile.matches || !tools.open) return
+      const dock = document.querySelector<HTMLDetailsElement>(".maintenance-tool-dock")
+      if (dock) dock.open = false
+      // One scroll surface covers the whole drawer, including long TOCs.
+      const panels = tools.querySelector<HTMLElement>(".reading-tool-panels")
+      if (panels) panels.scrollTop = 0
     }
     // The local graph is SVG. Expanding it must not reinitialise unrelated
     // Quartz controls or dispatch a render event without the current route.
     desktop.addEventListener("change", resize)
-    window.addCleanup(() => desktop.removeEventListener("change", resize))
+    mobile.addEventListener("change", resize)
+    tools.addEventListener("click", choose)
+    tools.addEventListener("toggle", opened)
+    document.addEventListener("pointerdown", dismiss, { passive: true })
+    document.addEventListener("keydown", escape, { capture: true })
+    window.addCleanup(() => {
+      desktop.removeEventListener("change", resize)
+      mobile.removeEventListener("change", resize)
+      tools.removeEventListener("click", choose)
+      tools.removeEventListener("toggle", opened)
+      document.removeEventListener("pointerdown", dismiss)
+      document.removeEventListener("keydown", escape, { capture: true })
+    })
     resize()
   }
   const year = document.querySelector<HTMLSelectElement>("#activity-period")

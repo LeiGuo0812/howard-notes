@@ -1,5 +1,6 @@
 import test from "node:test"
 import assert from "node:assert/strict"
+import { createPublicationWorker } from "./publication-worker-client.mjs"
 import {
   createRuntimePublisher,
   publicChange,
@@ -22,6 +23,9 @@ function fixture({
   disabled = false,
   unchanged = false,
   idempotent = false,
+  concurrentUpdate = false,
+  projectionChunks,
+  onChunk,
 } = {}) {
   const values = new Map(),
     requests = [],
@@ -31,6 +35,8 @@ function fixture({
     reads = []
   let snapshotReads = 0,
     currentCommit = commit,
+    publicCommit = "0".repeat(40),
+    visible = true,
     revision = 1
   const storage = {
     getItem: (key) => values.get(key),
@@ -39,7 +45,13 @@ function fixture({
   }
   const snapshot = () => ({
     commit: currentCommit,
-    catalog: { version: 2, articles: [article, { ...article, id: "draft", published: false }] },
+    catalog: {
+      version: 2,
+      articles: [
+        { ...article, published: visible },
+        { ...article, id: "draft", published: false },
+      ],
+    },
     settings: { brand: "Howard" },
     entries: new Map([["library/notes/a.md", { sha: "source-sha" }]]),
   })
@@ -75,6 +87,8 @@ function fixture({
         return Response.json({ version: 1, enabled: true, revision, commit: currentCommit })
       if (url === `${api}/snapshot`)
         return Response.json({
+          revision: revision + (concurrentUpdate ? 1 : 0),
+          commit: publicCommit,
           documents: [
             {
               ...article,
@@ -93,17 +107,21 @@ function fixture({
             ? { status: "synchronized", revision, commit: currentCommit }
             : {
                 syncId: "test-sync",
-                revision,
-                currentCommit,
+                revision: revision + 1,
+                currentCommit: publicCommit,
                 reusableDocuments: unchanged ? ["a"] : [],
               },
         )
-      if (url === `${api}/sync/chunk`) return Response.json({ status: "staged" })
+      if (url === `${api}/sync/chunk`) {
+        const result = await onChunk?.(body)
+        return result || Response.json({ status: "staged" })
+      }
       if (url === `${api}/sync/finish`) {
         if (failFinish) {
           failFinish = false
           return Response.json({ error: "temporary publication error" }, { status: 503 })
         }
+        publicCommit = currentCommit
         return Response.json({
           status: "synchronized",
           commit: currentCommit,
@@ -112,17 +130,36 @@ function fixture({
       }
       assert.fail(`Unexpected request ${url}`)
     },
-    loadProjection: async () => ({
-      prepareProjection: async (value) => {
-        prepared.push(value)
-        return {
-          documents: [{ ...article, source, sourceSha: "source-sha", html: "<p>内容</p>" }],
-          contentIndex: { "notes/a": { title: article.title } },
-          blogData: { articles: [article] },
-        }
-      },
-      renderPages: async () => [{ path: "notes/a", html: "<html>文章</html>" }],
-    }),
+    loadProjection: async () =>
+      projectionChunks
+        ? {
+            preparePublication: async (value) => {
+              prepared.push(value)
+              return { chunks: projectionChunks, contentIndex: {}, blogData: {} }
+            },
+          }
+        : {
+            prepareProjection: async (value) => {
+              prepared.push(value)
+              return {
+                documents: value.catalog.articles
+                  .filter((article) => article.published)
+                  .map((article) => ({
+                    ...article,
+                    source,
+                    sourceSha: "source-sha",
+                    html: "<p>内容</p>",
+                  })),
+                contentIndex: { "notes/a": { title: article.title } },
+                blogData: { articles: [article] },
+              }
+            },
+            renderPages: async (projection) =>
+              projection.documents.map((doc) => ({
+                path: `notes/${doc.id}`,
+                html: "<html>文章</html>",
+              })),
+          },
     onState: (state) => states.push(state),
     onSynchronized: (state) => synced.push(state),
   })
@@ -135,7 +172,13 @@ function fixture({
     prepared,
     reads,
     snapshot,
-    advance: () => (currentCommit = nextCommit),
+    advance: (value = nextCommit) => (currentCommit = value),
+    visibility: (value) => (visible = value),
+    externalUpdate: () => {
+      publicCommit = "c".repeat(40)
+      revision++
+    },
+    failNextFinish: () => (failFinish = true),
     snapshotReads: () => snapshotReads,
   }
 }
@@ -250,7 +293,201 @@ test("an already synchronized begin acknowledges the saved commit without anothe
   )
   assert.equal(f.requests.filter((request) => request.url.endsWith("/sync/chunk")).length, 0)
   assert.equal(f.requests.filter((request) => request.url.endsWith("/sync/finish")).length, 0)
+  assert.equal(f.requests.filter((request) => request.url.endsWith("/snapshot")).length, 0)
+  assert.equal(f.requests.filter((request) => request.url.endsWith("/shell")).length, 0)
+  assert.equal(f.prepared.length, 0)
+  assert.equal(f.reads.length, 0)
   assert.equal(f.synced.length, 1)
+})
+
+test("consecutive publications reuse only the exact canonically confirmed public baseline", async () => {
+  const f = fixture()
+  assert.equal(
+    (await f.publisher.publish({ kind: "article", commit }, f.snapshot())).status,
+    "synchronized",
+  )
+  f.advance()
+  assert.equal(
+    (await f.publisher.publish({ kind: "article", commit: nextCommit }, f.snapshot())).status,
+    "synchronized",
+  )
+  assert.equal(f.requests.filter((request) => request.url.endsWith("/snapshot")).length, 1)
+  assert.equal(f.requests.filter((request) => request.url.endsWith("/shell")).length, 1)
+  assert.equal(f.requests.filter((request) => request.url.endsWith("/sync/begin")).length, 2)
+  assert.equal(f.prepared[1].previous.commit, commit)
+  assert.equal(f.prepared[1].previous.revision, 2)
+  assert.deepEqual(
+    f.prepared[1].previous.documents.map((doc) => doc.id),
+    ["a"],
+  )
+  assert.equal(f.prepared[1].previous.documents[0].html, "<p>内容</p>")
+  assert.equal(
+    f.prepared[1].previous.pageHashes["notes/a"],
+    await renderedPageHash("<html>文章</html>"),
+  )
+})
+
+test("an external publication invalidates the in-memory baseline before source/AST reuse", async () => {
+  const f = fixture()
+  await f.publisher.publish({ kind: "article", commit }, f.snapshot())
+  f.advance()
+  f.externalUpdate()
+  assert.equal(
+    (await f.publisher.publish({ kind: "settings", commit: nextCommit }, f.snapshot())).status,
+    "synchronized",
+  )
+  assert.equal(f.requests.filter((request) => request.url.endsWith("/snapshot")).length, 2)
+  assert.equal(f.requests.filter((request) => request.url.endsWith("/shell")).length, 2)
+  assert.equal(f.prepared[1].previous.commit, "c".repeat(40))
+  assert.equal(f.prepared[1].previous.revision, 3)
+})
+
+test("a failed finish never promotes its projection into the cached public version", async () => {
+  const f = fixture()
+  await f.publisher.publish({ kind: "article", commit }, f.snapshot())
+  f.advance()
+  f.failNextFinish()
+  assert.equal(
+    (await f.publisher.publish({ kind: "article", commit: nextCommit }, f.snapshot())).status,
+    "pending",
+  )
+  assert.equal((await f.publisher.retry()).status, "synchronized")
+  assert.equal(f.prepared[1].previous.commit, commit)
+  assert.equal(f.prepared[2].previous.commit, commit)
+  assert.equal(f.requests.filter((request) => request.url.endsWith("/snapshot")).length, 1)
+  assert.equal(f.requests.filter((request) => request.url.endsWith("/shell")).length, 1)
+  assert.equal(f.values.size, 0)
+})
+
+test("a snapshot changed after begin is rejected before staging any old rendered content", async () => {
+  const f = fixture({ concurrentUpdate: true })
+  const result = await f.publisher.publish({ kind: "article", commit }, f.snapshot())
+  assert.equal(result.status, "pending")
+  assert.equal(result.code, 409)
+  assert.equal(f.prepared.length, 0)
+  assert.equal(f.requests.filter((request) => request.url.endsWith("/sync/chunk")).length, 0)
+  assert.equal(f.synced.length, 0)
+  assert.ok(f.publisher.pending())
+})
+
+test("removing an article also removes its cached document/page hashes before restoring it", async () => {
+  const f = fixture()
+  await f.publisher.publish({ kind: "article", commit }, f.snapshot())
+  f.visibility(false)
+  f.advance()
+  await f.publisher.publish(
+    { kind: "delete", commit: nextCommit, scope: "published" },
+    f.snapshot(),
+  )
+  const beforeRestore = f.requests.length
+  f.visibility(true)
+  f.advance("d".repeat(40))
+  assert.equal(
+    (await f.publisher.publish({ kind: "article", commit: "d".repeat(40) }, f.snapshot())).status,
+    "synchronized",
+  )
+  assert.deepEqual(f.prepared[2].previous.documents, [])
+  assert.deepEqual(f.prepared[2].previous.pageHashes, {})
+  assert.deepEqual(f.reads, ["a"])
+  const restoreChunks = f.requests
+    .slice(beforeRestore)
+    .filter((request) => request.url.endsWith("/sync/chunk"))
+  assert.ok(restoreChunks.some((request) => request.body.documents?.[0]?.id === "a"))
+  assert.ok(restoreChunks.some((request) => request.body.pages?.[0]?.path === "notes/a"))
+})
+
+test("publication prewarm shares one worker and disposal rejects active work without leaking timers", async (t) => {
+  const original = globalThis.Worker
+  const workers = []
+  globalThis.Worker = class {
+    constructor(url, options) {
+      this.url = url
+      this.options = options
+      workers.push(this)
+    }
+    postMessage(data) {
+      this.message = data
+    }
+    terminate() {
+      this.terminated = true
+    }
+  }
+  const background = createPublicationWorker(base)
+  t.after(() => {
+    background.dispose()
+    if (original) globalThis.Worker = original
+    else delete globalThis.Worker
+  })
+  background.warm()
+  background.warm()
+  assert.equal(workers.length, 1)
+  assert.equal(workers[0].url.href, `${base}maintenance-assets/publication-worker.js`)
+  assert.equal(workers[0].options.type, "module")
+  const completed = background.preparePublication({ public: true })
+  workers[0].onmessage({ data: { id: workers[0].message.id, result: { chunks: [] } } })
+  assert.deepEqual(await completed, { chunks: [] })
+  const stopped = background.preparePublication({ public: true })
+  background.dispose()
+  await assert.rejects(stopped, /后台准备已停止/)
+  assert.equal(workers[0].terminated, true)
+})
+
+test("chunk uploads refill available slots without waiting for one slow request, with concurrency capped at three", async (t) => {
+  const paths = ["notes/a", "about", "topics/index", "notes/index"]
+  let releaseFirst,
+    fourthStarted,
+    active = 0,
+    maximum = 0
+  const blocked = new Promise((resolve) => (releaseFirst = resolve))
+  const nextStarted = new Promise((resolve) => (fourthStarted = resolve))
+  t.after(() => releaseFirst())
+  const f = fixture({
+    projectionChunks: paths.map((path) => ({ documents: [], pages: [{ path, html: "内容" }] })),
+    onChunk: async (body) => {
+      const path = body.pages?.[0]?.path
+      if (!path) return
+      maximum = Math.max(maximum, ++active)
+      if (path === paths[3]) fourthStarted()
+      if (path === paths[0]) await blocked
+      else await new Promise((resolve) => setTimeout(resolve, 0))
+      active--
+    },
+  })
+  const publication = f.publisher.publish({ kind: "article", commit }, f.snapshot())
+  await new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error("A free upload slot was not refilled")), 1000)
+    nextStarted.then(() => {
+      clearTimeout(timer)
+      resolve()
+    })
+  })
+  assert.ok(maximum <= 3)
+  assert.ok(active > 0)
+  releaseFirst()
+  assert.equal((await publication).status, "synchronized")
+  assert.equal(f.states.filter((state) => state.progress).at(-1).progress, "4/4")
+})
+
+test("a failed chunk stops new work and retains pending state without advancing metadata or finish", async () => {
+  const f = fixture({
+    projectionChunks: Array.from({ length: 8 }, (_, index) => ({
+      documents: [],
+      pages: [{ path: `notes/p${index}`, html: "内容" }],
+    })),
+    onChunk: async (body) => {
+      if (body.pages[0].path === "notes/p0")
+        return Response.json({ error: "temporary chunk failure" }, { status: 503 })
+      await new Promise((resolve) => setTimeout(resolve, 0))
+    },
+  })
+  assert.equal(
+    (await f.publisher.publish({ kind: "article", commit }, f.snapshot())).status,
+    "pending",
+  )
+  assert.equal(f.requests.filter((request) => request.url.endsWith("/sync/chunk")).length, 3)
+  assert.equal(f.requests.filter((request) => request.url.endsWith("/sync/finish")).length, 0)
+  assert.ok(f.publisher.pending())
+  assert.equal(f.synced.length, 0)
 })
 
 test("sync response for another commit is never reported as online", async () => {

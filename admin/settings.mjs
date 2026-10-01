@@ -403,29 +403,37 @@ export function createSettings({
     })
   $("site-form").onsubmit = (event) => {
     event.preventDefault()
-    action(async () => {
+    try {
       validateSite(working)
-      message("正在发布页面…")
-      const result = await getSnapshot().client.saveSettings({
-        openedSha,
-        settings: structuredClone(working),
-      })
-      if (storage) clearLayoutDraft(storage)
-      const latest = result.snapshot || (await refresh())
-      load(latest, false)
-      const sync = await onSaved(latest, result)
-      message(
-        sync?.status === "synchronized"
-          ? "页面已上线。"
-          : sync?.status === "pending"
-            ? "页面已保存到 GitHub，等待同步。"
-            : "页面已发布，正在部署。",
-        false,
-        sync?.status === "static"
-          ? "https://github.com/LeiGuo0812/howard-notes/actions"
-          : undefined,
-      )
-    })
+    } catch (error) {
+      message(error.message, true)
+      return
+    }
+    action(
+      async () => {
+        message("正在发布页面…")
+        const result = await getSnapshot().client.saveSettings({
+          openedSha,
+          settings: structuredClone(working),
+        })
+        if (storage) clearLayoutDraft(storage)
+        const latest = result.snapshot || (await refresh())
+        load(latest, false)
+        const sync = await onSaved(latest, result)
+        message(
+          sync?.status === "synchronized"
+            ? "页面已上线。"
+            : sync?.status === "pending"
+              ? "页面已保存到 GitHub，等待同步。"
+              : "页面已发布，正在部署。",
+          false,
+          sync?.status === "static"
+            ? "https://github.com/LeiGuo0812/howard-notes/actions"
+            : undefined,
+        )
+      },
+      { completion: { kind: "settings" } },
+    )
   }
   $("reload-settings").onclick = () => {
     if (!dirty() || confirm("放弃布局草稿并载入已发布设置？"))

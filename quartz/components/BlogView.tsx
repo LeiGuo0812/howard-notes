@@ -664,13 +664,14 @@ export const BlogFooter: QuartzComponent = (props) => (
   </footer>
 )
 type MaintenanceAction =
-  "new" | "drafts" | "articles" | "settings" | "reconnect" | "logout" | "edit"
+  "new" | "drafts" | "articles" | "trash" | "settings" | "reconnect" | "logout" | "edit"
 function MaintenanceIcon({ action }: { action: MaintenanceAction }) {
   const paths: Record<MaintenanceAction, string> = {
     new: "M12 5v14M5 12h14",
     drafts: "M5 3h10l4 4v14H5ZM14 3v5h5M8 12h8M8 16h5",
     articles: "M8 5h12M8 12h12M8 19h12M3 5h.01M3 12h.01M3 19h.01",
     settings: "M4 5h16v14H4ZM4 10h16M10 10v9",
+    trash: "M3 6h18M9 6V3h6v3M5 6l1 15h12l1-15M10 10v7M14 10v7",
     reconnect: "M20 7v5h-5M4 17v-5h5M6.1 7a7 7 0 0 1 11.5-1L20 12M4 12l2.4 6A7 7 0 0 0 17.9 17",
     logout: "M9 4H4v16h5M14 8l4 4-4 4M8 12h12",
     edit: "M14 5H5v14h14v-9M14 4l6 6M10 14l2.5-.5L21 5l-3-3-8.5 8.5Z",
@@ -710,6 +711,7 @@ function MaintenanceTools() {
         <MaintenanceButton action="new" label="新建文章" />
         <MaintenanceButton action="drafts" label="草稿箱" />
         <MaintenanceButton action="articles" label="文章管理" />
+        <MaintenanceButton action="trash" label="回收站" />
         <MaintenanceButton action="settings" label="页面设置" />
       </div>
       <div class="maintenance-session-tools">
@@ -776,8 +778,35 @@ export const BlogFrame: PageFrame = {
           {article && (
             <aside class="left sidebar reading-sidebar" aria-label="文章导航">
               <details class="reading-tools" open>
-                <summary>目录与图谱</summary>
+                <summary aria-label="目录与图谱" title="目录与图谱">
+                  <span class="reading-tools-label">目录与图谱</span>
+                  <span class="reading-tools-mobile-label" aria-hidden="true">
+                    目录
+                    <br />
+                    图谱
+                  </span>
+                </summary>
                 <div class="reading-tool-panels">
+                  <div class="reading-drawer-header">
+                    <strong>目录与图谱</strong>
+                    <button
+                      type="button"
+                      data-reading-close
+                      aria-label="收起目录与图谱"
+                      title="收起"
+                    >
+                      <svg
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        stroke-width="1.6"
+                        stroke-linecap="round"
+                        aria-hidden="true"
+                      >
+                        <path d="m6 6 12 12M18 6 6 18" />
+                      </svg>
+                    </button>
+                  </div>
                   {left.map((Component) => {
                     if (Component.name === "Graph")
                       return <ReadingGraph props={componentData} Component={Component} />

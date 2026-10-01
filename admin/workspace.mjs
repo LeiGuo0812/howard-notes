@@ -1,3 +1,4 @@
+import { listLocalTrash, trashLocalRecovery, removeLocalTrash } from "./local-trash.mjs"
 import { rememberSession, clearSession } from "./session.mjs"
 import { GitHubLibrary } from "./github.mjs"
 import { validateCatalog } from "../scripts/lib/catalog.mjs"
@@ -42,6 +43,7 @@ export function createWorkspace(root, options = {}) {
     openedSha = null,
     publishedDeletion = null,
     localRecoveryOnly = false,
+    trashRecords = [],
     raw = "",
     savedForm = "",
     images = [],
@@ -88,6 +90,7 @@ export function createWorkspace(root, options = {}) {
           : state.status === "synchronized"
             ? "已上线。"
             : `已保存到 GitHub；线上同步未完成${state.error ? `：${state.error}` : ""} `
+      if (state.status === "syncing") options.onProgress?.(publicationText.textContent)
       if (state.code === 401) $("reconnect").hidden = false
     },
     onSynchronized(state) {
@@ -114,7 +117,7 @@ export function createWorkspace(root, options = {}) {
     root,
     siteBase,
     getSnapshot: () => ({ ...snapshot, client }),
-    action,
+    action: (callback, detail) => action(callback, { label: "正在处理页面设置…", ...detail }),
     message,
     refresh: async () => (snapshot = await client.snapshot()),
     onSaved: async (_snapshot, result) => {
@@ -142,6 +145,7 @@ export function createWorkspace(root, options = {}) {
     el.hidden = false
     el.className = error ? "error" : ""
     el.textContent = text
+    if (busy && text.startsWith("正在")) options.onProgress?.(text)
     if (href) {
       const link = document.createElement("a")
       link.href = href
@@ -174,16 +178,24 @@ export function createWorkspace(root, options = {}) {
       el.disabled = (value && !mayEdit && !windowControl) || el.dataset.boundary === "true"
     }
   }
-  async function action(callback, { editable = false } = {}) {
+  async function action(callback, { editable = false, completion, label = "正在处理…" } = {}) {
     if (busy) return
     lock(true, editable)
+    let failed = false
+    options.onStarted?.({ label, completion: !!completion })
     try {
-      return await callback()
+      if (completion) options.onAccepted?.(completion)
+      const result = await callback()
+      if (completion) options.onCompleted?.(completion)
+      return result
     } catch (error) {
+      failed = true
       message(error.message || "操作失败。", true)
+      options.onActionError?.({ ...completion, error: error.message || "操作失败。" })
       if (client && error.status === 401) $("reconnect").hidden = false
     } finally {
       lock(false)
+      options.onSettled?.({ completion: !!completion, failed })
     }
   }
   const recoveryId = () => current?.id || $("slug").value
@@ -297,6 +309,118 @@ export function createWorkspace(root, options = {}) {
           : "暂无文章"
       $("article-list").append(empty)
     }
+  }
+  function renderTrash() {
+    const list = $("trash-list")
+    list.replaceChildren()
+    const records = [...trashRecords, ...listLocalTrash(storage)]
+      .filter((record) => new Date(record.expiresAt).getTime() > Date.now())
+      .sort((a, b) => new Date(b.deletedAt).getTime() - new Date(a.deletedAt).getTime())
+    for (const record of records) {
+      const row = document.createElement("div")
+      row.className = "trash-item"
+      const info = document.createElement("div"),
+        title = document.createElement("strong"),
+        meta = document.createElement("span")
+      title.textContent = record.title
+      const days = Math.max(
+        1,
+        Math.ceil((new Date(record.expiresAt).getTime() - Date.now()) / 86400000),
+      )
+      meta.className = "small"
+      meta.textContent = `${record.local ? "本地草稿" : record.published ? "已发布文章" : "草稿"} · ${new Date(record.deletedAt).toLocaleDateString("zh-CN")} · 剩余 ${days} 天`
+      info.append(title, meta)
+      const controls = document.createElement("div"),
+        restore = document.createElement("button"),
+        purge = document.createElement("button")
+      restore.type = purge.type = "button"
+      restore.textContent = "恢复"
+      restore.title = "恢复文章及一起删除的修改草稿"
+      purge.textContent = "永久删除"
+      purge.title = "永久清除这份回收站存档"
+      purge.className = "danger"
+      restore.onclick = () =>
+        action(
+          async () => {
+            if (record.local) {
+              if (savedForm && recoveryId() === record.recovery.id)
+                throw new Error("当前编辑器正在使用这篇文章，请先关闭编辑器后再恢复。")
+              if (listArticleRecoveries(storage).some((entry) => entry.id === record.recovery.id))
+                throw new Error("已有同名本地恢复记录，请先保存或处理后再恢复。")
+              writeArticleRecovery(storage, record.recovery)
+              removeLocalTrash(storage, record.id)
+              renderTrash()
+              message("已恢复到草稿箱。")
+              await reportSaved({ kind: "draft", articleId: record.recovery.id })
+              return
+            }
+            const result = await client.restoreTrash(record, snapshot)
+            snapshot = result.snapshot
+            trashRecords = trashRecords.filter((item) => item.id !== record.id)
+            renderTrash()
+            renderList()
+            const primary = snapshot.catalog.articles.find(
+              (article) => article.id === result.articleId,
+            )
+            const sync = await reportSaved(
+              {
+                kind: result.published ? "article" : "draft",
+                articleId: result.articleId,
+                restoredIds: result.restoredIds,
+              },
+              result,
+            )
+            message(
+              sync.status === "pending"
+                ? "已恢复到 GitHub，等待同步。"
+                : primary?.published
+                  ? "文章已恢复。"
+                  : "已恢复到草稿箱。",
+            )
+          },
+          {
+            completion: {
+              kind: "restore",
+              articleId: record.articleId,
+              scope: record.published ? "published" : "draft",
+            },
+          },
+        )
+      purge.onclick = () => {
+        if (!confirm(`永久删除“${record.title}”？此操作将清除回收站中的恢复存档。`)) return
+        action(
+          async () => {
+            if (record.local) removeLocalTrash(storage, record.id)
+            else {
+              const result = await client.purgeTrash(record, snapshot)
+              snapshot = result.snapshot
+              trashRecords = trashRecords.filter((item) => item.id !== record.id)
+            }
+            renderTrash()
+            message("回收站存档已永久删除。")
+            await reportSaved({ kind: "purge", scope: "draft" })
+          },
+          { completion: { kind: "purge", scope: "draft" } },
+        )
+      }
+      restore.disabled = purge.disabled = busy
+      controls.append(restore, purge)
+      row.append(info, controls)
+      list.append(row)
+    }
+    if (!records.length) {
+      const empty = document.createElement("p")
+      empty.className = "small"
+      empty.textContent = "回收站为空"
+      list.append(empty)
+    }
+  }
+  async function refreshTrash() {
+    message("正在读取回收站…")
+    snapshot = await client.snapshot()
+    trashRecords = await client.listTrash(snapshot)
+    renderTrash()
+    $("status").hidden = true
   }
   function clearImages() {
     for (const image of images) URL.revokeObjectURL(image.preview)
@@ -502,8 +626,9 @@ export function createWorkspace(root, options = {}) {
     }
   }
   function closeEditor(discard = false) {
-    if (discard) discardRecovery()
-    else persistRecovery()
+    if (discard) {
+      if (savedForm) discardRecovery()
+    } else persistRecovery()
     clearImages()
     current = null
     openedSha = null
@@ -523,16 +648,25 @@ export function createWorkspace(root, options = {}) {
     $("tab-articles").setAttribute("aria-current", scope === "published" ? "page" : "false")
     $("tab-drafts").setAttribute("aria-current", scope === "draft" ? "page" : "false")
     $("tab-settings").setAttribute("aria-current", "false")
+    $("tab-trash").setAttribute("aria-current", "false")
     renderList()
   }
   function showMode(mode) {
     const scope = mode === "drafts" ? "draft" : "published"
     if (mode !== "settings" && scope !== articleScope) {
-      if (!mayLeaveArticle()) return
+      if (!mayLeaveArticle()) return false
       closeEditor(true)
     }
-    $("workspace").hidden = mode === "settings"
+    $("trash-workspace").hidden = mode !== "trash"
+    $("tab-trash").setAttribute("aria-current", mode === "trash" ? "page" : "false")
+    $("workspace").hidden = mode === "settings" || mode === "trash"
     $("settings-workspace").hidden = mode !== "settings"
+    if (mode === "trash") {
+      for (const tab of ["tab-articles", "tab-drafts", "tab-settings"])
+        $(tab).setAttribute("aria-current", "false")
+      renderTrash()
+      return action(refreshTrash, { label: "正在读取回收站…" })
+    }
     if (mode !== "settings") setScope(scope)
     else {
       $("tab-articles").setAttribute("aria-current", "false")
@@ -596,6 +730,7 @@ export function createWorkspace(root, options = {}) {
     $("login-panel").hidden = false
     $("workspace").hidden = true
     $("settings-workspace").hidden = true
+    $("trash-workspace").hidden = true
     $("admin-tabs").hidden = true
     $("logout").hidden = true
     $("reconnect").hidden = true
@@ -614,6 +749,8 @@ export function createWorkspace(root, options = {}) {
   $("tab-articles").onclick = () => showMode("articles")
   $("tab-drafts").onclick = () => showMode("drafts")
   $("tab-settings").onclick = () => showMode("settings")
+  $("tab-trash").onclick = () => showMode("trash")
+  $("reload-trash").onclick = () => action(refreshTrash, { label: "正在读取回收站…" })
   $("search").oninput = renderList
   function newArticle() {
     if (!client || busy || !mayLeaveArticle()) return false
@@ -832,6 +969,16 @@ export function createWorkspace(root, options = {}) {
       openedSha,
       recoveryId: recoveryId(),
     }
+    if (published) {
+      delete edited.draftOf
+      delete edited.draftBaseline
+    }
+    try {
+      validateCatalog({ version: 2, articles: [edited] })
+    } catch (error) {
+      message(error.message, true)
+      return
+    }
     persistRecovery()
     action(
       async () => {
@@ -839,8 +986,7 @@ export function createWorkspace(root, options = {}) {
           delete edited.draftOf
           delete edited.draftBaseline
         }
-        validateCatalog({ version: 2, articles: [edited] })
-        message("正在保存…")
+        message(published ? "正在发布文章…" : "正在保存草稿…")
         let nextId = edited.id
         let result
         if (!published && submitted.opened?.published) {
@@ -906,7 +1052,10 @@ export function createWorkspace(root, options = {}) {
             : undefined,
         )
       },
-      { editable: true },
+      {
+        editable: true,
+        completion: { kind: published ? "article" : "draft", articleId: edited.id },
+      },
     )
   }
   $("cancel-edit").onclick = () => {
@@ -917,64 +1066,94 @@ export function createWorkspace(root, options = {}) {
   }
   $("unpublish").onclick = () => {
     if (!current?.published || !mayLeaveArticle() || !confirm("将这篇文章从网站撤下？")) return
-    action(async () => {
-      const id = current.id
-      const result = await client.save({
-        opened: current,
-        openedSha,
-        edited: { ...current, published: false },
-        text: raw,
-      })
-      discardRecovery()
-      savedForm = ""
-      setScope("draft")
-      await loadArticle(id, false, result.snapshot)
-      const sync = await reportSaved({ kind: "unpublish", articleId: id }, result)
-      message(sync.status === "pending" ? "已保存撤下操作，等待同步。" : "文章已撤下。")
-    })
+    action(
+      async () => {
+        const id = current.id
+        const result = await client.save({
+          opened: current,
+          openedSha,
+          edited: { ...current, published: false },
+          text: raw,
+        })
+        discardRecovery()
+        savedForm = ""
+        setScope("draft")
+        await loadArticle(id, false, result.snapshot)
+        const sync = await reportSaved({ kind: "unpublish", articleId: id }, result)
+        message(sync.status === "pending" ? "已保存撤下操作，等待同步。" : "文章已撤下。")
+      },
+      { completion: { kind: "unpublish", articleId: current?.id } },
+    )
   }
   $("delete-draft").onclick = () => {
     if (!client || busy || (current?.published && !localRecoveryOnly)) return
     if (
       !confirm(
-        localRecoveryOnly ? "仅删除当前浏览器中的这篇草稿？远端文章不受影响。" : "删除这篇草稿？",
+        localRecoveryOnly
+          ? "仅删除当前浏览器中的这篇草稿？远端文章不受影响。"
+          : "将这篇草稿移入回收站？可在 30 天内恢复。",
       )
     )
       return
     if (!current || localRecoveryOnly) {
-      closeEditor(true)
-      options.onClose?.()
+      try {
+        const recovery = {
+          id: recoveryId(),
+          article: current,
+          openedSha,
+          raw,
+          savedForm,
+          form: readForm(),
+        }
+        trashLocalRecovery(storage, recovery)
+        options.onAccepted?.({ kind: "delete", scope: "local" })
+        closeEditor(true)
+        options.onClose?.()
+        options.onCompleted?.({ kind: "delete", scope: "local" })
+      } catch (error) {
+        message(error.message, true)
+      }
       return
     }
-    action(async () => {
-      const deletedId = current.id
-      const result = await client.removeDraft({ opened: current, openedSha })
-      if (result.snapshot) snapshot = result.snapshot
-      snapshot.catalog.articles = snapshot.catalog.articles.filter(
-        (article) => article.id !== deletedId,
-      )
-      closeEditor(true)
-      setScope("draft")
-      let refreshed = true
-      if (!result.snapshot) {
-        try {
-          snapshot = await client.snapshot()
-        } catch {
-          refreshed = false
+    action(
+      async () => {
+        const deletedId = current.id
+        const openedDrafts = snapshot.catalog.articles
+          .filter((article) => article.draftOf === current.id)
+          .map((article) => ({
+            article: structuredClone(article),
+            sha: snapshot.entries.get(`library/${article.file}`)?.sha,
+          }))
+        const result = await client.removeDraft({ opened: current, openedSha, openedDrafts })
+        if (result.snapshot) snapshot = result.snapshot
+        snapshot.catalog.articles = snapshot.catalog.articles.filter(
+          (article) => article.id !== deletedId,
+        )
+        closeEditor(true)
+        setScope("draft")
+        let refreshed = true
+        if (!result.snapshot) {
+          try {
+            snapshot = await client.snapshot()
+          } catch {
+            refreshed = false
+          }
         }
-      }
-      renderList()
-      await reportSaved(
-        {
-          kind: "delete",
-          scope: "draft",
-          articleId: deletedId,
-          removedIds: [deletedId],
-        },
-        result,
-      )
-      message(refreshed ? "草稿已删除。" : "草稿已删除；列表刷新失败，请重新载入。")
-    })
+        renderList()
+        await reportSaved(
+          {
+            kind: "delete",
+            scope: "draft",
+            articleId: deletedId,
+            removedIds: result.removedIds || [deletedId],
+          },
+          result,
+        )
+        if (result.record) trashRecords.unshift(result.record)
+        message(refreshed ? "草稿已移入回收站。" : "草稿已移入回收站；列表刷新失败，请重新载入。")
+      },
+      { completion: { kind: "delete", scope: "draft", articleId: current?.id } },
+    )
   }
   $("delete-article").onclick = () => {
     if (!client || busy || (!current?.published && !current?.draftOf)) return
@@ -989,53 +1168,59 @@ export function createWorkspace(root, options = {}) {
       : ""
     if (
       !confirm(
-        `删除网站上的“${baseline.opened.title}”${drafts}？\n未保存的修改也会丢弃，独立 Obsidian 原始笔记不受影响。`,
+        `将“${baseline.opened.title}”${drafts}移入回收站？可在 30 天内恢复。\n未保存的修改将被丢弃。`,
       )
     )
       return
-    action(async () => {
-      message("正在删除…")
-      const result = await client.removePublishedArticle(baseline)
-      if (result.snapshot) snapshot = result.snapshot
-      for (const id of result.removedIds) discardRecovery(id)
-      // The commit already succeeded. Clear the deleted editor even if a follow-up read fails.
-      snapshot.catalog.articles = snapshot.catalog.articles.filter(
-        (article) => !result.removedIds.includes(article.id),
-      )
-      closeEditor(true)
-      setScope("published")
-      $("workspace").hidden = false
-      $("settings-workspace").hidden = true
-      let refreshed = true
-      if (!result.snapshot) {
-        try {
-          snapshot = await client.snapshot()
-        } catch {
-          refreshed = false
+    action(
+      async () => {
+        message("正在删除…")
+        const result = await client.removePublishedArticle(baseline)
+        if (result.snapshot) snapshot = result.snapshot
+        for (const id of result.removedIds) discardRecovery(id)
+        // The commit already succeeded. Clear the deleted editor even if a follow-up read fails.
+        snapshot.catalog.articles = snapshot.catalog.articles.filter(
+          (article) => !result.removedIds.includes(article.id),
+        )
+        closeEditor(true)
+        setScope("published")
+        $("workspace").hidden = false
+        $("settings-workspace").hidden = true
+        let refreshed = true
+        if (!result.snapshot) {
+          try {
+            snapshot = await client.snapshot()
+          } catch {
+            refreshed = false
+          }
         }
-      }
-      renderList()
-      const sync = await reportSaved(
-        {
-          kind: "delete",
-          scope: "published",
-          articleId: baseline.opened.id,
-          removedIds: result.removedIds,
-        },
-        result,
-      )
-      message(
-        sync.status === "synchronized"
-          ? "文章已删除并上线。"
-          : sync.status === "pending"
-            ? "已保存删除操作，等待同步。"
-            : refreshed
-              ? "文章已删除，正在部署。"
-              : "文章已删除，正在部署；列表刷新失败，请重新载入。",
-        false,
-        sync.status === "static" ? "https://github.com/LeiGuo0812/howard-notes/actions" : undefined,
-      )
-    })
+        renderList()
+        if (result.record) trashRecords.unshift(result.record)
+        const sync = await reportSaved(
+          {
+            kind: "delete",
+            scope: "published",
+            articleId: baseline.opened.id,
+            removedIds: result.removedIds,
+          },
+          result,
+        )
+        message(
+          sync.status === "synchronized"
+            ? "文章已删除并上线。"
+            : sync.status === "pending"
+              ? "已保存删除操作，等待同步。"
+              : refreshed
+                ? "文章已删除，正在部署。"
+                : "文章已删除，正在部署；列表刷新失败，请重新载入。",
+          false,
+          sync.status === "static"
+            ? "https://github.com/LeiGuo0812/howard-notes/actions"
+            : undefined,
+        )
+      },
+      { completion: { kind: "delete", scope: "published", articleId: baseline.opened.id } },
+    )
   }
   function canClose() {
     if (busy) {
@@ -1047,7 +1232,11 @@ export function createWorkspace(root, options = {}) {
     return confirm("关闭编辑？未发布的修改会保存在当前浏览器中。")
   }
   async function requestArticle(id) {
-    if (!client || busy) return false
+    if (!client) return false
+    if (busy) {
+      message("操作正在后台进行，请稍后切换文章。")
+      return false
+    }
     if (current && (current.id === id || current.draftOf === id)) {
       $("workspace").hidden = false
       $("settings-workspace").hidden = true
@@ -1057,9 +1246,10 @@ export function createWorkspace(root, options = {}) {
     if (!mayLeaveArticle()) return false
     $("workspace").hidden = false
     $("settings-workspace").hidden = true
+    $("trash-workspace").hidden = true
     const requested = snapshot.catalog.articles.find((article) => article.id === id)
     setScope(requested?.published === false ? "draft" : "published")
-    return action(() => loadArticle(id))
+    return action(() => loadArticle(id), { label: "正在载入文章…" })
   }
   listen(document, "visibilitychange", () => {
     if (document.visibilityState === "hidden") persistRecovery()

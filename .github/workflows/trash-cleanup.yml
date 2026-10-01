@@ -1,0 +1,33 @@
+name: Expire recycled articles
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "41 16 * * *"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: trash-cleanup-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  expire:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: main
+          fetch-depth: 1
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+      - name: Remove only validated archives older than 30 days
+        id: prune
+        run: node scripts/prune-trash.mjs --write
+      - name: Commit expired archives without overwriting concurrent changes
+        if: steps.prune.outputs.changed == 'true'
+        run: |
+          git add -u -- library/trash
+          git -c user.name='github-actions[bot]' -c user.email='41898282+github-actions[bot]@users.noreply.github.com' commit -m 'Expire recycled articles after 30 days'
+          git push origin HEAD:main

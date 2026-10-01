@@ -3,7 +3,11 @@ import assert from "node:assert/strict"
 import { GitHubLibrary, decodeBase64, gitBlobSha } from "./github.mjs"
 import { createHash } from "node:crypto"
 import fs from "node:fs/promises"
+import path from "node:path"
+import os from "node:os"
+import { pruneTrashDirectory } from "../scripts/prune-trash.mjs"
 import { readLayoutDraft, writeLayoutDraft, clearLayoutDraft } from "./layout-draft.mjs"
+import { TRASH_RETENTION_MS, trashPaths, trashRecordContent } from "./trash.mjs"
 const settings = JSON.parse(await fs.readFile("library/site.json", "utf8"))
 
 test("layout drafts persist the original version without credentials or repository writes", () => {
@@ -195,9 +199,10 @@ test("draft deletion supports standalone, retracted and linked drafts while reta
       assert.equal(calls.length, 3)
       const tree = calls[0].body.tree
       assert.deepEqual(JSON.parse(tree[0].content).articles, retained)
-      assert.deepEqual(tree.slice(1), [
-        { path: `library/${draft.file}`, mode: "100644", type: "blob", sha: null },
-      ])
+      assert.deepEqual(
+        tree.filter((item) => item.path.startsWith("library/notes/")),
+        [{ path: `library/${draft.file}`, mode: "100644", type: "blob", sha: null }],
+      )
       assert.equal(calls[2].body.force, false)
       assert.equal(latest.entries.get("library/notes/b.md").sha, "unrelated-version")
       assert.equal(latest.entries.get("library/assets/shared.png").sha, "image-version")
@@ -284,10 +289,13 @@ test("published deletion removes the article and linked drafts in one commit, re
   const tree = calls[0].body.tree
   assert.equal(calls[0].body.base_tree, "tree")
   assert.deepEqual(JSON.parse(tree[0].content).articles, latest.catalog.articles.slice(2))
-  assert.deepEqual(tree.slice(1), [
-    { path: "library/notes/a.md", mode: "100644", type: "blob", sha: null },
-    { path: "library/notes/网页草稿/draft-a.md", mode: "100644", type: "blob", sha: null },
-  ])
+  assert.deepEqual(
+    tree.filter((item) => item.path.startsWith("library/notes/")),
+    [
+      { path: "library/notes/a.md", mode: "100644", type: "blob", sha: null },
+      { path: "library/notes/网页草稿/draft-a.md", mode: "100644", type: "blob", sha: null },
+    ],
+  )
   assert.deepEqual(calls[1].body.parents, ["head"])
   assert.match(calls[1].body.message, /^Delete article:/)
   assert.equal(calls[2].body.force, false)
@@ -307,7 +315,7 @@ test("published deletion without linked drafts changes only its catalog entry an
   const tree = calls[0].body.tree
   assert.deepEqual(JSON.parse(tree[0].content).articles, [])
   assert.deepEqual(
-    tree.map((entry) => entry.path),
+    tree.filter((entry) => !entry.path.startsWith("library/trash/")).map((entry) => entry.path),
     ["library/catalog.json", "library/notes/a.md"],
   )
   assert.equal(tree[1].sha, null)
@@ -332,7 +340,9 @@ test("published deletion checks every linked draft against the reviewed snapshot
   const result = await client.removePublishedArticle(baseline)
   assert.deepEqual(result.removedIds, ["a", "draft-a", "draft-another"])
   assert.deepEqual(
-    calls[0].body.tree.slice(1).map((change) => change.path),
+    calls[0].body.tree
+      .filter((change) => change.path.startsWith("library/notes/"))
+      .map((change) => change.path),
     [
       "library/notes/a.md",
       "library/notes/网页草稿/draft-a.md",
@@ -573,4 +583,398 @@ test("committed settings snapshot carries the new independent settings SHA", asy
   assert.deepEqual(result.snapshot.settings, edited)
   assert.equal(result.snapshot.siteSha, await gitBlobSha(JSON.stringify(edited, null, 2) + "\n"))
   assert.equal(result.snapshot.entries.get("library/notes/a.md").sha, "original")
+})
+
+const TRASH_ID = "11111111-2222-4333-8444-555555555555"
+const RECYCLE_TIME = Date.parse("2026-10-01T00:00:00.000Z")
+
+async function recycleFixture({ published = true, linked = true } = {}) {
+  const original = { ...article, published }
+  const draft = revision()
+  const unrelated = { ...article, id: "b", file: "notes/b.md", title: "其他文章" }
+  const notes = linked ? [original, unrelated, draft] : [original, unrelated]
+  const latest = snapshot("original", structuredClone(notes))
+  const source = "\uFEFF# 中文原文\r\n\r\n原始正文与链接。\r\n"
+  const draftSource = "\uFEFF## 编辑中的草稿\r\n未发布修改\r\n"
+  const sourceSha = await gitBlobSha(source)
+  const draftSha = await gitBlobSha(draftSource)
+  latest.entries.set("library/notes/a.md", { sha: sourceSha, mode: "100644" })
+  latest.entries.set("library/notes/b.md", { sha: "unrelated", mode: "100644" })
+  latest.entries.set("library/assets/shared.png", { sha: "shared", mode: "100644" })
+  if (linked) latest.entries.set(`library/${draft.file}`, { sha: draftSha, mode: "100755" })
+  const client = new GitHubLibrary("test-not-a-token", undefined, {
+    now: () => RECYCLE_TIME,
+    trashId: () => TRASH_ID,
+  })
+  const calls = recordWrites(client, latest)
+  const options = {
+    opened: original,
+    openedSha: sourceSha,
+    openedDrafts: linked ? [{ article: draft, sha: draftSha }] : [],
+  }
+  const result = published
+    ? await client.removePublishedArticle(options)
+    : await client.removeDraft(options)
+  return { client, calls, original, draft, source, draftSource, sourceSha, draftSha, result }
+}
+
+test("recycling published notes archives all original blobs and metadata atomically outside the public catalog", async () => {
+  const fixture = await recycleFixture()
+  const { result, calls, original, draft, sourceSha, draftSha } = fixture
+  assert.equal(result.trashId, TRASH_ID)
+  assert.equal(result.record.deletedAt, "2026-10-01T00:00:00.000Z")
+  assert.equal(result.record.expiresAt, "2026-10-31T00:00:00.000Z")
+  assert.equal(result.scope, "published")
+  assert.deepEqual(result.removedIds, ["a", "draft-a"])
+  assert.deepEqual(
+    result.record.articles.map((item) => item.article),
+    [original, draft],
+  )
+  assert.deepEqual(
+    result.record.articles.map((item) => item.sha),
+    [sourceSha, draftSha],
+  )
+  assert.deepEqual(
+    result.record.articles.map((item) => item.index),
+    [0, 2],
+  )
+  assert.deepEqual(
+    result.snapshot.catalog.articles.map((item) => item.id),
+    ["b"],
+  )
+  assert.equal(result.snapshot.entries.has("library/notes/a.md"), false)
+  assert.equal(result.snapshot.entries.has(`library/${draft.file}`), false)
+  assert.equal(result.snapshot.entries.get(result.record.articles[0].sourcePath).sha, sourceSha)
+  assert.equal(result.snapshot.entries.get(result.record.articles[1].sourcePath).sha, draftSha)
+  assert.equal(result.snapshot.entries.get(result.record.articles[1].sourcePath).mode, "100755")
+  assert.equal(calls.length, 3, "original Markdown does not need downloading or rewriting")
+  assert.equal(calls[2].body.force, false)
+  const archiveWrites = calls[0].body.tree.filter((item) => item.path.includes("/sources/"))
+  assert.ok(archiveWrites.every((item) => item.sha && item.content === undefined))
+  assert.deepEqual(await fixture.client.listTrash(result.snapshot), [result.record])
+  assert.equal(calls.length, 3, "accepted snapshot supplies the manifest without another fetch")
+})
+
+test("restoring recycled articles uses original blobs, exact metadata, source paths and catalog positions", async () => {
+  const { client, result, source, draftSource, sourceSha, draftSha, original, draft } =
+    await recycleFixture()
+  const calls = recordWrites(client, result.snapshot)
+  const restored = await client.restoreTrash(result.record, result.snapshot)
+  assert.deepEqual(restored.restoredIds, ["a", "draft-a"])
+  assert.equal(restored.scope, "published")
+  assert.deepEqual(
+    restored.snapshot.catalog.articles.map((item) => item.id),
+    ["a", "b", "draft-a"],
+  )
+  assert.deepEqual(restored.snapshot.catalog.articles[0], original)
+  assert.deepEqual(restored.snapshot.catalog.articles[2], draft)
+  assert.equal(restored.snapshot.entries.get("library/notes/a.md").sha, sourceSha)
+  assert.equal(restored.snapshot.entries.get(`library/${draft.file}`).sha, draftSha)
+  assert.equal(restored.snapshot.entries.get(`library/${draft.file}`).mode, "100755")
+  assert.ok(trashPaths(result.record).every((file) => !restored.snapshot.entries.has(file)))
+  assert.equal(restored.snapshot.entries.get("library/assets/shared.png").sha, "shared")
+  assert.equal(calls[2].body.force, false)
+  const bytes = new Map([
+    [sourceSha, source],
+    [draftSha, draftSource],
+  ])
+  client.repo = async (endpoint) => ({
+    content: Buffer.from(bytes.get(endpoint.replace("git/blobs/", ""))).toString("base64"),
+  })
+  const restoredOriginal = await client.read(original, restored.snapshot)
+  const restoredDraft = await client.read(draft, restored.snapshot)
+  assert.deepEqual(Buffer.from(restoredOriginal.text), Buffer.from(source))
+  assert.deepEqual(Buffer.from(restoredDraft.text), Buffer.from(draftSource))
+})
+
+test("all unpublished article states can be recycled and restored without changing their visibility", async (t) => {
+  for (const linked of [false, true]) {
+    await t.test(linked ? "retracted original and linked edit" : "standalone draft", async () => {
+      const { client, result, original } = await recycleFixture({ published: false, linked })
+      assert.equal(result.scope, "draft")
+      assert.equal(result.record.published, false)
+      recordWrites(client, result.snapshot)
+      const restored = await client.restoreTrash(result.record)
+      assert.equal(restored.published, false)
+      assert.equal(restored.scope, "draft")
+      assert.deepEqual(restored.snapshot.catalog.articles[0], original)
+    })
+  }
+  await t.test("linked editing draft while published original remains untouched", async () => {
+    const draft = revision()
+    const latest = snapshot("original", [article, draft])
+    latest.entries.set(`library/${draft.file}`, { sha: "draft-version" })
+    const client = new GitHubLibrary("test-not-a-token", undefined, { now: () => RECYCLE_TIME })
+    recordWrites(client, latest)
+    const deleted = await client.removeDraft({ opened: draft, openedSha: "draft-version" })
+    assert.equal(deleted.scope, "draft")
+    recordWrites(client, deleted.snapshot)
+    const restored = await client.restoreTrash(deleted.record)
+    assert.deepEqual(restored.snapshot.catalog.articles, [article, draft])
+    assert.equal(restored.snapshot.entries.get("library/notes/a.md").sha, "original")
+  })
+})
+
+test("recycle restoration refuses ID, original-path, new-draft and archive races without any writes", async (t) => {
+  const races = {
+    "article ID reused": (latest) =>
+      latest.catalog.articles.push({ ...article, file: "notes/new.md" }),
+    "source path reused": (latest) => latest.entries.set("library/notes/a.md", { sha: "new" }),
+    "catalog path reused": (latest) =>
+      latest.catalog.articles.push({ ...article, id: "different" }),
+    "manifest modified": (latest, record) => latest.entries.set(record.path, { sha: "different" }),
+    "source modified": (latest, record) =>
+      latest.entries.set(record.articles[0].sourcePath, { sha: "different" }),
+    "source removed": (latest, record) => latest.entries.delete(record.articles[0].sourcePath),
+  }
+  for (const [name, mutate] of Object.entries(races)) {
+    await t.test(name, async () => {
+      const { client, result } = await recycleFixture()
+      mutate(result.snapshot, result.record)
+      const calls = recordWrites(client, result.snapshot)
+      await assert.rejects(client.restoreTrash(result.record), /冲突|另一端|覆盖/)
+      assert.equal(calls.length, 0)
+    })
+  }
+})
+
+test("recycle restoration refuses a replacement linked draft and missing original article", async () => {
+  const draft = revision()
+  const latest = snapshot("original", [article, draft])
+  latest.entries.set(`library/${draft.file}`, { sha: "draft-version" })
+  const client = new GitHubLibrary("test-not-a-token", undefined, { now: () => RECYCLE_TIME })
+  recordWrites(client, latest)
+  const deleted = await client.removeDraft({ opened: draft, openedSha: "draft-version" })
+  const newer = { ...draft, id: "new-draft", file: "notes/new-draft.md" }
+  deleted.snapshot.catalog.articles.push(newer)
+  const calls = recordWrites(client, deleted.snapshot)
+  await assert.rejects(client.restoreTrash(deleted.record), /已有修改草稿/)
+  assert.equal(calls.length, 0)
+  deleted.snapshot.catalog.articles = []
+  await assert.rejects(client.restoreTrash(deleted.record), /原文章尚未恢复/)
+  assert.equal(calls.length, 0)
+})
+
+test("purging and automatic expiry touch only archive files and refuse changed archive baselines", async () => {
+  const { client, result } = await recycleFixture()
+  const calls = recordWrites(client, result.snapshot)
+  const purged = await client.purgeTrash(result.record)
+  assert.deepEqual(
+    calls[0].body.tree.map((item) => item.path),
+    trashPaths(result.record),
+  )
+  assert.ok(
+    calls[0].body.tree.every((item) => item.sha === null && item.path.startsWith("library/trash/")),
+  )
+  assert.deepEqual(purged.snapshot.catalog, result.snapshot.catalog)
+  assert.equal(calls[2].body.force, false)
+  calls.length = 0
+  assert.equal(await client.pruneExpiredTrash(), null)
+  assert.equal(calls.length, 0)
+  client.now = () => RECYCLE_TIME + TRASH_RETENTION_MS
+  assert.deepEqual(await client.listTrash(result.snapshot), [])
+  await assert.rejects(client.restoreTrash(result.record), /超过 30 天/)
+  assert.equal(calls.length, 0)
+  await client.pruneExpiredTrash()
+  assert.deepEqual(
+    calls[0].body.tree.map((item) => item.path),
+    trashPaths(result.record),
+  )
+  calls.length = 0
+  result.snapshot.entries.set(result.record.path, { sha: "changed" })
+  await assert.rejects(client.purgeTrash(result.record), /另一端/)
+  assert.equal(calls.length, 0)
+})
+
+test("invalid recycle paths and record content cannot read or overwrite repository files", async () => {
+  const { client, result } = await recycleFixture()
+  client.snapshot = () => assert.fail("invalid manifests must be rejected before repository reads")
+  const attacks = [
+    { ...result.record, id: "../../site.json" },
+    {
+      ...result.record,
+      articles: [{ ...result.record.articles[0], sourcePath: "library/site.json" }],
+    },
+    { ...result.record, expiresAt: "2099-01-01T00:00:00.000Z" },
+    {
+      ...result.record,
+      articles: [
+        { ...result.record.articles[0], article: { ...article, file: "notes/../../README.md" } },
+      ],
+    },
+  ]
+  for (const record of attacks) {
+    await assert.rejects(client.restoreTrash(record))
+    await assert.rejects(client.purgeTrash(record))
+  }
+})
+
+test("local 30-day cleanup removes only complete expired archives and retains malformed, newer or foreign files", async () => {
+  const repository = await fs.mkdtemp(path.join(os.tmpdir(), "howard-trash-"))
+  try {
+    const { result, source, draftSource } = await recycleFixture()
+    const originals = new Map([
+      ["library/catalog.json", "catalog unchanged"],
+      ["library/notes/new.md", "new article unchanged"],
+      ["library/assets/shared.png", "shared image unchanged"],
+    ])
+    for (const [file, text] of originals) {
+      await fs.mkdir(path.dirname(path.join(repository, file)), { recursive: true })
+      await fs.writeFile(path.join(repository, file), text)
+    }
+    const records = [
+      [result.record, "expired"],
+      [{ ...result.record, id: "22222222-2222-4333-8444-555555555555" }, "newer"],
+      [{ ...result.record, id: "33333333-2222-4333-8444-555555555555" }, "foreign-file"],
+      [{ ...result.record, id: "44444444-2222-4333-8444-555555555555" }, "bad-body"],
+    ]
+    for (const [record, state] of records) {
+      record.articles = structuredClone(record.articles)
+      const root = `library/trash/${record.id}/`
+      record.articles.forEach((item, i) => {
+        item.sourcePath = `${root}sources/${i}.md`
+      })
+      if (state === "newer") {
+        record.deletedAt = new Date(RECYCLE_TIME + 1).toISOString()
+        record.expiresAt = new Date(RECYCLE_TIME + 1 + TRASH_RETENTION_MS).toISOString()
+      }
+      await fs.mkdir(path.join(repository, root, "sources"), { recursive: true })
+      await fs.writeFile(path.join(repository, root, "record.json"), trashRecordContent(record))
+      await fs.writeFile(
+        path.join(repository, record.articles[0].sourcePath),
+        state === "bad-body" ? "changed" : source,
+      )
+      await fs.writeFile(path.join(repository, record.articles[1].sourcePath), draftSource)
+      if (state === "foreign-file")
+        await fs.writeFile(path.join(repository, root, "extra.md"), "foreign")
+    }
+    const brokenRoot = "library/trash/55555555-2222-4333-8444-555555555555"
+    await fs.mkdir(path.join(repository, brokenRoot), { recursive: true })
+    await fs.writeFile(path.join(repository, brokenRoot, "record.json"), "invalid-json")
+    const preview = await pruneTrashDirectory(repository, {
+      now: RECYCLE_TIME + TRASH_RETENTION_MS,
+    })
+    assert.deepEqual(preview.expired, [TRASH_ID])
+    assert.deepEqual(preview.removed, [])
+    assert.equal(preview.retained.length, 1)
+    assert.equal(preview.warnings.length, 3)
+    const cleaned = await pruneTrashDirectory(repository, {
+      now: RECYCLE_TIME + TRASH_RETENTION_MS,
+      write: true,
+    })
+    assert.deepEqual(cleaned.removed, trashPaths(result.record))
+    for (const [file, text] of originals)
+      assert.equal(await fs.readFile(path.join(repository, file), "utf8"), text)
+    for (const file of trashPaths(result.record))
+      await assert.rejects(fs.access(path.join(repository, file)))
+    for (const [record, state] of records.slice(1))
+      assert.ok(
+        await fs.readFile(path.join(repository, `library/trash/${record.id}/record.json`)),
+        state,
+      )
+  } finally {
+    await fs.rm(repository, { recursive: true, force: true })
+  }
+})
+
+test("account and repository authorization reads start concurrently and still require push permission", async () => {
+  const client = new GitHubLibrary("test-not-a-token")
+  let releaseUser
+  const user = new Promise((resolve) => {
+    releaseUser = resolve
+  })
+  const paths = []
+  client.request = async (endpoint) => {
+    paths.push(endpoint)
+    if (endpoint === "/user") return user
+    return { permissions: { push: true } }
+  }
+  const login = client.authenticate()
+  assert.deepEqual(paths, ["/user", "/repos/LeiGuo0812/howard-notes"])
+  releaseUser({ login: "owner" })
+  assert.equal(await login, "owner")
+  client.request = async (endpoint) =>
+    endpoint === "/user" ? { login: "reader" } : { permissions: { push: false } }
+  await assert.rejects(client.authenticate(), /写入权限/)
+})
+
+test("snapshot reads immutable catalog and settings blobs in parallel from one current tree and never caches branch heads", async () => {
+  const client = new GitHubLibrary("test-not-a-token")
+  let releaseCatalog
+  const catalog = new Promise((resolve) => {
+    releaseCatalog = resolve
+  })
+  const paths = []
+  let head = "head-one"
+  client.repo = async (endpoint) => {
+    paths.push(endpoint)
+    if (endpoint === "git/ref/heads/main") return { object: { sha: head } }
+    if (endpoint.startsWith("git/commits/")) return { tree: { sha: "current-tree" } }
+    if (endpoint === "git/trees/current-tree?recursive=1")
+      return {
+        tree: [
+          { path: "library/catalog.json", type: "blob", sha: "catalog-from-this-tree" },
+          { path: "library/site.json", type: "blob", sha: "site-from-this-tree" },
+        ],
+      }
+    if (endpoint === "git/blobs/catalog-from-this-tree") return catalog
+    if (endpoint === "git/blobs/site-from-this-tree")
+      return {
+        content: Buffer.from(JSON.stringify(settings)).toString("base64"),
+      }
+    assert.fail(`unexpected request: ${endpoint}`)
+  }
+  const first = client.snapshot()
+  while (!paths.includes("git/blobs/site-from-this-tree"))
+    await new Promise((resolve) => setImmediate(resolve))
+  assert.ok(paths.includes("git/blobs/catalog-from-this-tree"))
+  releaseCatalog({
+    content: Buffer.from(JSON.stringify({ version: 2, articles: [article] })).toString("base64"),
+  })
+  assert.equal((await first).commit, "head-one")
+  head = "head-two"
+  const second = await client.snapshot()
+  assert.equal(second.commit, "head-two")
+  assert.equal(paths.filter((item) => item === "git/ref/heads/main").length, 2)
+  assert.equal(paths.filter((item) => item.startsWith("git/trees/")).length, 2)
+  assert.equal(paths.filter((item) => item.startsWith("git/blobs/")).length, 2)
+  assert.deepEqual(second.settings, settings)
+  assert.deepEqual(second.catalog.articles, [article])
+})
+
+test("article reads coalesce immutable SHA requests while newer versions and failed reads remain fresh", async () => {
+  const client = new GitHubLibrary("test-not-a-token")
+  const source = "\uFEFF原文字节\r\n"
+  let release
+  const blob = new Promise((resolve) => {
+    release = resolve
+  })
+  const calls = []
+  client.repo = async (endpoint) => {
+    calls.push(endpoint)
+    return blob
+  }
+  const first = client.read(article, snapshot("old-blob"))
+  const parallel = client.read(article, snapshot("old-blob"))
+  assert.deepEqual(calls, ["git/blobs/old-blob"])
+  release({ content: Buffer.from(source).toString("base64") })
+  assert.deepEqual(await first, { text: source, sha: "old-blob" })
+  assert.deepEqual(await parallel, { text: source, sha: "old-blob" })
+  await client.read(article, snapshot("old-blob"))
+  assert.equal(calls.length, 1)
+  client.repo = async (endpoint) => {
+    calls.push(endpoint)
+    return { content: Buffer.from("new version").toString("base64") }
+  }
+  assert.equal((await client.read(article, snapshot("new-blob"))).text, "new version")
+  assert.deepEqual(calls, ["git/blobs/old-blob", "git/blobs/new-blob"])
+  let failures = 0
+  client.repo = async () => {
+    failures++
+    if (failures === 1) throw new Error("temporary outage")
+    return { content: Buffer.from("retried").toString("base64") }
+  }
+  await assert.rejects(client.read(article, snapshot("retry-blob")), /temporary outage/)
+  assert.equal((await client.read(article, snapshot("retry-blob"))).text, "retried")
+  assert.equal(failures, 2)
 })

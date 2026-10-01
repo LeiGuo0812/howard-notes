@@ -1138,6 +1138,10 @@ a.article-row.internal {
 .reading-tools:not([open]) > .reading-tool-panels {
   display: none;
 }
+.reading-tools-mobile-label,
+.reading-drawer-header {
+  display: none;
+}
 .reading-sidebar .graph {
   min-width: 0;
   > h3 {
@@ -1612,15 +1616,129 @@ a.article-row.internal {
     }
   }
   .page[data-frame="blog"] #quartz-body .blog-layout.is-article > #main-content.center {
-    padding: 24px 26px;
+    padding: 24px 32px;
   }
   .blog-layout .article-title {
     font-size: 26px;
   }
-  .reading-tools > summary {
-    background: var(--glass-solid);
-    -webkit-backdrop-filter: none;
-    backdrop-filter: none;
+  .page[data-frame="blog"] #quartz-body .blog-layout .sidebar.reading-sidebar {
+    position: fixed;
+    top: auto;
+    right: max(0px, env(safe-area-inset-right));
+    bottom: max(116px, calc(env(safe-area-inset-bottom) + 100px));
+    width: 44px;
+    height: 44px;
+    z-index: var(--glass-z-controls);
+    &:has(.global-graph-outer.active) {
+      z-index: var(--glass-z-modal);
+    }
+    .reading-tools {
+      width: 44px;
+      height: 44px;
+      max-height: none;
+      overflow: visible;
+      > summary {
+        display: grid;
+        place-items: center;
+        width: 44px;
+        min-height: 44px;
+        margin: 0;
+        padding: 6px 4px;
+        border-radius: 14px 0 0 14px;
+        background: var(--glass-solid);
+        -webkit-backdrop-filter: none;
+        backdrop-filter: none;
+        list-style: none;
+        line-height: 16px;
+        font-size: 11px;
+        &::-webkit-details-marker {
+          display: none;
+        }
+      }
+      &[open] > summary {
+        color: var(--dark);
+        border-color: color-mix(in srgb, var(--secondary) 45%, var(--glass-edge));
+      }
+    }
+    .reading-tools-label {
+      display: none;
+    }
+    .reading-tools-mobile-label {
+      display: block;
+      text-align: center;
+      font-weight: 550;
+    }
+    .reading-tool-panels {
+      position: fixed;
+      top: max(146px, calc(env(safe-area-inset-top) + 132px));
+      right: max(56px, calc(env(safe-area-inset-right) + 48px));
+      bottom: max(16px, env(safe-area-inset-bottom));
+      width: min(360px, calc(100vw - 72px));
+      max-height: none;
+      margin: 0;
+      padding: 12px;
+      gap: 14px;
+      overflow-y: auto;
+      overscroll-behavior: contain;
+      touch-action: pan-y pinch-zoom;
+      scrollbar-width: thin;
+      border: 1px solid var(--glass-edge);
+      border-radius: 18px;
+      background: var(--glass-solid);
+      box-shadow: var(--glass-inset), var(--glass-shadow);
+      > * {
+        flex: 0 0 auto;
+      }
+      > .reading-toc-surface {
+        order: 1;
+      }
+      > .graph {
+        order: 2;
+      }
+      .toc.frosted-panel {
+        padding: 14px;
+        background: var(--glass-solid);
+        -webkit-backdrop-filter: none;
+        backdrop-filter: none;
+      }
+      .graph-outer {
+        height: 330px;
+      }
+    }
+    .reading-drawer-header {
+      position: sticky;
+      top: -12px;
+      z-index: 2;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 12px;
+      margin: -12px -12px 0;
+      padding: 6px 8px 6px 16px;
+      background: var(--glass-solid);
+      border-bottom: 1px solid var(--glass-edge);
+      strong {
+        color: var(--darkgray);
+        font-size: 13px;
+        font-weight: 550;
+      }
+      button {
+        @include material.control;
+        display: grid;
+        place-items: center;
+        width: 44px;
+        height: 44px;
+        padding: 10px;
+        border-color: transparent;
+        background: none;
+        box-shadow: none;
+        color: var(--secondary);
+        svg {
+          width: 20px;
+          height: 20px;
+        }
+      }
+    }
   }
   .reading-scroll-controls {
     right: max(4px, env(safe-area-inset-right));

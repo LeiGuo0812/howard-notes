@@ -86,6 +86,7 @@ export function createRuntimePublisher({
   let pending = null,
     running = null,
     configuration = null,
+    confirmed = null,
     disposed = false
   try {
     const stored = storage?.getItem(PENDING_KEY)
@@ -200,12 +201,7 @@ export function createRuntimePublisher({
     snapshot ||= await client.snapshot()
     if (!SHA.test(snapshot.commit)) throw new Error("GitHub 版本信息不正确，请重试同步。")
     const api = settings.apiBase
-    const [previous, shell, modules] = await Promise.all([
-      request(`${api}/snapshot`),
-      request(`${api}/shell`),
-      loadProjection ? loadProjection() : background,
-    ])
-    const sources = await sourcesFor(snapshot, previous)
+    background?.warm()
     const begun = await request(`${api}/sync/begin`, {
       body: { commit: snapshot.commit },
       token: client.token,
@@ -232,6 +228,26 @@ export function createRuntimePublisher({
     if (begun.status === "synchronized") return accept(begun)
     if (typeof begun.syncId !== "string" || !begun.syncId)
       throw new Error("线上同步会话不正确，请重试同步。")
+    const cached =
+      confirmed?.previous.revision === begun.revision - 1 &&
+      confirmed.previous.commit === begun.currentCommit
+        ? confirmed
+        : null
+    const [{ previous, shell }, modules] = await Promise.all([
+      cached ||
+        Promise.all([request(`${api}/snapshot`), request(`${api}/shell`)]).then(
+          ([previous, shell]) => ({ previous, shell }),
+        ),
+      loadProjection ? loadProjection() : background,
+    ])
+    // A concurrent deployment may finish between begin and the public read. Its
+    // page hashes cannot be compared against begin's older staged pages.
+    if (previous.revision !== begun.revision - 1 || previous.commit !== begun.currentCommit) {
+      const error = new Error("线上内容已有更新，请重试同步最新内容。")
+      error.status = 409
+      throw error
+    }
+    const sources = await sourcesFor(snapshot, previous)
     const input = {
       catalog: snapshot.catalog,
       settings: snapshot.settings,
@@ -264,6 +280,9 @@ export function createRuntimePublisher({
           !reusable.has(doc.id) || JSON.stringify(previousDocs.get(doc.id)) !== JSON.stringify(doc),
       )
       const pageHashes = await Promise.all(pages.map((page) => renderedPageHash(page.html)))
+      projection.pageHashes = Object.fromEntries(
+        pages.map((page, index) => [page.path, pageHashes[index]]),
+      )
       const changedPages = pages.filter(
         (page, index) => previous.pageHashes?.[page.path] !== pageHashes[index],
       )
@@ -273,20 +292,28 @@ export function createRuntimePublisher({
         Math.min(730000, settings.maxChunkBytes || 730000),
       )
     }
-    let completed = 0
-    for (let index = 0; index < chunks.length; index += 3) {
-      const uploaded = await Promise.allSettled(
-        chunks.slice(index, index + 3).map(async (chunk) => {
-          await request(`${api}/sync/chunk`, {
-            body: { syncId: begun.syncId, ...chunk },
-            token: client.token,
-          })
-          emit({ status: "syncing", ...record, progress: `${++completed}/${chunks.length}` })
-        }),
-      )
-      const failed = uploaded.find((result) => result.status === "rejected")
-      if (failed) throw failed.reason
-    }
+    let completed = 0,
+      cursor = 0,
+      failed
+    // Keep at most three requests in flight, but refill a free slot immediately
+    // instead of waiting for the slowest request in each fixed batch.
+    await Promise.allSettled(
+      Array.from({ length: Math.min(3, chunks.length) }, async () => {
+        while (cursor < chunks.length && !failed) {
+          const chunk = chunks[cursor++]
+          try {
+            await request(`${api}/sync/chunk`, {
+              body: { syncId: begun.syncId, ...chunk },
+              token: client.token,
+            })
+            emit({ status: "syncing", ...record, progress: `${++completed}/${chunks.length}` })
+          } catch (error) {
+            failed ||= error
+          }
+        }
+      }),
+    )
+    if (failed) throw failed
     for (const metadata of [
       { contentIndex: projection.contentIndex },
       { blogData: projection.blogData },
@@ -299,7 +326,27 @@ export function createRuntimePublisher({
       body: { syncId: begun.syncId },
       token: client.token,
     })
-    return accept(result)
+    const accepted = accept(result)
+    // Retain only the confirmed public version in memory. The next canonical
+    // begin must identify this exact base before any source/AST/page is reused.
+    // Never promote a failed or partially uploaded projection into the cache.
+    if (projection.pageHashes) {
+      const documents = new Map((previous.documents || []).map((doc) => [doc.id, doc]))
+      for (const chunk of chunks) for (const doc of chunk.documents) documents.set(doc.id, doc)
+      const published = snapshot.catalog.articles.filter((article) => article.published)
+      const rows = published.map((article) => documents.get(article.id))
+      if (rows.every(Boolean))
+        confirmed = {
+          shell,
+          previous: {
+            revision: result.revision,
+            commit: snapshot.commit,
+            documents: rows,
+            pageHashes: projection.pageHashes,
+          },
+        }
+    }
+    return accepted
   }
   function run(record, snapshot) {
     if (running) return running
@@ -328,6 +375,7 @@ export function createRuntimePublisher({
     pending: () => pending && { ...pending },
     dispose() {
       disposed = true
+      confirmed = null
       background?.dispose()
     },
   }

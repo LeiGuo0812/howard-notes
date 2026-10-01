@@ -24,7 +24,7 @@
     "export": "node scripts/prepare-content.mjs",
     "sync": "node scripts/sync-notes.mjs",
     "preview": "node scripts/preview.mjs",
-    "test:publish": "node --test scripts/library.test.mjs scripts/site-pages.test.mjs scripts/site-icon.test.mjs scripts/sync.test.mjs scripts/sync.integration.test.mjs admin/github.test.mjs admin/images.test.mjs admin/formatting.test.mjs admin/article-recovery.test.mjs admin/deployment.test.mjs admin/runtime-publish.test.mjs admin/panel-window.test.mjs admin/auth.test.mjs auth-service/worker.test.mjs content-service/worker.test.mjs content-service/session.test.mjs && tsx --test quartz/util/article-links.test.ts quartz/runtime/render.test.ts runtime/projection.test.mjs runtime/cache.test.mjs runtime/syntax.test.ts quartz/components/renderPage.test.ts",
+    "test:publish": "node --test scripts/library.test.mjs scripts/site-pages.test.mjs scripts/site-icon.test.mjs scripts/sync.test.mjs scripts/sync.integration.test.mjs admin/github.test.mjs admin/images.test.mjs admin/formatting.test.mjs admin/article-recovery.test.mjs admin/local-trash.test.mjs admin/deployment.test.mjs admin/runtime-publish.test.mjs admin/panel-window.test.mjs admin/auth.test.mjs auth-service/worker.test.mjs content-service/worker.test.mjs content-service/session.test.mjs && tsx --test quartz/util/article-links.test.ts quartz/runtime/render.test.ts runtime/projection.test.mjs runtime/cache.test.mjs runtime/syntax.test.ts quartz/components/renderPage.test.ts",
     "verify:site": "node scripts/verify-site.mjs",
     "content:sync": "node --use-env-proxy scripts/prepare-content.mjs && node --use-env-proxy scripts/content-sync.mjs",
     "content:seed": "node scripts/content-sync.mjs --seed-sql .local/content-import.sql",

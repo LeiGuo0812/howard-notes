@@ -43,8 +43,17 @@
       </section>
       <nav id="admin-tabs" class="admin-tabs" aria-label="管理功能" hidden>
         <button id="tab-articles" aria-current="page">文章</button
-        ><button id="tab-drafts">草稿箱</button><button id="tab-settings">页面设置</button>
+        ><button id="tab-drafts">草稿箱</button><button id="tab-trash">回收站</button
+        ><button id="tab-settings">页面设置</button>
       </nav>
+      <section id="trash-workspace" class="trash-workspace frosted-panel" hidden>
+        <div class="list-heading">
+          <h2>回收站</h2>
+          <button id="reload-trash" type="button">刷新</button>
+        </div>
+        <p class="small">保留 30 天</p>
+        <div id="trash-list" class="trash-list" aria-live="polite"></div>
+      </section>
       <div id="workspace" class="workspace" hidden>
         <aside class="article-sidebar frosted-panel" data-spotlight>
           <div class="list-heading">
