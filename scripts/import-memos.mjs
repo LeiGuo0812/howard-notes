@@ -48,6 +48,13 @@ const writePrivate = async (file, bytes) => {
   await fs.chmod(file, 0o600)
 }
 const writeJson = (file, value) => writePrivate(file, JSON.stringify(value, null, 2) + "\n")
+const writePrivateAtomic = async (file, bytes) => {
+  const pending = `${file}.${process.pid}.pending`
+  await writePrivate(pending, bytes)
+  await fs.rename(pending, file)
+}
+const writeJsonAtomic = (file, value) =>
+  writePrivateAtomic(file, JSON.stringify(value, null, 2) + "\n")
 const list = (value, field) => {
   if (!value || !Array.isArray(value[field])) {
     // protobuf omits empty repeated fields by default.
@@ -60,6 +67,36 @@ const validDate = (value) => {
   if (typeof value !== "string" || !Number.isFinite(Date.parse(value)))
     throw new ImportError("来源时间缺失或不正确，导出不能被导入。")
   return value
+}
+async function verifyCachedMemo(directory, entry, accountName) {
+  sourceName(entry.sourceId, "memos")
+  const exported = JSON.parse(await fs.readFile(localFile(directory, entry.file), "utf8"))
+  const content = await fs.readFile(localFile(directory, entry.contentFile))
+  const { memo } = exported
+  if (
+    memo.name !== entry.sourceId ||
+    memo.creator !== accountName ||
+    digest(content) !== entry.contentSha256 ||
+    valueHash(memo) !== entry.sourceSha256 ||
+    valueHash(exported) !== entry.metadataSha256 ||
+    typeof memo.content !== "string" ||
+    !content.equals(Buffer.from(memo.content, "utf8"))
+  )
+    throw new ImportError("Memos 缓存原文或元信息校验失败。")
+  return exported
+}
+async function verifyCachedResource(directory, entry) {
+  sourceName(entry.sourceId, "resources")
+  const resource = JSON.parse(await fs.readFile(localFile(directory, entry.metadataFile), "utf8"))
+  const bytes = await fs.readFile(localFile(directory, entry.file))
+  if (
+    digest(bytes) !== entry.sha256 ||
+    bytes.length !== entry.size ||
+    resource.name !== entry.sourceId ||
+    valueHash(resource) !== entry.metadataSha256
+  )
+    throw new ImportError("Memos 缓存附件校验失败。")
+  return { ...entry, resource }
 }
 const retryStatuses = new Set([429, 502, 503, 504])
 const safeNetworkCodes = new Set([
@@ -252,6 +289,7 @@ export async function exportMemos({
   fetchImpl = fetch,
   pageSize = 100,
   onProgress = () => {},
+  resume = false,
 }) {
   if (!outputDirectory) throw new ImportError("请指定本地导出目录。")
   if (!Number.isSafeInteger(pageSize) || pageSize < 1 || pageSize > 1000)
@@ -259,14 +297,61 @@ export async function exportMemos({
   const directory = path.resolve(outputDirectory)
   await fs.mkdir(directory, { recursive: true, mode: 0o700 })
   const manifestFile = path.join(directory, "manifest.json")
-  try {
-    await fs.access(manifestFile)
-    throw new ImportError("导出目录已有记录，请使用新的目录。")
-  } catch (error) {
-    if (error.code !== "ENOENT") throw error
-  }
-  let responseCount = 0
-  const responses = []
+  let previous
+  if (resume) {
+    previous = JSON.parse(await fs.readFile(manifestFile, "utf8"))
+    if (
+      previous.version !== 1 ||
+      previous.memosVersion !== MEMOS_VERSION ||
+      previous.complete ||
+      originOf(previous.sourceOrigin) !== originOf(sourceOrigin) ||
+      previous.account?.username !== username ||
+      !Array.isArray(previous.memos) ||
+      !Array.isArray(previous.resources) ||
+      !Array.isArray(previous.responses)
+    )
+      throw new ImportError("恢复导出的来源、账号或未完成清单不正确。")
+    sourceName(previous.account.name, "users")
+    const memoIds = new Set(),
+      resourceIds = new Set()
+    for (const entry of previous.memos) {
+      if (memoIds.has(entry.sourceId)) throw new ImportError("恢复清单包含重复记录。")
+      memoIds.add(entry.sourceId)
+      await verifyCachedMemo(directory, entry, previous.account.name)
+    }
+    for (const entry of previous.resources) {
+      if (resourceIds.has(entry.sourceId)) throw new ImportError("恢复清单包含重复附件。")
+      resourceIds.add(entry.sourceId)
+      await verifyCachedResource(directory, entry)
+    }
+    for (const entry of previous.responses) {
+      const bytes = await fs.readFile(localFile(directory, entry.file))
+      if (digest(bytes) !== entry.sha256 || bytes.length !== entry.bytes)
+        throw new ImportError("恢复清单的原始响应校验失败。")
+    }
+    onProgress({
+      phase: "resume-cache-verified",
+      memos: previous.memos.length,
+      resources: previous.resources.length,
+    })
+  } else
+    try {
+      await fs.access(manifestFile)
+      throw new ImportError("导出目录已有记录，请使用新的目录。")
+    } catch (error) {
+      if (error.code !== "ENOENT") throw error
+    }
+  let responseCount = Math.max(
+    0,
+    ...(previous?.responses || []).map(
+      (entry) => Number(/^responses\/(\d+)-/.exec(entry.file)?.[1]) || 0,
+    ),
+  )
+  const responses = [...(previous?.responses || [])]
+  const cachedMemos = new Map((previous?.memos || []).map((entry) => [entry.sourceId, entry]))
+  const cachedResources = new Map(
+    (previous?.resources || []).map((entry) => [entry.sourceId, entry]),
+  )
   const client = sourceClient({
     sourceOrigin,
     username,
@@ -279,6 +364,8 @@ export async function exportMemos({
     },
   })
   const account = await client.login()
+  if (previous && previous.account.name !== account.name)
+    throw new ImportError("恢复导出的账号身份不一致。")
   const profile = await client.request("/api/v1/workspace/profile")
   if (String(profile.version).replace(/^v/, "") !== MEMOS_VERSION)
     throw new ImportError("Memos 来源版本与已验证的 0.22.5 API 不一致。")
@@ -286,12 +373,13 @@ export async function exportMemos({
     version: 1,
     memosVersion: MEMOS_VERSION,
     sourceOrigin: client.origin,
-    exportedAt: new Date().toISOString(),
+    exportedAt: previous?.exportedAt || new Date().toISOString(),
+    ...(resume ? { resumedAt: new Date().toISOString() } : {}),
     complete: false,
     account,
-    memos: [],
-    resources: [],
-    metadata: {},
+    memos: [...cachedMemos.values()],
+    resources: [...cachedResources.values()],
+    metadata: previous?.metadata || {},
     responses,
     counts: {
       normal: 0,
@@ -302,7 +390,8 @@ export async function exportMemos({
       orphanResources: 0,
     },
   }
-  await writeJson(manifestFile, manifest)
+  const checkpoint = () => writeJsonAtomic(manifestFile, manifest)
+  await checkpoint()
   const collect = async (status) => {
     const memos = new Map(),
       tokens = new Set()
@@ -349,6 +438,10 @@ export async function exportMemos({
     if (resources.has(resource.name)) throw new ImportError("来源附件列表返回重复记录。")
     resources.set(resource.name, resource)
   }
+  for (const name of cachedMemos.keys()) if (!first.has(name)) cachedMemos.delete(name)
+  manifest.memos = [...cachedMemos.values()]
+  let metadataCount = 0,
+    reusedMemos = 0
   for (const memo of first.values()) {
     const resourcesResult = await client.request(`/api/v1/${memo.name}/resources`)
     const relationsResult = await client.request(`/api/v1/${memo.name}/relations`)
@@ -363,11 +456,8 @@ export async function exportMemos({
         throw new ImportError("评论接口发现未被分页导出的本人记录，完整性验证失败。")
     }
     const key = digest(memo.name).slice(0, 24)
-    const file = `memos/${key}/memo.json`,
-      contentFile = `memos/${key}/content.md`
     const originalBytes = Buffer.from(memo.content ?? "", "utf8")
     if (typeof memo.content !== "string") throw new ImportError("来源正文格式不正确。")
-    await writePrivate(localFile(directory, contentFile), originalBytes)
     const fullMemo = {
       memo,
       resources: attached,
@@ -375,15 +465,27 @@ export async function exportMemos({
       comments,
       reactions: list(reactionsResult, "reactions"),
     }
-    await writeJson(localFile(directory, file), fullMemo)
-    manifest.memos.push({
+    const metadataSha256 = valueHash(fullMemo),
+      contentSha256 = digest(originalBytes)
+    const cached = cachedMemos.get(memo.name)
+    const unchanged =
+      cached?.metadataSha256 === metadataSha256 && cached?.contentSha256 === contentSha256
+    const file = unchanged ? cached.file : `memos/${key}/${metadataSha256}.json`
+    const contentFile = unchanged ? cached.contentFile : `memos/${key}/${contentSha256}.md`
+    if (unchanged) reusedMemos++
+    else {
+      await writePrivateAtomic(localFile(directory, contentFile), originalBytes)
+      await writeJsonAtomic(localFile(directory, file), fullMemo)
+    }
+    cachedMemos.set(memo.name, {
       sourceId: memo.name,
       file,
       contentFile,
-      contentSha256: digest(originalBytes),
+      contentSha256,
       sourceSha256: valueHash(memo),
-      metadataSha256: valueHash(fullMemo),
+      metadataSha256,
     })
+    manifest.memos = [...cachedMemos.values()]
     manifest.counts[memo.rowStatus === "ACTIVE" ? "normal" : "archived"]++
     if (
       memo.parent ||
@@ -391,26 +493,48 @@ export async function exportMemos({
       (memo.relations || []).some((r) => r.type === "COMMENT" && r.memo === memo.name)
     )
       manifest.counts.comments++
-    if (manifest.memos.length % 20 === 0 || manifest.memos.length === first.size)
-      onProgress({ phase: "memo-metadata", count: manifest.memos.length, total: first.size })
+    metadataCount++
+    if (metadataCount % 20 === 0 || metadataCount === first.size) {
+      await checkpoint()
+      onProgress({
+        phase: "memo-metadata",
+        count: metadataCount,
+        total: first.size,
+        reused: reusedMemos,
+      })
+    }
   }
   const ownedNames = new Set(first.keys())
+  for (const name of cachedResources.keys()) if (!resources.has(name)) cachedResources.delete(name)
+  manifest.resources = [...cachedResources.values()]
+  let resourceCount = 0,
+    reusedResources = 0
   for (const resource of resources.values()) {
-    const metadataFile = `resources/${digest(resource.name).slice(0, 24)}.json`
-    await writeJson(localFile(directory, metadataFile), resource)
+    const metadataSha256 = valueHash(resource)
+    const cached = cachedResources.get(resource.name)
+    const unchanged = cached?.metadataSha256 === metadataSha256
+    const metadataFile = unchanged
+      ? cached.metadataFile
+      : `resources/${digest(resource.name).slice(0, 24)}-${metadataSha256.slice(0, 24)}.json`
     const sourcePath = `/file/${resource.name}/${encodeURIComponent(resource.filename || "attachment")}`
     const sourceUrl = resource.externalLink || new URL(sourcePath, client.origin).href
-    const bytes = await client.binary(sourceUrl)
+    const bytes = unchanged
+      ? await fs.readFile(localFile(directory, cached.file))
+      : await client.binary(sourceUrl)
+    if (unchanged) reusedResources++
     const expectedSize = Number(resource.size)
     if (Number.isSafeInteger(expectedSize) && expectedSize > 0 && expectedSize !== bytes.length)
       throw new ImportError("来源附件长度与元信息不一致，导出未完成。")
     const sha256 = digest(bytes)
     const file = `files/${sha256}.bin`
-    await writePrivate(localFile(directory, file), bytes)
-    manifest.resources.push({
+    if (!unchanged) {
+      await writePrivateAtomic(localFile(directory, file), bytes)
+      await writeJsonAtomic(localFile(directory, metadataFile), resource)
+    }
+    cachedResources.set(resource.name, {
       sourceId: resource.name,
       metadataFile,
-      metadataSha256: valueHash(resource),
+      metadataSha256,
       file,
       sha256,
       size: bytes.length,
@@ -418,10 +542,16 @@ export async function exportMemos({
       sourcePath,
       sourceUrl,
     })
+    manifest.resources = [...cachedResources.values()]
+    manifest.counts.resources = manifest.resources.length
     if (!resource.memo || !ownedNames.has(resource.memo)) manifest.counts.orphanResources++
+    await checkpoint()
+    resourceCount++
     onProgress({
       phase: "resource-files",
-      count: manifest.resources.length,
+      count: resourceCount,
+      total: resources.size,
+      reused: reusedResources,
       bytes: bytes.length,
       sha256,
     })
@@ -435,6 +565,7 @@ export async function exportMemos({
     tags: `/api/v1/memos/-/tags?${new URLSearchParams({ filter: `creator == "${account.name}"` })}`,
   }))
     manifest.metadata[name] = await client.request(route)
+  await checkpoint()
   // Offset-based pagination can omit records if the instance changes while we export.
   // A second complete pass proves the source was stable, rather than silently accepting a partial dump.
   const verified = new Map()
@@ -456,7 +587,7 @@ export async function exportMemos({
     memos: manifest.memos.map((memo) => [memo.sourceId, memo.contentSha256, memo.sourceSha256]),
     resources: manifest.resources.map((resource) => [resource.sourceId, resource.sha256]),
   })
-  await writeJson(manifestFile, manifest)
+  await checkpoint()
   return { directory, counts: manifest.counts, snapshotSha256: manifest.snapshotSha256 }
 }
 
@@ -787,26 +918,39 @@ async function main() {
   }
   if (args.includes("--help")) {
     console.log(
-      "node scripts/import-memos.mjs [--export-only] [--import-from <dir>] [--output <ignored-dir>] [--source <origin>] [--username <name>] [--api <target>]\n登录密码仅从 MEMOS_PASSWORD 环境变量读取；GitHub 与同步授权从既有本地登录读取。",
+      "node scripts/import-memos.mjs [--export-only] [--resume-export <dir>] [--import-from <dir>] [--output <ignored-dir>] [--source <origin>] [--username <name>] [--api <target>]\n登录密码仅从 MEMOS_PASSWORD 环境变量读取；GitHub 与同步授权从既有本地登录读取。",
     )
     return
   }
   const repo = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..")
   let directory = option("--import-from", null)
+  const resumeDirectory = option("--resume-export", null)
+  if (directory && resumeDirectory) throw new ImportError("恢复导出与从完成目录迁入不能同时指定。")
   if (!directory) {
     directory = path.resolve(
-      option(
-        "--output",
-        path.join(repo, ".local/memos-import", new Date().toISOString().replace(/[:.]/g, "-")),
-      ),
+      resumeDirectory ||
+        option(
+          "--output",
+          path.join(repo, ".local/memos-import", new Date().toISOString().replace(/[:.]/g, "-")),
+        ),
     )
     if (!directory.startsWith(path.join(repo, ".local") + path.sep))
       throw new ImportError("原始导出必须保存在仓库忽略的 .local 目录中。")
+    const prior = resumeDirectory
+      ? JSON.parse(await fs.readFile(path.join(directory, "manifest.json"), "utf8"))
+      : null
     const result = await exportMemos({
-      sourceOrigin: option("--source", process.env.MEMOS_ORIGIN || "http://139.224.225.116:5230"),
-      username: option("--username", process.env.MEMOS_USERNAME || "Howard"),
+      sourceOrigin: option(
+        "--source",
+        process.env.MEMOS_ORIGIN || prior?.sourceOrigin || "http://139.224.225.116:5230",
+      ),
+      username: option(
+        "--username",
+        process.env.MEMOS_USERNAME || prior?.account?.username || "Howard",
+      ),
       password: process.env.MEMOS_PASSWORD,
       outputDirectory: directory,
+      resume: Boolean(resumeDirectory),
       onProgress: (progress) => console.log(JSON.stringify(progress)),
     })
     console.log(JSON.stringify({ phase: "export-complete", ...result }))

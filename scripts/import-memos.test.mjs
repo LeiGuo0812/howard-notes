@@ -716,3 +716,196 @@ test("target authorization refusal is never retried even on idempotent import en
   )
   assert.equal(calls, 1)
 })
+
+async function interruptedExport(t, { legacyPaths = false } = {}) {
+  const directory = await fs.mkdtemp(path.join(os.tmpdir(), "howard-memos-checkpoint-"))
+  t.after(() => fs.rm(directory, { recursive: true, force: true }))
+  const source = sourceMock({ count: 5, failures: { "/full-file": [503, 503, 503] } })
+  await assert.rejects(
+    exportMemos({
+      sourceOrigin: origin,
+      username,
+      password,
+      outputDirectory: directory,
+      fetchImpl: source.fetchImpl,
+    }),
+    /HTTP 503/,
+  )
+  const manifest = JSON.parse(await fs.readFile(path.join(directory, "manifest.json")))
+  assert.equal(manifest.complete, false)
+  assert.equal(manifest.memos.length, 8)
+  assert.equal(manifest.resources.length, 1)
+  assert.equal(manifest.counts.resources, 1)
+  if (legacyPaths) {
+    for (const entry of manifest.memos) {
+      const key = sha(entry.sourceId).slice(0, 24)
+      const file = `memos/${key}/memo.json`,
+        contentFile = `memos/${key}/content.md`
+      await fs.rename(path.join(directory, entry.file), path.join(directory, file))
+      await fs.rename(path.join(directory, entry.contentFile), path.join(directory, contentFile))
+      entry.file = file
+      entry.contentFile = contentFile
+    }
+    for (const entry of manifest.resources) {
+      const metadataFile = `resources/${sha(entry.sourceId).slice(0, 24)}.json`
+      await fs.rename(path.join(directory, entry.metadataFile), path.join(directory, metadataFile))
+      entry.metadataFile = metadataFile
+    }
+    await fs.writeFile(path.join(directory, "manifest.json"), JSON.stringify(manifest))
+  }
+  return { directory, manifest }
+}
+
+test("incomplete exports checkpoint atomically and resume revalidates all source pages while reusing hashed bytes", async (t) => {
+  const { directory, manifest } = await interruptedExport(t, { legacyPaths: true })
+  const interruptedAgain = sourceMock({
+    count: 5,
+    failures: { "/api/v1/memos/1/resources": [503, 503, 503] },
+  })
+  await assert.rejects(
+    exportMemos({
+      sourceOrigin: origin,
+      username,
+      password,
+      outputDirectory: directory,
+      fetchImpl: interruptedAgain.fetchImpl,
+      resume: true,
+    }),
+    /HTTP 503/,
+  )
+  const afterFailure = JSON.parse(await fs.readFile(path.join(directory, "manifest.json")))
+  assert.equal(
+    afterFailure.memos.length,
+    8,
+    "an early resume failure must retain unprocessed memo caches",
+  )
+  assert.equal(
+    afterFailure.resources.length,
+    1,
+    "an early resume failure must retain downloaded file mappings",
+  )
+  const source = sourceMock({ count: 5 }),
+    progress = []
+  await exportMemos({
+    sourceOrigin: origin,
+    username,
+    password,
+    outputDirectory: directory,
+    fetchImpl: source.fetchImpl,
+    resume: true,
+    onProgress: (value) => progress.push(value),
+  })
+  const exported = await readMemosExport(directory)
+  assert.equal(exported.manifest.complete, true)
+  assert.equal(exported.cards.length, 8)
+  assert.equal(exported.manifest.resources.length, 3)
+  assert.deepEqual(source.passes, { NORMAL: 2, ARCHIVED: 2 })
+  assert.equal(
+    source.requests.filter((request) => request.url.pathname.startsWith("/file/resources/1/"))
+      .length,
+    0,
+  )
+  assert.equal(source.requests.filter((request) => request.url.pathname === "/full-file").length, 1)
+  assert.equal(
+    source.requests.filter((request) => request.url.pathname === "/api/v1/memos/1/comments").length,
+    1,
+  )
+  assert.equal(progress.find((value) => value.phase === "memo-metadata").reused, 8)
+  assert.equal(progress.filter((value) => value.phase === "resource-files").at(-1).reused, 1)
+  assert.equal(
+    new Set(exported.manifest.responses.map((response) => response.file)).size,
+    exported.manifest.responses.length,
+  )
+  assert.ok(exported.manifest.responses.length > manifest.responses.length)
+  assert.equal(
+    (await allLocalFiles(directory)).some((file) => file.endsWith(".pending")),
+    false,
+  )
+  for (const file of await allLocalFiles(directory))
+    assert.equal((await fs.stat(file)).mode & 0o777, 0o600)
+})
+
+test("resume rejects modified cached memo or attachment bytes before making any source request", async (t) => {
+  for (const kind of ["memo", "resource"]) {
+    const { directory, manifest } = await interruptedExport(t)
+    const file = kind === "memo" ? manifest.memos[0].contentFile : manifest.resources[0].file
+    await fs.appendFile(path.join(directory, file), "changed")
+    let requests = 0
+    await assert.rejects(
+      exportMemos({
+        sourceOrigin: origin,
+        username,
+        password,
+        outputDirectory: directory,
+        resume: true,
+        fetchImpl: async () => {
+          requests++
+        },
+      }),
+      /缓存.*校验失败/,
+    )
+    assert.equal(requests, 0)
+    assert.equal(
+      JSON.parse(await fs.readFile(path.join(directory, "manifest.json"))).complete,
+      false,
+    )
+  }
+})
+
+test("resume refreshes changed source metadata, redownloads changed resources and removes deleted memos", async (t) => {
+  const { directory, manifest } = await interruptedExport(t)
+  const source = sourceMock({ count: 4 })
+  source.resources[0].filename = "renamed.bin"
+  await exportMemos({
+    sourceOrigin: origin,
+    username,
+    password,
+    outputDirectory: directory,
+    resume: true,
+    fetchImpl: source.fetchImpl,
+  })
+  const exported = await readMemosExport(directory)
+  assert.equal(exported.cards.length, 7)
+  assert.equal(
+    exported.cards.some((card) => card.sourceId === "memos/5"),
+    false,
+  )
+  assert.equal(
+    source.requests.filter((request) => request.url.pathname === "/file/resources/1/renamed.bin")
+      .length,
+    1,
+  )
+  assert.equal(
+    exported.resources.find((resource) => resource.sourceId === "resources/1").resource.filename,
+    "renamed.bin",
+  )
+  // Old checkpoint files stay valid even when newer source metadata is written.
+  const oldMetadata = JSON.parse(
+    await fs.readFile(path.join(directory, manifest.resources[0].metadataFile)),
+  )
+  assert.equal(oldMetadata.filename, "资源 1.bin")
+  assert.equal(
+    exported.cards.find((card) => card.sourceId === "memos/1").raw.resources[0].filename,
+    "renamed.bin",
+  )
+})
+
+test("resume never marks complete when the second fresh source pass changes", async (t) => {
+  const { directory } = await interruptedExport(t)
+  const source = sourceMock({ count: 5, changedSecondPass: true })
+  await assert.rejects(
+    exportMemos({
+      sourceOrigin: origin,
+      username,
+      password,
+      outputDirectory: directory,
+      resume: true,
+      fetchImpl: source.fetchImpl,
+    }),
+    /来源记录发生变化/,
+  )
+  const manifest = JSON.parse(await fs.readFile(path.join(directory, "manifest.json")))
+  assert.equal(manifest.complete, false)
+  assert.equal(manifest.resources.length, 3)
+  await assert.rejects(readMemosExport(directory), /未完成/)
+})
