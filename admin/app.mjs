@@ -1,3 +1,4 @@
+import { restoreSession } from "./session.mjs"
 import { createWorkspace } from "./workspace.mjs"
 import { resumeSignIn, signIn } from "./auth.mjs"
 import { mountFrostedSpotlight } from "../scripts/lib/frosted-spotlight.mjs"
@@ -31,5 +32,7 @@ const workspace = createWorkspace(root, {
   },
 })
 void resumeSignIn()
-  .then((credentials) => workspace.connect(credentials))
+  .then(async (credentials) =>
+    workspace.connect(credentials || (await restoreSession(new URL("../", location.href)))),
+  )
   .catch(fail)

@@ -1,3 +1,4 @@
+import { createPublicationWorker } from "./publication-worker-client.mjs"
 const PENDING_KEY = "howard-notes:pending-publication:v1"
 const SHA = /^[a-f0-9]{40}$/i
 const KINDS = new Set(["article", "settings", "unpublish", "delete"])
@@ -70,14 +71,6 @@ export async function renderedPageHash(html) {
     .join("")
 }
 
-async function defaultProjection() {
-  const [projection, renderer] = await Promise.all([
-    import("../runtime/projection.mjs"),
-    import("../quartz/runtime/render.tsx"),
-  ])
-  return { prepareProjection: projection.prepareProjection, renderPages: renderer.renderPages }
-}
-
 // Only the latest pending Git revision is retained. No token, Markdown, or generated HTML
 // enters this record. A retry projects the current Git head and never writes another commit.
 export function createRuntimePublisher({
@@ -85,10 +78,11 @@ export function createRuntimePublisher({
   getClient,
   storage,
   fetcher = (...args) => globalThis.fetch(...args),
-  loadProjection = defaultProjection,
+  loadProjection,
   onState = () => {},
   onSynchronized = () => {},
 }) {
+  const background = loadProjection ? null : createPublicationWorker(siteBase)
   let pending = null,
     running = null,
     configuration = null,
@@ -209,18 +203,9 @@ export function createRuntimePublisher({
     const [previous, shell, modules] = await Promise.all([
       request(`${api}/snapshot`),
       request(`${api}/shell`),
-      loadProjection(),
+      loadProjection ? loadProjection() : background,
     ])
     const sources = await sourcesFor(snapshot, previous)
-    const projection = await modules.prepareProjection({
-      catalog: snapshot.catalog,
-      settings: snapshot.settings,
-      sources,
-      commit: snapshot.commit,
-      entries: snapshot.entries,
-      previous,
-    })
-    const pages = await modules.renderPages(projection, shell)
     const begun = await request(`${api}/sync/begin`, {
       body: { commit: snapshot.commit },
       token: client.token,
@@ -247,21 +232,47 @@ export function createRuntimePublisher({
     if (begun.status === "synchronized") return accept(begun)
     if (typeof begun.syncId !== "string" || !begun.syncId)
       throw new Error("线上同步会话不正确，请重试同步。")
-    const reusable = new Set(begun.reusableDocuments || [])
-    const previousDocs = new Map((previous.documents || []).map((doc) => [doc.id, doc]))
-    const changedDocuments = projection.documents.filter(
-      (doc) =>
-        !reusable.has(doc.id) || JSON.stringify(previousDocs.get(doc.id)) !== JSON.stringify(doc),
-    )
-    const pageHashes = await Promise.all(pages.map((page) => renderedPageHash(page.html)))
-    const changedPages = pages.filter(
-      (page, index) => previous.pageHashes?.[page.path] !== pageHashes[index],
-    )
-    const chunks = publicationChunks(
-      changedDocuments,
-      changedPages,
-      Math.min(730000, settings.maxChunkBytes || 730000),
-    )
+    const input = {
+      catalog: snapshot.catalog,
+      settings: snapshot.settings,
+      sources,
+      commit: snapshot.commit,
+      entries: snapshot.entries,
+      previous,
+      shell,
+      reusableDocuments: begun.reusableDocuments,
+      maxChunkBytes: settings.maxChunkBytes,
+    }
+    let projection, chunks
+    if (modules.preparePublication) {
+      projection = await modules.preparePublication(input)
+      chunks = projection.chunks
+    } else {
+      projection = await modules.prepareProjection({
+        catalog: snapshot.catalog,
+        settings: snapshot.settings,
+        sources,
+        commit: snapshot.commit,
+        entries: snapshot.entries,
+        previous,
+      })
+      const pages = await modules.renderPages(projection, shell)
+      const reusable = new Set(begun.reusableDocuments || [])
+      const previousDocs = new Map((previous.documents || []).map((doc) => [doc.id, doc]))
+      const changedDocuments = projection.documents.filter(
+        (doc) =>
+          !reusable.has(doc.id) || JSON.stringify(previousDocs.get(doc.id)) !== JSON.stringify(doc),
+      )
+      const pageHashes = await Promise.all(pages.map((page) => renderedPageHash(page.html)))
+      const changedPages = pages.filter(
+        (page, index) => previous.pageHashes?.[page.path] !== pageHashes[index],
+      )
+      chunks = publicationChunks(
+        changedDocuments,
+        changedPages,
+        Math.min(730000, settings.maxChunkBytes || 730000),
+      )
+    }
     let completed = 0
     for (let index = 0; index < chunks.length; index += 3) {
       const uploaded = await Promise.allSettled(
@@ -317,6 +328,7 @@ export function createRuntimePublisher({
     pending: () => pending && { ...pending },
     dispose() {
       disposed = true
+      background?.dispose()
     },
   }
 }

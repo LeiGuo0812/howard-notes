@@ -1,3 +1,4 @@
+import { hasSessionHint } from "./session.mjs"
 // The reader loads only this launcher. Editor/preview dependencies arrive on demand.
 let runtimePromise
 let runtime
@@ -76,5 +77,6 @@ export function setupMaintenance() {
     document.addEventListener("nav", () => runtime?.afterNavigation())
   }
   runtime?.afterNavigation()
-  if (!runtimePromise && hasReturn()) void invoke((controller) => controller.resume())
+  if (!runtimePromise && (hasReturn() || hasSessionHint()))
+    void invoke((controller) => controller.resume())
 }

@@ -1,3 +1,4 @@
+import { sessionResponse } from "./session.mjs"
 import { validateCatalog } from "../scripts/lib/catalog.mjs"
 import { validateSite, topicList } from "../scripts/lib/site-settings.mjs"
 
@@ -585,6 +586,8 @@ export async function handle(request, env, ctx = {}, fetcher = fetch) {
   const url = new URL(request.url)
   const prefix = env.SITE_PREFIX || "/howard-notes/"
   const apiPrefix = prefix + "api/content/"
+  if (url.pathname === apiPrefix + "session")
+    return sessionResponse(request, env, (value) => authorize(value, env, fetcher))
   const origin = request.headers.get("Origin")
   const allowOrigin = origin === env.FALLBACK_ORIGIN || origin === url.origin ? origin : null
   const cors = { "Access-Control-Allow-Origin": allowOrigin || "*", Vary: "Origin" }

@@ -1,3 +1,4 @@
+import { rememberSession, clearSession } from "./session.mjs"
 import { GitHubLibrary } from "./github.mjs"
 import { validateCatalog } from "../scripts/lib/catalog.mjs"
 import { topicList } from "../scripts/lib/site-settings.mjs"
@@ -169,7 +170,8 @@ export function createWorkspace(root, options = {}) {
             "download",
             "focus-mode",
           ].includes(el.id))
-      el.disabled = (value && !mayEdit) || el.dataset.boundary === "true"
+      const windowControl = el.classList.contains("maintenance-window-button")
+      el.disabled = (value && !mayEdit && !windowControl) || el.dataset.boundary === "true"
     }
   }
   async function action(callback, { editable = false } = {}) {
@@ -563,6 +565,7 @@ export function createWorkspace(root, options = {}) {
         client.token = ""
         client = connection
       }
+      void rememberSession(siteBase, credentials)
       session = { account, expiresAt: credentials.expiresAt, serverTime: credentials.serverTime }
       options.onSession?.({ ...session })
       $("account").textContent = account
@@ -583,6 +586,7 @@ export function createWorkspace(root, options = {}) {
     options.onReauthenticate?.()
   }
   function logout() {
+    void clearSession(siteBase)
     persistRecovery()
     if (client) client.token = ""
     client = null

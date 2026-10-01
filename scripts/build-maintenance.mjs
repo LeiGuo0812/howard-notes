@@ -3,9 +3,11 @@ import path from "node:path"
 import { createHash } from "node:crypto"
 import { build } from "esbuild"
 import { runtimeBrowserPlugins } from "../runtime/build.mjs"
+import { buildPublicationWorker } from "./build-publication-worker.mjs"
 
 // Both entry points instantiate the same workspace controller and the same form template.
 export async function buildMaintenance(template) {
+  await buildPublicationWorker()
   const outdir = "public/maintenance-assets"
   await fs.mkdir(outdir, { recursive: true })
   const bundle = await build({

@@ -1,3 +1,4 @@
+import { restoreSession } from "./session.mjs"
 import { createWorkspace } from "./workspace.mjs"
 import { signIn, resumeSignIn } from "./auth.mjs"
 import { mountFrostedSpotlight } from "../scripts/lib/frosted-spotlight.mjs"
@@ -268,7 +269,6 @@ export async function createMaintenance({ siteBase, version }) {
     fitMenu()
   }
   function hide() {
-    if (workspace.isBusy()) return
     windowState.detach()
     visible = false
     resetReading()
@@ -340,7 +340,9 @@ export async function createMaintenance({ siteBase, version }) {
       intent = JSON.parse(sessionStorage.getItem(INTENT_KEY) || "null")
     } catch {}
     try {
-      await workspace.connect(await resumeSignIn({ configUrl }))
+      await workspace.connect(
+        (await resumeSignIn({ configUrl })) || (await restoreSession(new URL("../", configUrl))),
+      )
       if (account && intent?.url === location.href && Number.isFinite(intent.scroll))
         requestAnimationFrame(() => window.scrollTo({ top: Math.max(0, intent.scroll) }))
     } finally {
