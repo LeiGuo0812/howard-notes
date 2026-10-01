@@ -16,6 +16,7 @@ const sha = createHash("sha1")
 function fixture() {
   const sqlite = new DatabaseSync(":memory:")
   sqlite.exec(fs.readFileSync(new URL("schema.sql", import.meta.url), "utf8"))
+  sqlite.exec(fs.readFileSync(new URL("memories-schema.sql", import.meta.url), "utf8"))
   const DB = {
     prepare(sql) {
       const statement = sqlite.prepare(sql)
@@ -167,6 +168,7 @@ function fixture() {
       "tags/index",
       "notes/index",
       "collections/index",
+      "memory/index",
       ...topicList(
         settings,
         catalog.articles.filter((a) => a.published),
@@ -260,6 +262,133 @@ test("only the maintainer with repository write access may stage public content"
   f.setUser(50766698)
   f.setPush(false)
   assert.equal((await f.call("sync/begin", { commit: "a".repeat(40) })).status, 403)
+})
+
+test("integrated memory routes enforce the GitHub owner and repository permission for writes", async () => {
+  const f = fixture()
+  const body = { content: "isolated memory #memory-tag", visibility: "PRIVATE" }
+  f.setUser(123)
+  assert.equal((await f.call("memories", body)).status, 403)
+  f.setUser(50766698)
+  f.setPush(false)
+  assert.equal((await f.call("memories", body)).status, 403)
+  f.setPush(true)
+  const created = await f.call("memories", body)
+  assert.equal(created.status, 201, await created.clone().text())
+  const id = (await created.json()).memory.id
+  assert.equal((await f.call("memories/" + id)).status, 404)
+  const publicList = await (await f.call("memories")).json()
+  assert.equal(publicList.total, 0)
+  assert.deepEqual(publicList.tags, [])
+  assert.equal(f.sqlite.prepare("SELECT count(*) AS n FROM public_documents").get().n, 0)
+})
+
+test("integrated memory cookie authorization stays same-origin while the backup site can use its owner bearer", async () => {
+  const f = fixture()
+  f.env.SESSION_SECRET = Buffer.alloc(32, 19).toString("base64url")
+  const session = await f.call("session", { serverTime: 100, expiresAt: 3_600_100 })
+  assert.equal(session.status, 200)
+  const cookie = session.headers.get("Set-Cookie").split(";")[0]
+  const created = await f.call("memories", {
+    content: "private-session-content",
+    visibility: "PRIVATE",
+  })
+  const id = (await created.json()).memory.id
+  const fromCookie = await f.call("memories/" + id, undefined, { Cookie: cookie, Origin: origin })
+  assert.equal(fromCookie.status, 200)
+  assert.equal((await fromCookie.clone().json()).owner, true)
+  assert.equal((await fromCookie.text()).includes("test-not-secret"), false)
+  const crossSite = await f.call("memories/" + id, undefined, {
+    Cookie: cookie,
+    Origin: "https://evil.example",
+    "Sec-Fetch-Site": "cross-site",
+  })
+  assert.equal(crossSite.status, 403)
+  const backupCookie = await f.call("memories/" + id, undefined, {
+    Cookie: cookie,
+    Origin: f.env.FALLBACK_ORIGIN,
+    "Sec-Fetch-Site": "cross-site",
+  })
+  assert.equal(backupCookie.status, 404)
+  const backupBearer = await f.call("memories/" + id, undefined, {
+    Authorization: "Bearer test-not-secret",
+    Origin: f.env.FALLBACK_ORIGIN,
+    "Sec-Fetch-Site": "cross-site",
+  })
+  assert.equal(backupBearer.status, 200)
+  assert.equal(backupBearer.headers.get("Access-Control-Allow-Origin"), f.env.FALLBACK_ORIGIN)
+  assert.equal(backupBearer.headers.get("Cache-Control"), "private, no-store")
+  f.setUser(123)
+  assert.equal(
+    (
+      await f.call("memories/" + id, undefined, {
+        Authorization: "Bearer test-not-secret",
+        Origin: f.env.FALLBACK_ORIGIN,
+      })
+    ).status,
+    403,
+  )
+})
+
+test("memory content and tags never enter the article snapshot, search projection or RSS", async () => {
+  const f = fixture()
+  await f.publish()
+  const before = await (await f.call("snapshot")).json()
+  await f.call("memories", {
+    content: "MEMORY-PRIVATE-ONLY #memory-private",
+    visibility: "PRIVATE",
+  })
+  await f.call("memories", { content: "MEMORY-PUBLIC-ONLY #memory-public", visibility: "PUBLIC" })
+  const snapshot = await (await f.call("snapshot")).json()
+  assert.deepEqual(snapshot, before)
+  for (const path of ["snapshot", "contentIndex", "blogData", "catalog", "index.xml"])
+    assert.equal((await (await f.call(path)).text()).includes("MEMORY-"), false)
+  const memories = await (await f.call("memories")).json()
+  assert.equal(memories.total, 1)
+  assert.deepEqual(memories.tags, [{ name: "memory-public", count: 1 }])
+  const status = await (await f.call("status")).json()
+  assert.equal(status.revision, before.revision)
+  assert.equal(status.commit, before.commit)
+})
+
+test("memory automation import requires its own key and cannot borrow that key for ordinary writes", async () => {
+  const f = fixture()
+  f.env.SYNC_SECRET = "test-import-key"
+  const body = {
+    sourceOrigin: "http://source.example:5230",
+    memories: [
+      {
+        sourceId: "1",
+        content: "imported-private",
+        created: "2024-01-01T00:00:00Z",
+        modified: "2025-01-01T00:00:00Z",
+        visibility: "PRIVATE",
+        status: "NORMAL",
+      },
+    ],
+  }
+  assert.equal((await f.call("memories/import", body)).status, 403)
+  assert.equal(
+    (await f.call("memories/import", body, { "X-Howard-Sync-Key": "incorrect" })).status,
+    403,
+  )
+  const imported = await f.call("memories/import", body, { "X-Howard-Sync-Key": f.env.SYNC_SECRET })
+  assert.equal(imported.status, 200, await imported.clone().text())
+  assert.equal(
+    (
+      await f.call(
+        "memories",
+        { content: "automation-through-normal-api" },
+        { "X-Howard-Sync-Key": f.env.SYNC_SECRET },
+      )
+    ).status,
+    403,
+  )
+  assert.equal((await (await f.call("memories")).json()).total, 0)
+  const owner = await (
+    await f.call("memories", undefined, { Authorization: "Bearer test-not-secret", Origin: origin })
+  ).json()
+  assert.equal(owner.total, 1)
 })
 test("only the canonical current branch commit may begin or finish a synchronization", async () => {
   const f = fixture()

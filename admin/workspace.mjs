@@ -1272,6 +1272,8 @@ export function createWorkspace(root, options = {}) {
     closeEditor: () => !busy && closeEditor(),
     logout: () => !busy && logout(),
     getSession: () => session && { ...session },
+    getOwnerAccess: () =>
+      session && client?.token && { account: session.account, token: client.token },
     currentArticle: () => current && structuredClone(current),
     retrySynchronization,
     dispose() {

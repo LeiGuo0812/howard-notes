@@ -4,6 +4,7 @@ let runtimePromise
 let runtime
 let mounted = false
 let invocation = 0
+let explicitlySignedOut = false
 const INTENT_KEY = "howard-maintenance-return"
 
 function siteBase() {
@@ -75,6 +76,15 @@ export function setupMaintenance() {
   if (window.parent !== window) return
   if (!mounted) {
     mounted = true
+    document.addEventListener("howard-owner-access-request", (event) => {
+      if (typeof event.detail?.reply === "function")
+        event.detail.reply(
+          runtime?.getOwnerAccess() || (explicitlySignedOut ? { loggedOut: true } : null),
+        )
+    })
+    document.addEventListener("howard-owner-statechange", (event) => {
+      explicitlySignedOut = event.detail?.loggedIn === false
+    })
     // Capture delegation survives Quartz's DOM replacements without duplicate bindings.
     document.addEventListener("click", (event) => {
       const target = event.target.closest?.("[data-maintenance-login],[data-maintenance-action]")

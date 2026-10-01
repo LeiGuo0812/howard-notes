@@ -303,3 +303,17 @@ test("site settings reject malformed definitions while accepting existing settin
   legacy.navigation = legacy.navigation.filter((n) => n.id !== "tags")
   assert.equal(validateSite(legacy), legacy)
 })
+
+test("memory hub has only a shell and never adds cards to article discovery data", () => {
+  const articles = [article(0, { tags: ["article-only"] })]
+  const result = generateSitePages(settings, { version: 2, articles }, readActivity(articles))
+  const memory = result.output.get("memory/index.md").toString()
+  assert.match(memory, /type: memory-hub/)
+  assert.doesNotMatch(memory, /article-only|文章000/)
+  assert.equal(result.data.articles.length, 1)
+  assert.equal(result.data.total, 1)
+  assert.deepEqual(
+    result.data.tags.map(({ title }) => title),
+    ["article-only"],
+  )
+})

@@ -7,6 +7,7 @@ import siteSettings from "../../library/site.json"
 import { ARTICLES_PER_PAGE } from "./scripts/browsing"
 import { prepareArticleImages } from "../util/article-images"
 import { prepareArticleLinks } from "../util/article-links"
+import { MemoryHub } from "./MemoryView"
 import {
   designStyle,
   orderedSections,
@@ -92,6 +93,7 @@ const navRoutes: Record<string, string> = {
   notes: "notes/index",
   topics: "topics/index",
   tags: "tags/index",
+  memories: "memory/index",
   about: "about",
 }
 export const BlogNav: QuartzComponent = (props) => (
@@ -578,6 +580,17 @@ export const BlogHome: QuartzComponent = (props) => {
   )
 }
 function ListingPage({ props, listing }: { props: QuartzComponentProps; listing: Listing }) {
+  const articleTags = new Map<string, { id: string; title: string; count: number }>()
+  for (const row of listing.rows) {
+    for (const tag of row.tags) {
+      const current = articleTags.get(tag.id)
+      if (current) current.count += 1
+      else articleTags.set(tag.id, { ...tag, count: 1 })
+    }
+  }
+  const tags = [...articleTags.values()].sort((a, b) =>
+    a.title.localeCompare(b.title, "zh-CN", { numeric: true }),
+  )
   return (
     <section class="listing-page" aria-label="文章列表">
       <div class="listing-summary">
@@ -657,6 +670,7 @@ function ListingPage({ props, listing }: { props: QuartzComponentProps; listing:
             data-title={row.title}
             data-created={row.created}
             data-modified={row.modified}
+            data-tags={JSON.stringify(row.tags.map((tag) => tag.id))}
             data-search={`${row.title} ${row.category} ${row.tags.map((tag) => tag.title).join(" ")}`}
           >
             <a
@@ -700,11 +714,11 @@ function ListingPage({ props, listing }: { props: QuartzComponentProps; listing:
         ))}
       </ol>
       <div class="article-timeline" id="article-timeline" hidden aria-label="文章时间线" />
-      <details class="timeline-sidebar" id="timeline-sidebar" hidden>
+      <details class="timeline-sidebar" id="timeline-sidebar">
         <summary
-          aria-label="展开时间线年月导航"
-          aria-controls="timeline-navigation"
-          title="年月导航"
+          aria-label="展开文章标签导航"
+          aria-controls="listing-sidebar-panels"
+          title="文章标签"
         >
           <svg
             viewBox="0 0 24 24"
@@ -713,11 +727,55 @@ function ListingPage({ props, listing }: { props: QuartzComponentProps; listing:
             stroke-width="1.6"
             aria-hidden="true"
           >
-            <path d="M5 5h14v15H5zM8 3v4M16 3v4M5 10h14M9 14h.01M15 14h.01M9 17h.01M15 17h.01" />
+            <path d="M5 8h14M4 16h14M10 3 7 21M17 3l-3 18" />
           </svg>
-          <span>年月</span>
+          <span data-listing-sidebar-label>标签</span>
         </summary>
-        <nav id="timeline-navigation" aria-label="时间线年份与月份导航" />
+        <div id="listing-sidebar-panels" class="listing-sidebar-panels">
+          <div class="listing-sidebar-tabs" role="group" aria-label="文章浏览导航">
+            <button
+              type="button"
+              data-listing-sidebar-tab="tags"
+              aria-pressed="true"
+              aria-controls="listing-tags"
+            >
+              标签
+            </button>
+            <button
+              type="button"
+              data-listing-sidebar-tab="time"
+              aria-pressed="false"
+              aria-controls="timeline-navigation"
+              hidden
+            >
+              年月
+            </button>
+          </div>
+          <nav id="listing-tags" aria-label="文章标签">
+            <a
+              class="listing-tag-link"
+              data-listing-tag=""
+              data-router-ignore
+              href={href(props, listing.baseRoute)}
+            >
+              <span>全部文章</span>
+              <small>{listing.rows.length}</small>
+            </a>
+            {tags.map((tag) => (
+              <a
+                class="listing-tag-link"
+                data-listing-tag={tag.id}
+                data-router-ignore
+                href={href(props, `tags/${tag.id}`)}
+                title={`#${tag.title} · ${tag.count} 篇文章`}
+              >
+                <span>#{tag.title}</span>
+                <small>{tag.count}</small>
+              </a>
+            ))}
+          </nav>
+          <nav id="timeline-navigation" aria-label="时间线年份与月份导航" hidden />
+        </div>
       </details>
       <nav class="pagination" id="listing-pagination" aria-label="文章分页">
         <button type="button" id="listing-previous" disabled>
@@ -815,7 +873,8 @@ export const BlogFrame: PageFrame = {
       type = componentData.fileData.frontmatter?.type
     const article = type === "article",
       hub = type === "topic-hub" || type === "tag-hub",
-      listing = type === "listing"
+      listing = type === "listing",
+      memory = type === "memory-hub"
     const listingData = componentData.fileData.frontmatter?.listing as Listing | undefined
     const current = article
       ? data(props).articles.find((row) => componentData.fileData.slug === `notes/${row.id}`)
@@ -858,7 +917,7 @@ export const BlogFrame: PageFrame = {
           )}
         </nav>
         <div
-          class={`blog-layout ${home ? "is-home" : ""} ${article ? "is-article" : ""} ${hub || listing ? "is-directory" : ""}`}
+          class={`blog-layout ${home ? "is-home" : ""} ${article ? "is-article" : ""} ${hub || listing || memory ? "is-directory" : ""} ${memory ? "is-memory" : ""}`}
         >
           {article && (
             <aside class="left sidebar reading-sidebar" aria-label="文章导航">
@@ -944,6 +1003,8 @@ export const BlogFrame: PageFrame = {
                 <TopicDirectory props={componentData} />
               ) : type === "tag-hub" ? (
                 <TagChips props={componentData} />
+              ) : memory ? (
+                <MemoryHub {...componentData} />
               ) : listing && listingData ? (
                 <ListingPage props={componentData} listing={listingData} />
               ) : (

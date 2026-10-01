@@ -82,6 +82,15 @@ const legacyEntry = await fs.readFile("public/admin/admin.js", "utf8")
 if (!legacyEntry.includes(adminVersion) || legacyEntry.includes("已取消登录"))
   failures.push("The legacy admin entry must upgrade to the current release")
 const maintenance = JSON.parse(await fs.readFile("public/maintenance-assets/manifest.json", "utf8"))
+const memories = JSON.parse(await fs.readFile("public/memory-assets/manifest.json", "utf8"))
+if (
+  !/^memory-[A-Z0-9]+\.js$/.test(memories.entry) ||
+  !existing.has(path.join(publicDir, "memory-assets", memories.entry)) ||
+  !(await fs.readFile(path.join(publicDir, "memory/index.html"), "utf8")).includes(
+    'id="memory-hub"',
+  )
+)
+  failures.push("Memory cards must have an independent public shell and versioned client")
 if (
   !/^maintenance-[A-Z0-9]+\.js$/.test(maintenance.entry) ||
   !/^[a-f0-9]{16}$/.test(maintenance.version) ||

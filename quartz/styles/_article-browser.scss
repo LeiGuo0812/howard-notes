@@ -392,8 +392,8 @@
 
 .timeline-sidebar {
   --timeline-sidebar-top: max(
-    calc(var(--glass-anchor-offset) + 24px),
-    calc(var(--timeline-header-bottom, 0px) + 16px)
+    calc(var(--glass-anchor-offset) + 96px),
+    calc(var(--timeline-header-bottom, 0px) + 32px)
   );
   --timeline-panel-height: min(
     480px,
@@ -432,20 +432,60 @@
       flex-shrink: 0;
     }
   }
-  > nav {
+  .listing-sidebar-panels {
+    min-height: 0;
     max-height: max(0px, calc(var(--timeline-panel-height) - 60px));
+    display: flex;
+    flex-direction: column;
+  }
+  .listing-sidebar-tabs {
+    display: flex;
+    flex: 0 0 auto;
+    gap: 4px;
+    margin-bottom: 10px;
+    padding: 3px;
+    border-radius: 10px;
+    background: color-mix(in srgb, var(--glass-edge) 45%, transparent);
+    button {
+      flex: 1;
+      min-height: 30px;
+      padding: 4px 8px;
+      border: 1px solid transparent;
+      border-radius: 7px;
+      background: none;
+      color: var(--gray);
+      font: inherit;
+      font-size: 11px;
+      cursor: pointer;
+      transition:
+        background var(--glass-transition),
+        color var(--glass-transition);
+      &[aria-pressed="true"] {
+        background: var(--glass-solid);
+        color: var(--secondary);
+        box-shadow: var(--glass-inset);
+      }
+      &:focus-visible {
+        outline: 2px solid var(--secondary);
+        outline-offset: 2px;
+      }
+    }
+  }
+  .listing-sidebar-panels > nav {
+    min-height: 0;
     overflow-y: auto;
     overscroll-behavior: contain;
     scrollbar-width: thin;
     scrollbar-color: var(--glass-edge) transparent;
   }
-  &:not([open]) > nav {
+  &:not([open]) > .listing-sidebar-panels {
     display: none;
   }
   .timeline-nav-year + .timeline-nav-year {
     margin-top: 14px;
   }
-  .timeline-nav-link {
+  .timeline-nav-link,
+  .listing-tag-link {
     display: flex;
     align-items: center;
     justify-content: space-between;
@@ -460,13 +500,19 @@
     transition:
       color var(--glass-transition),
       background var(--glass-transition);
+    > span {
+      min-width: 0;
+      overflow-wrap: anywhere;
+    }
     small {
+      flex-shrink: 0;
       color: var(--gray);
       font-size: 10px;
       font-variant-numeric: tabular-nums;
     }
     &:hover,
-    &[aria-current="location"] {
+    &[aria-current="location"],
+    &[aria-current="true"] {
       background: var(--highlight);
       color: var(--secondary);
     }
@@ -509,7 +555,7 @@
       cursor: pointer;
       pointer-events: auto;
     }
-    > nav {
+    > .listing-sidebar-panels {
       position: absolute;
       right: 0;
       bottom: calc(100% + 10px);
@@ -528,7 +574,8 @@
       background: var(--glass-solid);
       box-shadow: var(--glass-inset), var(--glass-shadow);
     }
-    .timeline-nav-link {
+    .timeline-nav-link,
+    .listing-tag-link {
       min-height: 38px;
       padding: 9px 10px;
     }

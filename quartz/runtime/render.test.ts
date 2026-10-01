@@ -87,6 +87,7 @@ test("new notes and directories render complete public routes without a prior HT
     "topics/tech",
     "tags/index",
     "tags/code",
+    "memory/index",
     "about",
     "notes/fresh-note",
   ])
@@ -102,6 +103,24 @@ test("new notes and directories render complete public routes without a prior HT
   assert.match(article, /data-runtime-revision="revision-new"/)
   assert.match(article, /target="_blank" rel="noopener noreferrer"/)
   assert.match(pages.find((page) => page.path === "about")!.html, /关于本站/)
+})
+
+test("memory pages are independent empty shells and article tags stay in their sidebar", () => {
+  const projection = fixture()
+  const pages = renderPages(projection, shell)
+  const memory = pages.find((page) => page.path === "memory/index")!.html
+  assert.match(memory, /id="memory-hub"/)
+  assert.match(memory, /id="memory-tags"/)
+  assert.doesNotMatch(memory, /data-memory-id|data-article-row/)
+  const notes = pages.find((page) => page.path === "notes/index")!.html
+  assert.match(notes, /id="listing-tags"/)
+  assert.match(notes, /data-listing-tag="code"/)
+  assert.match(notes, /data-nav-id="tags"[^>]*hidden/)
+  assert.match(notes, /data-nav-id="memories"/)
+  assert.doesNotMatch(
+    pages.find((page) => page.path === "index")!.html,
+    /id="memory-hub"|data-memory-id/,
+  )
 })
 
 test("removing a published row removes every list, lucky card, graph and route reference", () => {

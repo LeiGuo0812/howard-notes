@@ -152,7 +152,8 @@ export function createPanelWindow({ host, heading, caption, toggle, onChange }) 
     queueClamp()
   }
 
-  toggle.addEventListener("click", () => setFullscreen(!fullscreen))
+  const onToggle = () => setFullscreen(!fullscreen)
+  toggle.addEventListener("click", onToggle)
   heading.addEventListener("pointerdown", onPointerDown)
   heading.addEventListener("pointermove", onPointerMove)
   heading.addEventListener("pointerup", finishDrag)
@@ -183,6 +184,21 @@ export function createPanelWindow({ host, heading, caption, toggle, onChange }) 
       }
     },
     detach: finishDrag,
+    destroy() {
+      finishDrag()
+      if (frame) cancelAnimationFrame(frame)
+      frame = 0
+      toggle.removeEventListener("click", onToggle)
+      heading.removeEventListener("pointerdown", onPointerDown)
+      heading.removeEventListener("pointermove", onPointerMove)
+      heading.removeEventListener("pointerup", finishDrag)
+      heading.removeEventListener("pointercancel", finishDrag)
+      heading.removeEventListener("lostpointercapture", finishDrag)
+      heading.removeEventListener("keydown", onKeyDown)
+      heading.removeEventListener("dblclick", onDoubleClick)
+      window.removeEventListener("resize", onResize)
+      window.visualViewport?.removeEventListener("resize", onResize)
+    },
     sync(isInline) {
       inline = !!isInline
       host.classList.toggle("is-floating", !!position && !inline)

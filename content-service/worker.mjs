@@ -1,4 +1,5 @@
 import { sessionResponse } from "./session.mjs"
+import { memoriesResponse, cleanupMemories } from "./memories.mjs"
 import { validateCatalog } from "../scripts/lib/catalog.mjs"
 import { validateSite, topicList } from "../scripts/lib/site-settings.mjs"
 
@@ -176,6 +177,7 @@ function allowedRoutes(manifest, contentIndex, blogData) {
     "tags/index",
     "notes/index",
     "collections/index",
+    "memory/index",
   ])
   for (const doc of manifest.documents) routes.add(`notes/${doc.id}`)
   for (const topic of topicList(manifest.settings, manifest.catalog.articles))
@@ -615,7 +617,11 @@ export async function handle(request, env, ctx = {}, fetcher = fetch) {
     const isApi = url.pathname.startsWith(apiPrefix)
     const route = isApi ? url.pathname.slice(apiPrefix.length) : url.pathname.slice(prefix.length)
     let response
-    if (isApi && route.startsWith("sync/")) {
+    if (isApi && (route === "memories" || route.startsWith("memories/"))) {
+      response = await memoriesResponse(request, env, db, route, (value) =>
+        authorize(value, env, fetcher),
+      )
+    } else if (isApi && route.startsWith("sync/")) {
       if (request.method !== "POST") throw new HttpError("请求方法不正确。", 405)
       const token = await authorize(request, env, fetcher)
       const body = await bodyOf(request)
@@ -661,7 +667,7 @@ export async function handle(request, env, ctx = {}, fetcher = fetch) {
           throw new HttpError("页面地址不正确。", 404)
         }
         if (!validPath(path)) throw new HttpError("页面地址不正确。", 404)
-        if (["topics", "tags", "notes", "collections"].includes(path)) path += "/index"
+        if (["topics", "tags", "notes", "collections", "memory"].includes(path)) path += "/index"
         const page = await db
           .prepare("SELECT body FROM public_pages WHERE revision = ? AND path = ?")
           .bind(current.revision, path)
@@ -768,5 +774,6 @@ export default {
       ])
     }
     await cleanup(db, current.revision)
+    await cleanupMemories(db)
   },
 }

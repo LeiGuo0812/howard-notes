@@ -185,6 +185,11 @@ export async function createMaintenance({ siteBase, version }) {
         deployment.remove()
       }
       updateControls()
+      document.dispatchEvent(
+        new CustomEvent("howard-owner-statechange", {
+          detail: { loggedIn: !!account },
+        }),
+      )
     },
     onReauthenticate: () => (account ? reconnect() : login()),
     onClose: hide,
@@ -534,6 +539,9 @@ export async function createMaintenance({ siteBase, version }) {
     login,
     resume,
     perform,
+    getOwnerAccess() {
+      return account && performance.now() < sessionDeadline ? workspace.getOwnerAccess() : null
+    },
     beforeNavigation() {
       // micromorph replaces body children. Keep the same ShadowRoot, editor and listeners alive.
       windowState.detach()

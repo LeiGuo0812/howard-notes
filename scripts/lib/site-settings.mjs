@@ -1,7 +1,7 @@
 export const SITE_PATH = "library/site.json"
 export const SECTION_IDS = ["featured", "recent", "topics", "collections", "tags", "activity"]
 export const COLLECTION_IDS = ["recent", "featured", "all"]
-export const NAV_IDS = ["notes", "topics", "tags", "about"]
+export const NAV_IDS = ["notes", "topics", "tags", "memories", "about"]
 import { sortNotes } from "./note-dates.mjs"
 import { validateImageHost } from "./image-host.mjs"
 import { validateDesign } from "./site-design.mjs"

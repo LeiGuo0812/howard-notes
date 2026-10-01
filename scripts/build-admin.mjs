@@ -6,6 +6,7 @@ import { brandIconLinks } from "./lib/site-icon.mjs"
 import { brokerOrigin } from "../admin/auth.mjs"
 import { upgradeAdmin } from "./lib/admin-upgrade.mjs"
 import { buildMaintenance } from "./build-maintenance.mjs"
+import { buildMemories } from "./build-memories.mjs"
 import { buildPublicationWorker } from "./build-publication-worker.mjs"
 import { runtimeBrowserPlugins } from "../runtime/build.mjs"
 const authConfig = JSON.parse(await fs.readFile("admin/auth-config.json", "utf8"))
@@ -69,3 +70,4 @@ await Promise.all([
 ])
 console.log(`Built /admin ${version} with a self-hosted Markdown editor.`)
 await buildMaintenance(template, workerEntry)
+await buildMemories()

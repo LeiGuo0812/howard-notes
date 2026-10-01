@@ -347,6 +347,7 @@ export function renderPages(projection: RuntimeProjection, shell: RuntimeShell) 
   listing("collections/index", "文章", rows, "index", "首页")
   page("topics/index", "专题", "topic-hub")
   page("tags/index", "标签", "tag-hub")
+  page("memory/index", "记忆卡", "memory-hub")
   page("about", settings.about.title, "page", { html: projection.aboutHtml ?? "" })
   page("404", "页面不存在", "page", {
     html: `<p>没有找到这篇文章。</p><p><a class="internal" href="${escape(basePath)}/">返回首页</a></p>`,

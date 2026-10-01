@@ -3,6 +3,7 @@ import { setupLayoutPreview } from "./layout-preview"
 import { setupTimeline } from "./timeline"
 import { mountFrostedSpotlight } from "../../../scripts/lib/frosted-spotlight.mjs"
 import { setupMaintenance } from "../../../admin/maintenance-loader.mjs"
+import { setupMemories } from "../../../admin/memory-loader.mjs"
 import "./runtime-content.inline"
 
 function setupIconHints() {
@@ -61,6 +62,7 @@ function setupNoteBrowser() {
   setupIconHints()
   setupMaintenanceDock()
   setupMaintenance()
+  setupMemories()
   const hideThumbnail = (image: HTMLImageElement) => {
     const wrapper = image.closest<HTMLElement>(".article-thumbnail")
     if (wrapper) wrapper.hidden = true
@@ -225,6 +227,21 @@ function setupNoteBrowser() {
   if (!list || !order || !search) return
   const rows = [...list.querySelectorAll<HTMLLIElement>(":scope > li")]
   const params = new URLSearchParams(location.search)
+  const tagIndex = document.querySelector<HTMLElement>("#listing-tags")
+  let selectedTag = params.get("tag") || ""
+  const rowTags = new Map(
+    rows.map((row) => {
+      let tags: string[] = []
+      try {
+        const parsed: unknown = JSON.parse(row.dataset.tags || "[]")
+        if (Array.isArray(parsed))
+          tags = parsed.filter((tag): tag is string => typeof tag === "string")
+      } catch {
+        // Older cached pages do not have the scoped tag metadata.
+      }
+      return [row, new Set(tags)] as const
+    }),
+  )
   let currentPage = Number(params.get("page") || 1)
   const validOrders = [...order.options].map((option) => option.value)
   if (validOrders.includes(params.get("sort") || "")) order.value = params.get("sort")!
@@ -250,8 +267,14 @@ function setupNoteBrowser() {
     const matching = sorted.filter(
       (row) =>
         (row.dataset.search || "").toLocaleLowerCase().includes(query) &&
+        (!selectedTag || rowTags.get(row)?.has(selectedTag)) &&
         (!activity || row.dataset.created === activity || row.dataset.modified === activity),
     )
+    for (const link of tagIndex?.querySelectorAll<HTMLElement>("[data-listing-tag]") ?? []) {
+      const selected = link.dataset.listingTag === selectedTag
+      if (selected) link.setAttribute("aria-current", "true")
+      else link.removeAttribute("aria-current")
+    }
     const paginated = paginateItems(matching, currentPage)
     currentPage = paginated.page
     const visible = new Set(paginated.items)
@@ -309,6 +332,8 @@ function setupNoteBrowser() {
       else url.searchParams.delete("sort")
       if (query) url.searchParams.set("q", search.value.trim())
       else url.searchParams.delete("q")
+      if (selectedTag) url.searchParams.set("tag", selectedTag)
+      else url.searchParams.delete("tag")
       if (activity) url.searchParams.set("activity", activity)
       else url.searchParams.delete("activity")
       if (currentPage > 1) url.searchParams.set("page", String(currentPage))
@@ -321,6 +346,15 @@ function setupNoteBrowser() {
   const refresh = () => {
     currentPage = 1
     update()
+  }
+  const chooseTag = (event: MouseEvent) => {
+    const link = (event.target as Element).closest<HTMLAnchorElement>("a[data-listing-tag]")
+    if (!link || event.ctrlKey || event.metaKey || event.shiftKey || event.altKey) return
+    event.preventDefault()
+    event.stopPropagation()
+    selectedTag = link.dataset.listingTag || ""
+    currentPage = 1
+    update(true, true)
   }
   const clear = () => {
     activity = null
@@ -347,11 +381,13 @@ function setupNoteBrowser() {
   order.addEventListener("change", refresh)
   search.addEventListener("input", refresh)
   clearButton.addEventListener("click", clear)
+  tagIndex?.addEventListener("click", chooseTag)
   window.addCleanup(() => {
     order.removeEventListener("change", refresh)
     search.removeEventListener("input", refresh)
     clearButton.removeEventListener("click", clear)
     pagination.removeEventListener("click", changePage)
+    tagIndex?.removeEventListener("click", chooseTag)
   })
   update()
 }

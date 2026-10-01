@@ -152,9 +152,14 @@
       "visible": true
     },
     {
+      "id": "memories",
+      "label": "记忆卡",
+      "visible": true
+    },
+    {
       "id": "tags",
       "label": "标签",
-      "visible": true
+      "visible": false
     },
     {
       "id": "about",

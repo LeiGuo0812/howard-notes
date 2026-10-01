@@ -16,7 +16,7 @@ try {
 // Keep one prior set of JS/CSS resources so an open maintenance panel or the
 // previous D1 shell can finish loading while the new content version switches.
 // Previous reading HTML and attachments are deliberately not copied.
-for (const folder of ["admin", "maintenance-assets", "static"]) {
+for (const folder of ["admin", "maintenance-assets", "memory-assets", "static"]) {
   const source = `${previous}/howard-notes/${folder}`
   try {
     await fs.access(source)

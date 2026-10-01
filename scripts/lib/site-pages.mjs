@@ -96,6 +96,8 @@ export function generateSitePages(
   )
   output.set("topics/index.md", markdown({ title: "专题", type: "topic-hub" }))
   output.set("tags/index.md", markdown({ title: "标签", type: "tag-hub" }))
+  // Only the shell is public; memory data and permissions live in the independent API.
+  output.set("memory/index.md", markdown({ title: "记忆卡", type: "memory-hub" }))
   output.set("about.md", markdown({ title: settings.about.title }, settings.about.body))
   function listing(route, title, articles, parent, parentLabel, topicId) {
     const aliases = Array.from(

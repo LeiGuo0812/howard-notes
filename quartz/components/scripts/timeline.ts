@@ -7,6 +7,11 @@ export function setupTimeline({ onViewChange }: { onViewChange: () => void }) {
   const jump = document.querySelector<HTMLSelectElement>("#timeline-jump")
   const sidebar = document.querySelector<HTMLDetailsElement>("#timeline-sidebar")
   const navigation = document.querySelector<HTMLElement>("#timeline-navigation")
+  const tagNavigation = document.querySelector<HTMLElement>("#listing-tags")
+  const sidebarTabs = sidebar?.querySelector<HTMLElement>(".listing-sidebar-tabs")
+  const tabButtons = [
+    ...(sidebarTabs?.querySelectorAll<HTMLButtonElement>("[data-listing-sidebar-tab]") ?? []),
+  ]
   const sidebarSummary = sidebar?.querySelector<HTMLElement>(":scope > summary")
   const header = document.querySelector<HTMLElement>(".blog-header")
   const desktopSidebar = matchMedia("(min-width: 1400px)")
@@ -16,7 +21,8 @@ export function setupTimeline({ onViewChange }: { onViewChange: () => void }) {
   let view: TimelineView =
     new URLSearchParams(location.search).get("view") === "timeline" ? "timeline" : "list"
   let lastRender = ""
-  let hasPeriods = false
+  let sidebarTab: "tags" | "time" = view === "timeline" ? "time" : "tags"
+  let sidebarInitialized = false
   let currentPeriod = ""
   const applyView = () => {
     surface.hidden = view !== "timeline"
@@ -24,8 +30,31 @@ export function setupTimeline({ onViewChange }: { onViewChange: () => void }) {
     if (jumpLabel) jumpLabel.hidden = view !== "timeline"
     else jump.hidden = view !== "timeline"
     if (sidebar) {
-      sidebar.hidden = view !== "timeline" || !hasPeriods
-      if (view !== "timeline" && !desktopSidebar.matches) sidebar.open = false
+      sidebar.hidden = false
+      const timeSelected = sidebarTab === "time" && view === "timeline"
+      if (navigation) navigation.hidden = !timeSelected
+      if (tagNavigation) tagNavigation.hidden = timeSelected
+      const label = timeSelected ? "年月" : "标签"
+      const summaryLabel = sidebar.querySelector<HTMLElement>("[data-listing-sidebar-label]")
+      if (summaryLabel) summaryLabel.textContent = label
+      sidebarSummary
+        ?.querySelector("path")
+        ?.setAttribute(
+          "d",
+          timeSelected
+            ? "M5 5h14v15H5zM8 3v4M16 3v4M5 10h14M9 14h.01M15 14h.01M9 17h.01M15 17h.01"
+            : "M5 8h14M4 16h14M10 3 7 21M17 3l-3 18",
+        )
+      sidebarSummary?.setAttribute("aria-label", `展开文章${label}导航`)
+      sidebarSummary?.setAttribute("title", `文章${label}`)
+      for (const button of tabButtons) {
+        button.hidden = button.dataset.listingSidebarTab === "time" && view !== "timeline"
+        button.setAttribute(
+          "aria-pressed",
+          String(button.dataset.listingSidebarTab === (timeSelected ? "time" : "tags")),
+        )
+      }
+      if (sidebarTabs) sidebarTabs.hidden = view !== "timeline"
     }
     for (const button of controls) {
       const selected = button.dataset.listingView === view
@@ -34,6 +63,7 @@ export function setupTimeline({ onViewChange }: { onViewChange: () => void }) {
   }
   const setView = (next: TimelineView, writeUrl = true) => {
     if (next !== "list" && next !== "timeline") return
+    if (view !== next) sidebarTab = next === "timeline" ? "time" : "tags"
     view = next
     applyView()
     if (writeUrl) {
@@ -85,9 +115,22 @@ export function setupTimeline({ onViewChange }: { onViewChange: () => void }) {
     closeSidebar(true)
     scrollToPeriod(link.dataset.timelineJump ?? "")
   }
+  const chooseSidebarTab = (event: MouseEvent) => {
+    const button = (event.target as Element).closest<HTMLButtonElement>(
+      "[data-listing-sidebar-tab]",
+    )
+    if (!button) return
+    sidebarTab = button.dataset.listingSidebarTab === "time" ? "time" : "tags"
+    applyView()
+  }
+  const chooseSidebarTag = (event: MouseEvent) => {
+    if (event.ctrlKey || event.metaKey || event.shiftKey || event.altKey) return
+    if ((event.target as Element).closest("a[data-listing-tag]")) closeSidebar(true)
+  }
   const resizeSidebar = () => {
     if (!sidebar) return
-    sidebar.open = desktopSidebar.matches
+    if (sidebarInitialized || desktopSidebar.matches) sidebar.open = desktopSidebar.matches
+    sidebarInitialized = true
     if (desktopSidebar.matches) sidebarSummary?.setAttribute("tabindex", "-1")
     else sidebarSummary?.removeAttribute("tabindex")
   }
@@ -241,13 +284,14 @@ export function setupTimeline({ onViewChange }: { onViewChange: () => void }) {
       jump.value = previousMonth
     jump.disabled = months.length === 0
     navigation?.replaceChildren(sidebarGroups)
-    hasPeriods = months.length > 0
     highlightPeriod()
     applyView()
   }
   for (const control of controls) control.addEventListener("click", chooseView)
   jump.addEventListener("change", jumpToMonth)
   navigation?.addEventListener("click", choosePeriod)
+  sidebarTabs?.addEventListener("click", chooseSidebarTab)
+  sidebar?.addEventListener("click", chooseSidebarTag, { capture: true })
   desktopSidebar.addEventListener("change", resizeSidebar)
   headerResize?.observe(header!)
   window.addEventListener("resize", measureHeader, { passive: true })
@@ -257,6 +301,8 @@ export function setupTimeline({ onViewChange }: { onViewChange: () => void }) {
     for (const control of controls) control.removeEventListener("click", chooseView)
     jump.removeEventListener("change", jumpToMonth)
     navigation?.removeEventListener("click", choosePeriod)
+    sidebarTabs?.removeEventListener("click", chooseSidebarTab)
+    sidebar?.removeEventListener("click", chooseSidebarTag, { capture: true })
     desktopSidebar.removeEventListener("change", resizeSidebar)
     headerResize?.disconnect()
     window.removeEventListener("resize", measureHeader)
