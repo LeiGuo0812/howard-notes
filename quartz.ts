@@ -4,6 +4,7 @@ import { BlogFrame, BlogNav, BlogHome, BlogFooter } from "./quartz/components/Bl
 import { PageTypeDispatcher } from "./quartz/plugins/pageTypes/dispatcher"
 import siteSettings from "./library/site.json"
 import { BrandIcon } from "./quartz/plugins/emitters/brandIcon"
+import RuntimeSearch from "./quartz/components/RuntimeSearch"
 
 frameRegistry.register("blog", BlogFrame, "howard-notes")
 const config = await loadQuartzConfig()
@@ -13,7 +14,12 @@ config.plugins.emitters.push(BrandIcon())
 export default config
 export const layout = await loadQuartzLayout()
 for (const section of [layout.defaults, ...Object.values(layout.byPageType)]) {
-  section.header = [BlogNav, ...(section.header ?? [])]
+  section.header = [
+    BlogNav,
+    ...(section.header ?? []).map((component) =>
+      component.name === "Search" ? RuntimeSearch() : component,
+    ),
+  ]
   section.beforeBody = [BlogHome, ...(section.beforeBody ?? [])]
   section.footer = [BlogFooter]
 }

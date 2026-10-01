@@ -38,6 +38,7 @@ for (const file of files.filter((file) => file.endsWith(".html"))) {
 const failures = []
 // Validate the emitted policy: the OAuth result requests must be permitted by the browser.
 const authConfig = JSON.parse(await fs.readFile("public/admin/auth-config.json", "utf8"))
+const runtimeConfig = JSON.parse(await fs.readFile("public/runtime-config.json", "utf8"))
 const adminTree = fromHtml(await fs.readFile("public/admin/index.html", "utf8"))
 let adminPolicy = ""
 let adminVersion = ""
@@ -64,11 +65,17 @@ const allowedConnections = [
   "'self'",
   "https://api.github.com",
   ...(authConfig.brokerOrigin ? [brokerOrigin(authConfig.brokerOrigin)] : []),
+  ...(runtimeConfig.enabled ? [new URL(runtimeConfig.apiBase).origin] : []),
 ].sort()
 if (JSON.stringify(connections) !== JSON.stringify(allowedConnections))
   failures.push(
-    "Admin connection policy must permit only the configured login origin and GitHub API",
+    "Admin connection policy must permit only GitHub and the configured login/content origins",
   )
+if (
+  !adminPolicy.includes("script-src 'self' 'wasm-unsafe-eval'") ||
+  /(?:^|\s)'unsafe-eval'/.test(adminPolicy)
+)
+  failures.push("The Markdown highlighter may compile WebAssembly without enabling JavaScript eval")
 if (!/^[a-f0-9]{16}$/.test(adminVersion) || !/^admin-[A-Z0-9]+\.js$/.test(adminEntry))
   failures.push("Admin HTML must identify its release and load a versioned bundle")
 const legacyEntry = await fs.readFile("public/admin/admin.js", "utf8")

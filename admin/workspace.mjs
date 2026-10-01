@@ -6,6 +6,7 @@ import { createPreview } from "./preview.mjs"
 import { createSettings } from "./settings.mjs"
 import { GitHubImageHost, prepareImage } from "./images.mjs"
 import { imageHostSettings } from "../scripts/lib/image-host.mjs"
+import { createRuntimePublisher, publicChange } from "./runtime-publish.mjs"
 import {
   RECOVERY_FIELDS,
   listArticleRecoveries,
@@ -57,7 +58,57 @@ export function createWorkspace(root, options = {}) {
     JSON.stringify(
       formKeys.map((key) => ($(key).type === "checkbox" ? $(key).checked : $(key).value)),
     )
+  const readForm = () =>
+    Object.fromEntries(
+      formKeys.map((key) => [key, $(key).type === "checkbox" ? $(key).checked : $(key).value]),
+    )
   const articleDirty = () => !!savedForm && formValue() !== savedForm
+  const publication = document.createElement("div")
+  publication.className = "publication-status small"
+  publication.hidden = true
+  publication.setAttribute("role", "status")
+  const publicationText = document.createElement("span")
+  const retryPublication = document.createElement("button")
+  retryPublication.type = "button"
+  retryPublication.textContent = "重试同步"
+  retryPublication.title = "将 GitHub 中的最新内容同步到网站"
+  publication.append(publicationText, retryPublication)
+  $("status").before(publication)
+  const publisher = createRuntimePublisher({
+    siteBase,
+    storage,
+    getClient: () => client,
+    onState(state) {
+      publication.hidden = state.status === "static"
+      retryPublication.hidden = state.status !== "pending"
+      publicationText.textContent =
+        state.status === "syncing"
+          ? `已保存到 GitHub，正在同步网站${state.progress ? ` ${state.progress}` : ""}… `
+          : state.status === "synchronized"
+            ? "已上线。"
+            : `已保存到 GitHub；线上同步未完成${state.error ? `：${state.error}` : ""} `
+      if (state.code === 401) $("reconnect").hidden = false
+    },
+    onSynchronized(state) {
+      document.dispatchEvent(new CustomEvent("howard:content-updated", { detail: state }))
+    },
+  })
+  const retrySynchronization = () =>
+    action(
+      async () => {
+        const state = await publisher.retry()
+        if (state) options.onSaved?.({ ...state, sync: state })
+      },
+      { editable: true },
+    )
+  retryPublication.onclick = retrySynchronization
+  async function reportSaved(info, result) {
+    const value = { ...info, commit: result?.sha }
+    options.onSaved?.({ ...value, sync: { status: publicChange(value) ? "syncing" : "draft" } })
+    const sync = await publisher.publish(value, result?.snapshot)
+    if (publicChange(value)) options.onSaved?.({ ...value, sync })
+    return sync
+  }
   const settings = createSettings({
     root,
     siteBase,
@@ -65,11 +116,12 @@ export function createWorkspace(root, options = {}) {
     action,
     message,
     refresh: async () => (snapshot = await client.snapshot()),
-    onSaved: (_snapshot, result) => {
+    onSaved: async (_snapshot, result) => {
+      snapshot = _snapshot
       renderList()
       renderCategories($("category").value)
       renderImageDestination()
-      options.onSaved?.({ kind: "settings", commit: result?.sha })
+      return reportSaved({ kind: "settings" }, result)
     },
   })
   const dirty = () => !!client && (articleDirty() || settings.dirty())
@@ -98,14 +150,31 @@ export function createWorkspace(root, options = {}) {
       el.append(link)
     }
   }
-  function lock(value) {
+  function lock(value, editable = false) {
     busy = value
-    for (const el of root.querySelectorAll("button,input,select,textarea"))
-      el.disabled = value || el.dataset.boundary === "true"
+    for (const el of root.querySelectorAll("button,input,select,textarea")) {
+      const withinEditor = $("editor-form").contains(el)
+      const mayEdit =
+        editable &&
+        withinEditor &&
+        (el.matches(
+          "input:not(#slug):not(#image),select,textarea,[data-format],button[data-view]",
+        ) ||
+          [
+            "undo",
+            "redo",
+            "insert-link",
+            "apply-link",
+            "cancel-link",
+            "download",
+            "focus-mode",
+          ].includes(el.id))
+      el.disabled = (value && !mayEdit) || el.dataset.boundary === "true"
+    }
   }
-  async function action(callback) {
+  async function action(callback, { editable = false } = {}) {
     if (busy) return
-    lock(true)
+    lock(true, editable)
     try {
       return await callback()
     } catch (error) {
@@ -232,15 +301,17 @@ export function createWorkspace(root, options = {}) {
     images = []
     viewer.clear()
   }
-  function showEditor(article, text) {
+  function showEditor(article, text, continuation) {
     const sameArticle =
       article &&
       current &&
       (article.id === current.id ||
         article.draftOf === current.id ||
         article.id === current.draftOf)
-    if (sameArticle) viewer.clear()
-    else clearImages()
+    if (!continuation) {
+      if (sameArticle) viewer.clear()
+      else clearImages()
+    }
     current = article ? structuredClone(article) : null
     localRecoveryOnly = false
     raw = text
@@ -279,8 +350,19 @@ export function createWorkspace(root, options = {}) {
     $("view-live").href = new URL("notes/" + (article?.draftOf || article?.id || ""), siteBase).href
     $("reload").hidden = !article
     $("link-fields").hidden = true
-    history.reset($("body").value)
+    if (!continuation) history.reset($("body").value)
     savedForm = formValue()
+    if (continuation) {
+      for (const key of formKeys) {
+        if (["slug", "published"].includes(key)) continue
+        if (continuation.form[key] === continuation.submitted[key]) continue
+        const input = $(key)
+        if (input.type === "checkbox") input.checked = continuation.form[key]
+        else input.value = continuation.form[key]
+      }
+      $("body").setSelectionRange(continuation.selection.start, continuation.selection.end)
+      $("body").scrollTop = continuation.scrollTop
+    }
     updateState()
     preview()
     renderList()
@@ -292,9 +374,9 @@ export function createWorkspace(root, options = {}) {
       host.repository.split("/")[1] + (host.directory ? "/" + host.directory : "")
     $("insert-image").title = `上传到 ${host.repository}/${host.directory}`
   }
-  async function loadArticle(id, restore = true) {
-    message("正在载入…")
-    snapshot = await client.snapshot()
+  async function loadArticle(id, restore = true, committed, continuation) {
+    if (!committed) message("正在载入…")
+    snapshot = committed || (await client.snapshot())
     const draft = snapshot.catalog.articles.find((item) => item.draftOf === id)
     const article = draft || snapshot.catalog.articles.find((item) => item.id === id)
     const recovery =
@@ -312,7 +394,7 @@ export function createWorkspace(root, options = {}) {
     openedSha = loaded.sha
     if (recovery) restoreRecovery(recovery, article, loaded.sha)
     else {
-      showEditor(article, loaded.text)
+      showEditor(article, loaded.text, continuation)
       const published = article.published
         ? article
         : snapshot.catalog.articles.find((item) => item.id === article.draftOf && item.published)
@@ -489,6 +571,7 @@ export function createWorkspace(root, options = {}) {
       $("login-panel").hidden = true
       $("admin-tabs").hidden = false
       $("status").hidden = true
+      publisher.restore()
     } catch (error) {
       connection.token = ""
       throw error
@@ -513,6 +596,7 @@ export function createWorkspace(root, options = {}) {
     $("logout").hidden = true
     $("reconnect").hidden = true
     $("account").textContent = ""
+    publication.hidden = true
     options.onSession?.(null)
   }
   $("login-button").onclick = login
@@ -665,6 +749,10 @@ export function createWorkspace(root, options = {}) {
       .filter(Boolean)
     if (!files.length) return
     event.preventDefault()
+    if (busy) {
+      message("当前操作正在进行，请完成后再粘贴图片。")
+      return
+    }
     insertImages(files)
   })
   function insertImages(files, selection) {
@@ -703,6 +791,7 @@ export function createWorkspace(root, options = {}) {
   }
   $("editor-form").onsubmit = (event) => {
     event.preventDefault()
+    if (busy) return
     const published = event.submitter?.id !== "save-draft"
     if (!published) {
       if (!$("title").value.trim()) $("title").value = "未命名文章"
@@ -732,61 +821,89 @@ export function createWorkspace(root, options = {}) {
           ? date()
           : current.modified || current.created || current.date,
     }
+    const submitted = {
+      form: readForm(),
+      text: sourceText(),
+      opened: current && structuredClone(current),
+      openedSha,
+      recoveryId: recoveryId(),
+    }
     persistRecovery()
-    action(async () => {
-      if (published) {
-        delete edited.draftOf
-        delete edited.draftBaseline
-      }
-      validateCatalog({ version: 2, articles: [edited] })
-      message("正在保存…")
-      let nextId = edited.id
-      const previousRecovery = recoveryId()
-      let result
-      if (!published && current?.published) {
-        const id = `draft-${crypto.randomUUID()}`
-        const draft = {
-          ...edited,
-          id,
-          file: `notes/网页草稿/${id}.md`,
-          draftOf: current.id,
-          draftBaseline: { article: current, sha: openedSha },
+    action(
+      async () => {
+        if (published) {
+          delete edited.draftOf
+          delete edited.draftBaseline
         }
-        result = await client.save({
-          opened: null,
-          openedSha: null,
-          edited: draft,
-          text: sourceText(),
-        })
-        nextId = id
-      } else if (published && current?.draftOf) {
-        result = await client.publishDraft({
-          opened: current,
-          openedSha,
-          edited,
-          text: sourceText(),
-        })
-        nextId = result.articleId
-      } else {
-        result = await client.save({ opened: current, openedSha, edited, text: sourceText() })
-      }
-      discardRecovery(previousRecovery)
-      savedForm = formValue()
-      setScope(published ? "published" : "draft")
-      $("workspace").hidden = false
-      $("settings-workspace").hidden = true
-      await loadArticle(nextId, false)
-      options.onSaved?.({
-        kind: published ? "article" : "draft",
-        articleId: nextId,
-        commit: result?.sha,
-      })
-      message(
-        edited.published ? "已保存，正在部署。" : "草稿已保存。",
-        false,
-        "https://github.com/LeiGuo0812/howard-notes/actions",
-      )
-    })
+        validateCatalog({ version: 2, articles: [edited] })
+        message("正在保存…")
+        let nextId = edited.id
+        let result
+        if (!published && submitted.opened?.published) {
+          const id = `draft-${crypto.randomUUID()}`
+          const draft = {
+            ...edited,
+            id,
+            file: `notes/网页草稿/${id}.md`,
+            draftOf: submitted.opened.id,
+            draftBaseline: { article: submitted.opened, sha: submitted.openedSha },
+          }
+          result = await client.save({
+            opened: null,
+            openedSha: null,
+            edited: draft,
+            text: submitted.text,
+          })
+          nextId = id
+        } else if (published && submitted.opened?.draftOf) {
+          result = await client.publishDraft({
+            opened: submitted.opened,
+            openedSha: submitted.openedSha,
+            edited,
+            text: submitted.text,
+          })
+          nextId = result.articleId
+        } else {
+          result = await client.save({
+            opened: submitted.opened,
+            openedSha: submitted.openedSha,
+            edited,
+            text: submitted.text,
+          })
+        }
+        const continuation = {
+          submitted: submitted.form,
+          form: readForm(),
+          selection: bodyState(),
+          scrollTop: $("body").scrollTop,
+        }
+        setScope(published ? "published" : "draft")
+        $("workspace").hidden = false
+        $("settings-workspace").hidden = true
+        await loadArticle(nextId, false, result.snapshot, continuation)
+        discardRecovery(submitted.recoveryId)
+        persistRecovery()
+        const sync = await reportSaved(
+          { kind: published ? "article" : "draft", articleId: nextId },
+          result,
+        )
+        const retained = articleDirty() ? "当前后续修改尚未保存。" : ""
+        message(
+          !published
+            ? `草稿已保存。${retained}`
+            : sync.status === "synchronized"
+              ? `文章已上线。${retained}`
+              : sync.status === "pending"
+                ? `已保存到 GitHub，等待同步。${retained}`
+                : `已保存，正在部署。${retained}`,
+          false,
+          sync.status === "static"
+            ? "https://github.com/LeiGuo0812/howard-notes/actions"
+            : undefined,
+        )
+      },
+      { editable: true },
+    )
   }
   $("cancel-edit").onclick = () => {
     if (mayLeaveArticle()) {
@@ -807,9 +924,9 @@ export function createWorkspace(root, options = {}) {
       discardRecovery()
       savedForm = ""
       setScope("draft")
-      await loadArticle(id, false)
-      options.onSaved?.({ kind: "unpublish", articleId: id, commit: result?.sha })
-      message("文章已撤下。")
+      await loadArticle(id, false, result.snapshot)
+      const sync = await reportSaved({ kind: "unpublish", articleId: id }, result)
+      message(sync.status === "pending" ? "已保存撤下操作，等待同步。" : "文章已撤下。")
     })
   }
   $("delete-draft").onclick = () => {
@@ -828,25 +945,30 @@ export function createWorkspace(root, options = {}) {
     action(async () => {
       const deletedId = current.id
       const result = await client.removeDraft({ opened: current, openedSha })
+      if (result.snapshot) snapshot = result.snapshot
       snapshot.catalog.articles = snapshot.catalog.articles.filter(
         (article) => article.id !== deletedId,
       )
       closeEditor(true)
       setScope("draft")
       let refreshed = true
-      try {
-        snapshot = await client.snapshot()
-        renderList()
-      } catch {
-        refreshed = false
+      if (!result.snapshot) {
+        try {
+          snapshot = await client.snapshot()
+        } catch {
+          refreshed = false
+        }
       }
-      options.onSaved?.({
-        kind: "delete",
-        scope: "draft",
-        articleId: deletedId,
-        removedIds: [deletedId],
-        commit: result?.sha,
-      })
+      renderList()
+      await reportSaved(
+        {
+          kind: "delete",
+          scope: "draft",
+          articleId: deletedId,
+          removedIds: [deletedId],
+        },
+        result,
+      )
       message(refreshed ? "草稿已删除。" : "草稿已删除；列表刷新失败，请重新载入。")
     })
   }
@@ -870,6 +992,7 @@ export function createWorkspace(root, options = {}) {
     action(async () => {
       message("正在删除…")
       const result = await client.removePublishedArticle(baseline)
+      if (result.snapshot) snapshot = result.snapshot
       for (const id of result.removedIds) discardRecovery(id)
       // The commit already succeeded. Clear the deleted editor even if a follow-up read fails.
       snapshot.catalog.articles = snapshot.catalog.articles.filter(
@@ -880,23 +1003,33 @@ export function createWorkspace(root, options = {}) {
       $("workspace").hidden = false
       $("settings-workspace").hidden = true
       let refreshed = true
-      try {
-        snapshot = await client.snapshot()
-        renderList()
-      } catch {
-        refreshed = false
+      if (!result.snapshot) {
+        try {
+          snapshot = await client.snapshot()
+        } catch {
+          refreshed = false
+        }
       }
-      options.onSaved?.({
-        kind: "delete",
-        scope: "published",
-        articleId: baseline.opened.id,
-        removedIds: result.removedIds,
-        commit: result.sha,
-      })
+      renderList()
+      const sync = await reportSaved(
+        {
+          kind: "delete",
+          scope: "published",
+          articleId: baseline.opened.id,
+          removedIds: result.removedIds,
+        },
+        result,
+      )
       message(
-        refreshed ? "文章已删除，正在部署。" : "文章已删除，正在部署；列表刷新失败，请重新载入。",
+        sync.status === "synchronized"
+          ? "文章已删除并上线。"
+          : sync.status === "pending"
+            ? "已保存删除操作，等待同步。"
+            : refreshed
+              ? "文章已删除，正在部署。"
+              : "文章已删除，正在部署；列表刷新失败，请重新载入。",
         false,
-        "https://github.com/LeiGuo0812/howard-notes/actions",
+        sync.status === "static" ? "https://github.com/LeiGuo0812/howard-notes/actions" : undefined,
       )
     })
   }
@@ -946,6 +1079,7 @@ export function createWorkspace(root, options = {}) {
     logout: () => !busy && logout(),
     getSession: () => session && { ...session },
     currentArticle: () => current && structuredClone(current),
+    retrySynchronization,
     dispose() {
       if (disposed) return
       persistRecovery()
@@ -955,6 +1089,8 @@ export function createWorkspace(root, options = {}) {
       previewVersion++
       listeners.abort()
       settings.dispose()
+      publisher.dispose()
+      publication.remove()
       clearImages()
       if (client) client.token = ""
       client = null

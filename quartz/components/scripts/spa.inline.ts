@@ -1,6 +1,6 @@
 import micromorph from "micromorph"
 import { FullSlug, RelativeURL, getFullSlug, normalizeRelativeURLs } from "../../util/path"
-import { fetchCanonical } from "./util"
+import { fetchCanonical, invalidatePageCache, prefetchPage } from "./util"
 
 // adapted from `micromorph`
 // https://github.com/natemoo-re/micromorph
@@ -151,13 +151,30 @@ async function navigate(url: URL, isBack: boolean = false) {
 }
 
 window.spaNavigate = navigate
+window.spaRefresh = async () => {
+  if (isNavigating) return
+  const { scrollX, scrollY } = window
+  invalidatePageCache()
+  await navigate(new URL(location.href), true)
+  window.scrollTo({ left: scrollX, top: scrollY, behavior: "instant" })
+}
 
 function createRouter() {
   if (typeof window !== "undefined") {
+    let prefetchTimer: ReturnType<typeof setTimeout>
+    const prepare = (event: Event) => {
+      if (event instanceof PointerEvent && event.pointerType !== "mouse") return
+      const options = getOpts(event)
+      if (!options || isSamePage(options.url)) return
+      clearTimeout(prefetchTimer)
+      prefetchTimer = setTimeout(() => prefetchPage(options.url), event.type === "focusin" ? 0 : 80)
+    }
+    window.addEventListener("pointerover", prepare)
+    window.addEventListener("focusin", prepare)
     window.addEventListener("click", async (event) => {
       const { url } = getOpts(event) ?? {}
       // dont hijack behaviour, just let browser act normally
-      if (!url || event.ctrlKey || event.metaKey) return
+      if (!url || event.ctrlKey || event.metaKey || event.shiftKey || event.altKey) return
       event.preventDefault()
 
       if (isSamePage(url) && url.hash) {

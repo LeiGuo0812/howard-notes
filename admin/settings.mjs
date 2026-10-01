@@ -411,10 +411,20 @@ export function createSettings({
         settings: structuredClone(working),
       })
       if (storage) clearLayoutDraft(storage)
-      const latest = await refresh()
+      const latest = result.snapshot || (await refresh())
       load(latest, false)
-      onSaved(latest, result)
-      message("页面已发布，正在部署。", false, "https://github.com/LeiGuo0812/howard-notes/actions")
+      const sync = await onSaved(latest, result)
+      message(
+        sync?.status === "synchronized"
+          ? "页面已上线。"
+          : sync?.status === "pending"
+            ? "页面已保存到 GitHub，等待同步。"
+            : "页面已发布，正在部署。",
+        false,
+        sync?.status === "static"
+          ? "https://github.com/LeiGuo0812/howard-notes/actions"
+          : undefined,
+      )
     })
   }
   $("reload-settings").onclick = () => {

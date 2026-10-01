@@ -1,0 +1,5 @@
+{
+  "version": 1,
+  "enabled": true,
+  "apiBase": "https://howard-notes.howard-notes-login.workers.dev/howard-notes/api/content"
+}

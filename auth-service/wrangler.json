@@ -7,6 +7,7 @@
   "observability": { "enabled": false },
   "vars": {
     "ADMIN_URL": "https://leiguo0812.github.io/howard-notes/admin/",
+    "ADDITIONAL_ADMIN_URLS": "https://howard-notes.howard-notes-login.workers.dev/howard-notes/admin/",
     "OWNER_ID": "50766698",
     "OWNER_LOGIN": "LeiGuo0812",
     "REPOSITORY": "LeiGuo0812/howard-notes"

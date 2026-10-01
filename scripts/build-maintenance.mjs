@@ -2,6 +2,7 @@ import fs from "node:fs/promises"
 import path from "node:path"
 import { createHash } from "node:crypto"
 import { build } from "esbuild"
+import { runtimeBrowserPlugins } from "../runtime/build.mjs"
 
 // Both entry points instantiate the same workspace controller and the same form template.
 export async function buildMaintenance(template) {
@@ -19,6 +20,8 @@ export async function buildMaintenance(template) {
     platform: "browser",
     target: ["es2022"],
     metafile: true,
+    plugins: runtimeBrowserPlugins(),
+    loader: { ".scss": "empty" },
   })
   const entry = Object.entries(bundle.metafile.outputs).find(
     ([, output]) =>

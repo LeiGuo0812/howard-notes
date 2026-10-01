@@ -816,6 +816,45 @@ async function prepareRequest(env, options = {}) {
   })
 }
 
+test("the configured Cloudflare site can prepare, finish and claim a proof-bound login", async () => {
+  const { env } = await configured()
+  const siteOrigin = "https://howard-notes.howard-notes-login.workers.dev"
+  env.ADDITIONAL_ADMIN_URLS = siteOrigin + "/howard-notes/admin/"
+  const prepared = await handle(await prepareRequest(env, { requestOrigin: siteOrigin }), env)
+  assert.equal(prepared.status, 201)
+  assertPrivateResponse(prepared, siteOrigin)
+  const returnTo = siteOrigin + "/howard-notes/notes/one?view=reading#chapter"
+  const pending = await startResult(env, "redirect", resultChannel, returnTo)
+  const response = await handle(callback(pending), env, upstream().fetcher)
+  const expected = new URL(returnTo)
+  expected.searchParams.set("login", resultChannel)
+  assert.equal(response.headers.get("Location"), expected.href)
+  const claimed = await handle(resultRequest(env, { requestOrigin: siteOrigin }), env)
+  assert.equal(claimed.status, 200)
+  assertPrivateResponse(claimed, siteOrigin)
+})
+
+test("additional login origins retain repository scope and reject unconfigured sites", async () => {
+  for (const returnTo of [
+    "https://howard-notes.howard-notes-login.workers.dev/other/notes/one",
+    "https://howard-notes.howard-notes-login.workers.dev.attacker.test/howard-notes/",
+    "https://unconfigured.workers.dev/howard-notes/",
+  ]) {
+    const { env } = await configured()
+    env.ADDITIONAL_ADMIN_URLS =
+      "https://howard-notes.howard-notes-login.workers.dev/howard-notes/admin/"
+    const url = new URL(`${origin}/login`)
+    url.search = new URLSearchParams({
+      channel: resultChannel,
+      challenge: await secretChallenge(),
+      mode: "redirect",
+      returnTo,
+    }).toString()
+    const response = await handle(new Request(url), env)
+    assert.equal(response.status, 400)
+  }
+})
+
 test("preparing the proof before opening GitHub permits polling without a navigation race", async () => {
   const { env, sqlite } = await configured()
   const response = await handle(await prepareRequest(env), env)

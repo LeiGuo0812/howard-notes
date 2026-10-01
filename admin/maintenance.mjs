@@ -144,7 +144,36 @@ export async function createMaintenance({ siteBase, version }) {
         removedArticles.delete(result.articleId)
         updateControls()
       }
-      if (["article", "settings", "unpublish", "delete"].includes(result?.kind) && result.commit)
+      if (result.sync?.status === "synchronized" && Array.isArray(result.sync.publishedIds)) {
+        const published = new Set(result.sync.publishedIds)
+        for (const id of removedArticles) if (published.has(id)) removedArticles.delete(id)
+        updateControls()
+      }
+      deployment.hidden = true
+      const publicOperation =
+        ["article", "settings", "unpublish", "delete"].includes(result?.kind) &&
+        !(result.kind === "delete" && result.scope === "draft")
+      if (publicOperation && result.sync?.status !== "static") {
+        deployment.hidden = false
+        deployment.replaceChildren(
+          document.createTextNode(
+            result.sync?.status === "synchronized"
+              ? "已上线。"
+              : result.sync?.status === "pending"
+                ? "已保存到 GitHub；线上同步待重试。 "
+                : "已保存到 GitHub，正在同步网站…",
+          ),
+        )
+        if (result.sync?.status === "pending") {
+          const retry = document.createElement("button")
+          retry.type = "button"
+          retry.textContent = "重试同步"
+          retry.title = "将 GitHub 中的最新内容同步到网站"
+          retry.onclick = () => workspace.retrySynchronization()
+          deployment.append(retry)
+        }
+      }
+      if (publicOperation && result.commit && result.sync?.status === "static")
         stopDeployment = trackDeployment(deployment, result.commit)
     },
   })

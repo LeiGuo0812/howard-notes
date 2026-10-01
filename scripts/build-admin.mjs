@@ -6,16 +6,19 @@ import { brandIconLinks } from "./lib/site-icon.mjs"
 import { brokerOrigin } from "../admin/auth.mjs"
 import { upgradeAdmin } from "./lib/admin-upgrade.mjs"
 import { buildMaintenance } from "./build-maintenance.mjs"
+import { runtimeBrowserPlugins } from "../runtime/build.mjs"
 const authConfig = JSON.parse(await fs.readFile("admin/auth-config.json", "utf8"))
 const settings = JSON.parse(await fs.readFile("library/site.json", "utf8"))
+const runtimeConfig = JSON.parse(await fs.readFile("runtime/config.json", "utf8"))
 const template = await fs.readFile("admin/index.html", "utf8")
 const connections = "connect-src 'self' https://api.github.com;"
 if (!template.includes(connections))
   throw new Error("The admin connection policy template changed.")
 const loginOrigin = authConfig.brokerOrigin ? ` ${brokerOrigin(authConfig.brokerOrigin)}` : ""
+const contentOrigin = runtimeConfig.enabled ? ` ${new URL(runtimeConfig.apiBase).origin}` : ""
 const preparedHtml = template
   .replace("<!-- brand-icons -->", brandIconLinks(settings, ".."))
-  .replace(connections, `connect-src 'self' https://api.github.com${loginOrigin};`)
+  .replace(connections, `connect-src 'self' https://api.github.com${loginOrigin}${contentOrigin};`)
 if (process.env.GITHUB_REF === "refs/heads/main" && !authConfig.brokerOrigin)
   throw new Error("Account login must be configured before deploying main.")
 await fs.mkdir("public/admin/katex", { recursive: true })
@@ -32,6 +35,8 @@ const bundle = await build({
   target: ["es2022"],
   sourcemap: false,
   metafile: true,
+  plugins: runtimeBrowserPlugins(),
+  loader: { ".scss": "empty" },
 })
 const entry = Object.entries(bundle.metafile.outputs).find(
   ([, output]) =>
@@ -47,6 +52,7 @@ const version = createHash("sha256")
   .slice(0, 16)
 const adminHtml = htmlWithEntry.replace("__ADMIN_VERSION__", version)
 await Promise.all([
+  fs.writeFile("public/runtime-config.json", JSON.stringify(runtimeConfig)),
   fs.writeFile("public/admin/index.html", adminHtml),
   fs.copyFile("admin/admin.css", "public/admin/admin.css"),
   fs.copyFile("styles/frosted-glass.css", "public/admin/frosted-glass.css"),

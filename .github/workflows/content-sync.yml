@@ -1,0 +1,35 @@
+name: Synchronize published content
+on:
+  push:
+    branches: [main]
+    paths: ["library/**"]
+  workflow_dispatch:
+  schedule:
+    - cron: "23 16 * * *"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: public-content-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  synchronize:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          ref: main
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      # This compiles changed content and reuses the deployed frontend shell.
+      # It never invokes Quartz's full-site build or deploys frontend assets.
+      - run: npm run content:sync
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          CONTENT_SYNC_KEY: ${{ secrets.CONTENT_SYNC_KEY }}

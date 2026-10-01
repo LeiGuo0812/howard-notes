@@ -3,14 +3,16 @@ import { slugTag } from "@quartz-community/utils"
 import { unified } from "unified"
 import remarkParse from "remark-parse"
 import { topicList, collectionArticles, validateSite } from "./site-settings.mjs"
-import { splitNote } from "./library.mjs"
+import { splitNote } from "./library-render.mjs"
 import { safeRelative } from "./catalog.mjs"
 import { createdDay, modifiedDay } from "./note-dates.mjs"
 import { sectionLimit, sitePages } from "./site-design.mjs"
 
+const utf8 = new TextDecoder("utf-8", { ignoreBOM: true })
+
 function excerpt(bytes) {
   if (!bytes) return ""
-  const body = splitNote(bytes.toString("utf8")).body
+  const body = splitNote(utf8.decode(bytes)).body
   const tree = unified().use(remarkParse).parse(body)
   const textOf = (node) =>
     ["code", "html", "image"].includes(node.type)
@@ -55,6 +57,8 @@ export function generateSitePages(
   activity,
   legacyPageSize = 24,
   sources = new Map(),
+  encode = (text) => Buffer.from(text),
+  excerpts = new Map(),
 ) {
   validateSite(settings)
   const output = new Map()
@@ -70,14 +74,16 @@ export function generateSitePages(
     category:
       topics.find((topic) => topic.category === article.category)?.title || article.category,
     categoryKey: article.category,
-    excerpt: article.description || excerpt(sources.get(article.file)),
+    excerpt:
+      article.description ||
+      (excerpts.has(article.id) ? excerpts.get(article.id) : excerpt(sources.get(article.file))),
     tags: tags
       .filter((tag) => tag.articleIds.includes(article.id))
       .map(({ id, title }) => ({ id, title })),
   })
   const rows = new Map(published.map((article) => [article.id, row(article)]))
   const markdown = (data, body = "") =>
-    Buffer.from(`---\n${YAML.stringify({ publish: true, draft: false, ...data })}---\n${body}`)
+    encode(`---\n${YAML.stringify({ publish: true, draft: false, ...data })}---\n${body}`)
   output.set(
     "index.md",
     markdown({

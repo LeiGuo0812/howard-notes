@@ -1,0 +1,50 @@
+{
+  "$schema": "../auth-service/node_modules/wrangler/config-schema.json",
+  "name": "howard-notes",
+  "main": "worker.mjs",
+  "compatibility_date": "2026-09-30",
+  "workers_dev": true,
+  "observability": { "enabled": false },
+  "triggers": { "crons": ["47 * * * *"] },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "howard-notes-content",
+      "database_id": "33d90842-0e8f-40d2-b278-11a8f6048b5c"
+    }
+  ],
+  "assets": {
+    "directory": "../.local/cloudflare-assets",
+    "binding": "ASSETS",
+    "run_worker_first": [
+      "/howard-notes/",
+      "/howard-notes/index",
+      "/howard-notes/index.html",
+      "/howard-notes/notes/*",
+      "/howard-notes/topics/*",
+      "/howard-notes/tags/*",
+      "/howard-notes/collections/*",
+      "/howard-notes/about",
+      "/howard-notes/about.html",
+      "/howard-notes/404",
+      "/howard-notes/404.html",
+      "/howard-notes/api/*",
+      "/howard-notes/static/contentIndex.json",
+      "/howard-notes/runtime-config.json",
+      "/howard-notes/index.xml",
+      "/howard-notes/sitemap.xml",
+      "/howard-notes/robots.txt",
+      "/",
+      "/health",
+      "/robots.txt",
+      "/sitemap.xml"
+    ]
+  },
+  "vars": {
+    "SITE_PREFIX": "/howard-notes/",
+    "OWNER_ID": "50766698",
+    "REPOSITORY": "LeiGuo0812/howard-notes",
+    "BRANCH": "main",
+    "FALLBACK_ORIGIN": "https://leiguo0812.github.io"
+  }
+}

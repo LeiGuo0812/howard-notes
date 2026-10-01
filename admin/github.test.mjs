@@ -1,6 +1,7 @@
 import test from "node:test"
 import assert from "node:assert/strict"
-import { GitHubLibrary, decodeBase64 } from "./github.mjs"
+import { GitHubLibrary, decodeBase64, gitBlobSha } from "./github.mjs"
+import { createHash } from "node:crypto"
 import fs from "node:fs/promises"
 import { readLayoutDraft, writeLayoutDraft, clearLayoutDraft } from "./layout-draft.mjs"
 const settings = JSON.parse(await fs.readFile("library/site.json", "utf8"))
@@ -538,4 +539,38 @@ test("settings cannot silently reassign article categories or delete an occupied
     client.saveSettings({ openedSha: "site-old", settings: removed }),
     /仍有文章/,
   )
+})
+
+test("successful ref writes return exact committed content and conflict baselines without reload", async () => {
+  const client = new GitHubLibrary("test-not-a-token")
+  const latest = { ...snapshot(), settings, siteSha: "site-old" }
+  const calls = recordWrites(client, latest)
+  const text = "\uFEFF原始字节\r\n\r\n新正文。\r\n"
+  const edited = { ...article, title: "已提交标题" }
+  const result = await client.save({ opened: article, openedSha: "original", edited, text })
+  const expected = createHash("sha1")
+    .update(`blob ${Buffer.byteLength(text)}\0`)
+    .update(text)
+    .digest("hex")
+  assert.equal(await gitBlobSha(text), expected)
+  assert.equal(result.snapshot.entries.get("library/notes/a.md").sha, expected)
+  assert.equal(result.snapshot.commit, result.sha)
+  assert.equal(result.snapshot.tree, "new")
+  assert.deepEqual(result.snapshot.catalog.articles[0], edited)
+  const beforeRead = calls.length
+  assert.deepEqual(await client.read(edited, result.snapshot), { text, sha: expected })
+  assert.equal(calls.length, beforeRead)
+  assert.equal(latest.entries.get("library/notes/a.md").sha, "original")
+  assert.equal(latest.catalog.articles[0].title, "原文")
+})
+
+test("committed settings snapshot carries the new independent settings SHA", async () => {
+  const client = new GitHubLibrary("test-not-a-token")
+  const latest = { ...snapshot(), settings, siteSha: "site-old" }
+  recordWrites(client, latest)
+  const edited = { ...settings, home: { ...settings.home, title: "新的主页" } }
+  const result = await client.saveSettings({ openedSha: "site-old", settings: edited })
+  assert.deepEqual(result.snapshot.settings, edited)
+  assert.equal(result.snapshot.siteSha, await gitBlobSha(JSON.stringify(edited, null, 2) + "\n"))
+  assert.equal(result.snapshot.entries.get("library/notes/a.md").sha, "original")
 })

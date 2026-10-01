@@ -15,6 +15,42 @@ export function decodeBase64(base64) {
   )
 }
 
+export async function gitBlobSha(text) {
+  const bytes = new TextEncoder().encode(text)
+  const prefix = new TextEncoder().encode(`blob ${bytes.length}\0`)
+  const body = new Uint8Array(prefix.length + bytes.length)
+  body.set(prefix)
+  body.set(bytes, prefix.length)
+  return Array.from(new Uint8Array(await crypto.subtle.digest("SHA-1", body)))
+    .map((byte) => byte.toString(16).padStart(2, "0"))
+    .join("")
+}
+
+// The accepted ref write is the acknowledgement. Derive its exact conflict baseline before
+// writing, so a later repository read cannot turn a successful save into a reported failure.
+export async function committedSnapshot(latest, changes) {
+  const entries = new Map(latest.entries)
+  const texts = new Map()
+  let catalog = latest.catalog,
+    settings = latest.settings,
+    siteSha = latest.siteSha
+  for (const change of changes) {
+    if (change.sha === null) {
+      entries.delete(change.path)
+      continue
+    }
+    const sha = typeof change.content === "string" ? await gitBlobSha(change.content) : change.sha
+    entries.set(change.path, { path: change.path, type: "blob", mode: change.mode, sha })
+    if (typeof change.content === "string") texts.set(change.path, change.content)
+    if (change.path === CATALOG_PATH) catalog = validateCatalog(JSON.parse(change.content))
+    if (change.path === SITE_PATH) {
+      settings = validateSite(JSON.parse(change.content))
+      siteSha = sha
+    }
+  }
+  return { ...latest, entries, texts, catalog, settings, siteSha }
+}
+
 export class GitHubLibrary {
   constructor(token, fetcher = (...args) => globalThis.fetch(...args)) {
     this.token = token
@@ -85,6 +121,8 @@ export class GitHubLibrary {
   async read(article, snapshot) {
     const entry = snapshot.entries.get(`library/${article.file}`)
     if (!entry) throw new Error("原文文件不存在，请重新载入目录。")
+    if (snapshot.texts?.has(`library/${article.file}`))
+      return { text: snapshot.texts.get(`library/${article.file}`), sha: entry.sha }
     const blob = await this.repo(`git/blobs/${entry.sha}`)
     return { text: decodeBase64(blob.content), sha: entry.sha }
   }
@@ -312,6 +350,7 @@ export class GitHubLibrary {
     return new Blob([bytes], { type })
   }
   async commit(latest, changes, message) {
+    const saved = await committedSnapshot(latest, changes)
     const tree = await this.repo("git/trees", "POST", { base_tree: latest.tree, tree: changes })
     const commit = await this.repo("git/commits", "POST", {
       message,
@@ -320,6 +359,10 @@ export class GitHubLibrary {
     })
     // Never force-update: a commit arriving after our snapshot prevents this write.
     await this.repo(`git/refs/heads/${BRANCH}`, "PATCH", { sha: commit.sha, force: false })
-    return { sha: commit.sha, url: `https://github.com/${REPOSITORY}/commit/${commit.sha}` }
+    return {
+      sha: commit.sha,
+      url: `https://github.com/${REPOSITORY}/commit/${commit.sha}`,
+      snapshot: { ...saved, commit: commit.sha, tree: tree.sha },
+    }
   }
 }

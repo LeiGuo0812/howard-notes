@@ -32,8 +32,53 @@ export function removeAllChildren(node: HTMLElement) {
 // way less robust - we only care about our own generated redirects after all.
 const canonicalRegex = /<link rel="canonical" href="([^"]*)">/
 
+const pageCache = new Map<string, { time: number; value: Promise<Response> }>()
+const CACHE_TTL = 15_000
+const CACHE_LIMIT = 6
+
+export function invalidatePageCache() {
+  pageCache.clear()
+}
+
+export function prefetchPage(url: URL) {
+  if (
+    url.origin !== location.origin ||
+    (navigator as Navigator & { connection?: { saveData?: boolean } }).connection?.saveData
+  )
+    return
+  void fetchPage(url).catch(() => {})
+}
+
+export async function fetchPage(url: URL): Promise<Response> {
+  const key = `${url.origin}${url.pathname}${url.search}`
+  const cached = pageCache.get(key)
+  if (cached && Date.now() - cached.time < CACHE_TTL) return (await cached.value).clone()
+  const value = fetch(key, { cache: "no-cache" })
+    .then(async (response) => {
+      if (!response.ok || !response.headers.get("content-type")?.startsWith("text/html")) {
+        pageCache.delete(key)
+        return response
+      }
+      // Limit retained HTML, especially for notes containing large embedded code.
+      const html = await response.text()
+      if (html.length > 350_000) pageCache.delete(key)
+      return new Response(html, { status: response.status, headers: response.headers })
+    })
+    .catch((error) => {
+      pageCache.delete(key)
+      throw error
+    })
+  pageCache.delete(key)
+  pageCache.set(key, { time: Date.now(), value })
+  while (pageCache.size > CACHE_LIMIT) pageCache.delete(pageCache.keys().next().value!)
+  return (await value).clone()
+}
+
 export async function fetchCanonical(url: URL): Promise<Response> {
-  const res = await fetch(`${url}`)
+  const res = await fetchPage(url)
+  // A rendered 404 is the final page, even when its generic canonical differs
+  // from the requested note. Alias redirects are successful HTML responses.
+  if (!res.ok) return res
   if (!res.headers.get("content-type")?.startsWith("text/html")) {
     return res
   }
@@ -42,5 +87,11 @@ export async function fetchCanonical(url: URL): Promise<Response> {
   // to allow the caller to read it if it's was not a redirect
   const text = await res.clone().text()
   const [_, redirect] = text.match(canonicalRegex) ?? []
-  return redirect ? fetch(`${new URL(redirect, url)}`) : res
+  const canonical = redirect ? new URL(redirect, url) : undefined
+  // An ordinary page's own canonical is metadata, not an instruction to fetch twice.
+  const normalize = (path: string) => path.replace(/\/index(?:\.html)?$|\/$/g, "")
+  return canonical &&
+    (canonical.origin !== url.origin || normalize(canonical.pathname) !== normalize(url.pathname))
+    ? fetchPage(canonical)
+    : res
 }

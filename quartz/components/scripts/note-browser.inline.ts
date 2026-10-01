@@ -2,6 +2,7 @@ import { paginateItems, sampleItems } from "./browsing"
 import { setupLayoutPreview } from "./layout-preview"
 import { mountFrostedSpotlight } from "../../../scripts/lib/frosted-spotlight.mjs"
 import { setupMaintenance } from "../../../admin/maintenance-loader.mjs"
+import "./runtime-content.inline"
 
 function setupIconHints() {
   const update = () => {

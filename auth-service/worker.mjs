@@ -136,6 +136,12 @@ async function github(fetcher, path, token) {
   if (!response.ok) throw new Error("GitHub 授权未完成，请确认已将应用安装到 howard-notes 仓库。")
   return response.json()
 }
+function adminLocations(env) {
+  return [env.ADMIN_URL, ...(env.ADDITIONAL_ADMIN_URLS || "").split(",")]
+    .filter(Boolean)
+    .map((value) => new URL(value.trim()))
+    .filter((url) => url.protocol === "https:" && /\/admin\/?$/.test(url.pathname))
+}
 function returnLocation(value, env) {
   if (
     typeof value !== "string" ||
@@ -144,8 +150,9 @@ function returnLocation(value, env) {
     /[\u0000-\u0020\u007f\\]/.test(value)
   )
     throw new Error("登录返回地址不正确。")
-  const admin = new URL(env.ADMIN_URL)
-  const target = new URL(value, admin)
+  const target = new URL(value, env.ADMIN_URL)
+  const admin = adminLocations(env).find((url) => url.origin === target.origin)
+  if (!admin) throw new Error("登录返回地址不正确。")
   const prefix = admin.pathname.replace(/admin\/?$/, "")
   if (
     !/\/admin\/?$/.test(admin.pathname) ||
@@ -218,18 +225,19 @@ async function complete(env, flow, payload) {
   )
 }
 
-function resultHeaders(env, allowed = true) {
+function resultHeaders(env, allowed = true, origin = new URL(env.ADMIN_URL).origin) {
   return headers({
     "Content-Type": "application/json; charset=utf-8",
     Vary: "Origin",
-    ...(allowed ? { "Access-Control-Allow-Origin": new URL(env.ADMIN_URL).origin } : {}),
+    ...(allowed ? { "Access-Control-Allow-Origin": origin } : {}),
   })
 }
 
 async function loginBridge(request, env, prepare = false) {
-  const allowed = request.headers.get("Origin") === new URL(env.ADMIN_URL).origin
+  const requestOrigin = request.headers.get("Origin")
+  const allowed = adminLocations(env).some((url) => url.origin === requestOrigin)
   const response = (value, status) =>
-    Response.json(value, { status, headers: resultHeaders(env, allowed) })
+    Response.json(value, { status, headers: resultHeaders(env, allowed, requestOrigin) })
   if (!allowed) return response({ error: "登录来源不正确。" }, 403)
   if (request.method === "OPTIONS") {
     const requested = (request.headers.get("Access-Control-Request-Headers") || "")
@@ -244,7 +252,7 @@ async function loginBridge(request, env, prepare = false) {
     return new Response(null, {
       status: 204,
       headers: {
-        ...resultHeaders(env),
+        ...resultHeaders(env, true, requestOrigin),
         "Access-Control-Allow-Methods": "POST",
         "Access-Control-Allow-Headers": "Content-Type",
         "Access-Control-Max-Age": "600",
