@@ -784,6 +784,62 @@ test("automation sync keys require a bearer token and trusted origin and cannot 
   assert.equal((await f.call("sync/begin", body, headers)).status, 403)
 })
 
+test("long Actions/App automation tokens stage only canonical public Git content", async (t) => {
+  for (const size of [300, 1024]) {
+    await t.test(`${size} bytes`, async () => {
+      const f = fixture()
+      const token = "fixture-automation-" + "x".repeat(size - "fixture-automation-".length)
+      f.env.SYNC_SECRET = "fixture-automation-secret"
+      f.setUser(123)
+      f.setPush(false)
+      const headers = {
+        Authorization: `Bearer ${token}`,
+        "X-Howard-Sync-Key": f.env.SYNC_SECRET,
+      }
+      const response = await f.call("sync/begin", { commit: "a".repeat(40) }, headers)
+      assert.equal(response.status, 200)
+      assert.ok(!(await response.text()).includes(token))
+      const staged = f.sqlite.prepare("SELECT sync_id,commit_sha,manifest FROM sync_session").get()
+      const manifest = JSON.parse(staged.manifest)
+      assert.equal(staged.commit_sha, "a".repeat(40))
+      assert.deepEqual(
+        manifest.catalog.articles.map((article) => article.id),
+        ["test-note"],
+      )
+      assert.deepEqual(
+        manifest.documents.map((article) => article.id),
+        ["test-note"],
+      )
+      assert.ok(!staged.manifest.includes(token))
+      const paths = f.gitRequests.map(({ url }) => new URL(url).pathname)
+      assert.ok(paths.some((path) => path.endsWith("/git/ref/heads/main")))
+      assert.ok(paths.some((path) => path.includes("/git/commits/")))
+      assert.ok(paths.some((path) => path.includes("/git/trees/")))
+      assert.ok(paths.some((path) => path.endsWith("/git/blobs/catalog")))
+      assert.ok(paths.some((path) => path.endsWith("/git/blobs/site")))
+      assert.ok(!paths.includes("/user"))
+      assert.ok(!paths.includes("/repos/LeiGuo0812/howard-notes"))
+      assert.ok(
+        f.gitRequests.every(
+          ({ options }) =>
+            options.headers.Authorization === `Bearer ${token}` && options.redirect === "manual",
+        ),
+      )
+      const wrongCommit = await f.call("sync/begin", { commit: "b".repeat(40) }, headers)
+      assert.equal(wrongCommit.status, 409)
+      assert.ok(!(await wrongCommit.text()).includes(token))
+      assert.equal(
+        f.sqlite.prepare("SELECT sync_id FROM sync_session").get().sync_id,
+        staged.sync_id,
+      )
+      f.setGitStatus("/repos/LeiGuo0812/howard-notes/git/ref/heads/main", 401)
+      const revoked = await f.call("sync/begin", { commit: "a".repeat(40) }, headers)
+      assert.equal(revoked.status, 401)
+      assert.ok(!(await revoked.text()).includes(token))
+    })
+  }
+})
+
 test("Git requests use Workers-compatible manual redirects and reject redirected authorization or canonical reads", async () => {
   const f = fixture()
   await f.start()

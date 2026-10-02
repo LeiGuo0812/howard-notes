@@ -1,10 +1,14 @@
 # Howard 动态内容服务
 
+当前采用网页主维护架构：公开 Git 原文生成可再生 D1 投影；私密原文、修改稿、版本历史和恢复稿由认证 D1 管理；私密附件只进入私有 R2。`personal/*`、`backups/*` 只允许固定维护者，自动同步密钥不能读取这些数据。详见 [维护架构与边界](../docs/webfirst-maintenance.md)、[加密备份及恢复](../docs/longterm-backup-recovery.md)。
+
+扩展已有实例需幂等执行 `personal-notes-schema.sql`、`publication-jobs-schema.sql`、`backups-schema.sql`，绑定两个私有 R2 bucket，并配置独立 `BACKUP_SECRET`。恢复密钥单独保存，不重置既有备份密钥，不部署无实际绑定的登录模板。日常公开发布由持久任务与 GitHub Actions继续，关页不取消；网页/Actions token 长度不能按短个人令牌格式假定。
+
 主站：<https://howard-notes.howard-notes-login.workers.dev/howard-notes/>
 
-Worker Static Assets 保存前端和编辑器资源，独立 D1 `howard-notes-content` 保存当前公开文库、预生成页面、搜索索引、页面设置和同步暂存。原始 Markdown 和历史仍由 GitHub 保存，文章图片继续使用 GitHub 图床。记忆卡使用同一个 D1 的独立表，保存内容、可见性和附件关联；正文不进入公开 Git 仓库、文章索引或 RSS。经维护者选择公开的迁入附件，原文件托管于独立图片仓库，D1 仅保留链接和校验信息。现有 `howard-notes-login` 和登录数据库独立保留。
+Worker Static Assets 保存前端和编辑器资源，独立 D1 `howard-notes-content` 保存当前公开文库、预生成页面、搜索索引、页面设置和同步暂存。公开原始 Markdown 和 Git 历史由 GitHub 保存，已公开文章图片使用 GitHub 图床；私密内容使用上文的认证 D1/R2 域。记忆卡使用同一个 D1 的独立表，保存内容、可见性和附件关联；正文不进入公开 Git 仓库、文章索引或 RSS。经维护者选择公开的迁入附件，原文件托管于独立图片仓库，D1 仅保留链接和校验信息。现有 `howard-notes-login` 和登录数据库独立保留。
 
-网页发布：先提交 GitHub，再在维护者浏览器增量准备 Quartz 投影，服务端验证维护者、仓库写权限、分支当前提交、公开名单与原始文件 Git blob SHA，完整上传后切换版本。失败显示待同步并可重试，不重复提交 Git。公开请求读取预生成 HTML，不运行 Markdown 编译。
+网页发布：服务端持久任务先提交 GitHub，Actions 增量准备 Quartz 投影，维护者浏览器可加速准备，但关页不取消任务。服务端验证维护者、仓库写权限、分支当前提交、公开名单与原始文件 Git blob SHA，完整上传后切换版本。失败显示待同步并可重试，不重复提交 Git。公开请求读取预生成 HTML，不运行 Markdown 编译。
 
 本地文库推送：`Synchronize published content` 工作流使用同一投影模块、已部署的页面模板及专用同步密钥更新内容，不执行完整 Quartz 构建。定时任务也可修复先前同步失败。工作流 token 只读仓库，只有匹配 Worker Secret 的专用同步密钥才可进入这条自动同步路径。
 
