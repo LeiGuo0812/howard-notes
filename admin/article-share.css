@@ -41,8 +41,7 @@
 }
 .article-share-close,
 .article-export-actions button,
-.article-share-primary,
-.article-export-actions .article-share-primary {
+.article-share-primary {
   font: inherit;
   cursor: pointer;
   border: 1px solid var(--lightgray, #d3dae3);
@@ -59,7 +58,8 @@
   height: 36px;
   padding: 4px;
 }
-.article-share-primary {
+.article-share-primary,
+.article-export-actions .article-share-primary {
   background: var(--secondary, #365f8b);
   border-color: var(--secondary, #365f8b);
   color: var(--light, #fff);
