@@ -4,6 +4,8 @@
 
 Quartz 5 + Cloudflare Worker / Static Assets / D1 主站，GitHub Pages 作为静态备用站。网页是日常维护入口：公开原文在 Git，私密文章、修改稿、云恢复稿及历史在认证 D1；私密附件在私有 R2。原 Obsidian 库保留不动，旧双向写入已关闭。详见 [网页主维护架构](docs/webfirst-maintenance.md) 与 [备份及恢复](docs/longterm-backup-recovery.md)。
 
+现行流程见 [维护入口](docs/current-maintenance.md)。完整中文操作手册、复现指南与恢复材料位于私有备份仓库 `handoff/`，按当前流程更新，不保留历史验收流水。
+
 ## 原文保存规则
 
 - `library/notes/` 保存原 Markdown 文件；首次迁移逐个校验 SHA-256，连原来的 YAML、注释、空行和 CRLF 换行都保留。
@@ -61,8 +63,8 @@ npm run preview
 
 ```bash
 npm run notes:export-private -- \
-  --site https://<SITE_HOST>/<SITE_PREFIX>/ \
-  --output <NEW_PRIVATE_EXPORT_DIRECTORY>
+  --site "https://<SITE_HOST>/<SITE_PREFIX>/" \
+  --output "<NEW_PRIVATE_EXPORT_DIRECTORY>"
 ```
 
 导出包含私密原文、历史、恢复稿和附件元数据，绑定一致的 generation；远端变化时停止，已有目录不覆盖。明文导出与原 Obsidian 库均不上传公开仓库。附件二进制和完整灾难恢复使用加密备份。
