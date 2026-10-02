@@ -3,6 +3,7 @@ import mathStyles from "katex/dist/katex.min.css"
 import { mermaidConfiguration } from "./mermaid-theme.mjs"
 import { safeDiagramCss } from "./mermaid-svg-style.mjs"
 import { sourceLink } from "./article-share-core.mjs"
+import runtimeConfig from "../runtime/config.json" with { type: "json" }
 
 import {
   ArticleExportError,
@@ -11,6 +12,10 @@ import {
   imageCapturePlan,
   pageSlices,
   finalDocumentHeight,
+  publicImageExportPlan,
+  exportImageSourceDigest,
+  exportImageMime,
+  EXPORT_IMAGE_BYTE_LIMIT,
 } from "./article-export-renderer-core.mjs"
 export {
   ArticleExportError,
@@ -150,6 +155,15 @@ function createDocument(article, includeSource, format, signal, warnings) {
   const title = element(doc, "h1", "article-export-title", article.title || "未命名文章")
   const body = source.cloneNode(true)
   body.className = "article-export-body"
+  // Pair each cloned image before reader controls/ignored content are removed.
+  // Comparing the two final NodeLists by index can otherwise attach a toolbar
+  // icon's URL to the first real article image, and shift every following image.
+  const originalImages = [...source.querySelectorAll("img")]
+  const images = [...body.querySelectorAll("img")].map((image, index) => ({
+    image,
+    original: originalImages[index],
+    index,
+  }))
   root.append(title, body)
   if (includeSource && article.sourceUrl) {
     const footer = element(doc, "p", "article-export-source")
@@ -218,7 +232,14 @@ function createDocument(article, includeSource, format, signal, warnings) {
     cap.textContent = `.article-export-body img { max-height: ${Math.floor(PAGE_HEIGHT - 96)}px !important; object-fit: contain !important; }`
     doc.head.append(cap)
   }
-  return { frame, doc, root, body, ready }
+  return {
+    frame,
+    doc,
+    root,
+    body,
+    ready,
+    images: images.filter(({ image }) => body.contains(image)),
+  }
 }
 
 function loadImage(source, signal) {
@@ -227,7 +248,7 @@ function loadImage(source, signal) {
     const image = new Image()
     image.crossOrigin = "anonymous"
     image.referrerPolicy = "no-referrer"
-    const timer = setTimeout(() => finish(new Error("图片加载超时")), 12000)
+    const timer = setTimeout(() => finish(new Error("图片加载超时，请稍后重试")), 12000)
     const cancel = () => finish(abortError())
     function finish(error) {
       clearTimeout(timer)
@@ -239,7 +260,7 @@ function loadImage(source, signal) {
       } else resolve(image)
     }
     image.onload = () => finish()
-    image.onerror = () => finish(new Error("图片不允许跨域导出或暂时无法加载"))
+    image.onerror = () => finish(new Error("图床未允许跨域读取，或原图暂时无法加载"))
     signal?.addEventListener("abort", cancel, { once: true })
     image.src = source
   })
@@ -279,32 +300,154 @@ async function normalizedImage(source, doc, assets, signal, scale = 1.5) {
 }
 function imagePlaceholder(doc, image, warnings, description) {
   const alt = image.getAttribute("alt")?.trim()
-  const label = alt ? `图片未能导出：${alt}` : "图片未能导出（原图无法加载或不允许跨域读取）"
+  const title = alt ? `图片未能导出：${alt}` : "图片未能导出"
+  const label = description
+    ? `${title}（${description}）`
+    : `${title}（原图无法加载或不允许跨域读取）`
   image.replaceWith(element(doc, "div", "article-export-image-missing", label))
-  warnings.push(description || label)
+  warnings.push(label)
 }
-async function prepareImages(source, body, doc, assets, signal, warnings, progress, imageScale) {
-  const originals = [...source.querySelectorAll("img")]
-  const clones = [...body.querySelectorAll("img")]
+async function readPublicExportImage(url, expectedDigest, signal) {
+  check(signal)
+  const controller = new AbortController()
+  let timedOut = false
+  const cancel = () => controller.abort()
+  signal?.addEventListener("abort", cancel, { once: true })
+  const timeout = setTimeout(() => {
+    timedOut = true
+    controller.abort()
+  }, 12000)
+  let reader
+  try {
+    const response = await fetch(url, {
+      credentials: "omit",
+      redirect: "error",
+      cache: "no-store",
+      signal: controller.signal,
+    })
+    check(signal)
+    if (!response.ok) {
+      await response.body?.cancel()
+      const error = new Error(
+        response.status === 409
+          ? "文章已更新，请刷新阅读页后重新导出"
+          : response.status === 404
+            ? "公开文章图片不可用，或该图床尚不支持安全导出"
+            : "公开图床图片读取失败，原图可能已失效或拒绝访问",
+      )
+      error.status = response.status
+      throw error
+    }
+    if (response.headers.get("X-Howard-Image-Source-SHA256") !== expectedDigest) {
+      await response.body?.cancel()
+      throw new Error("图片与当前文章不一致，请刷新阅读页后重新导出")
+    }
+    const size = Number(response.headers.get("Content-Length"))
+    if (size > EXPORT_IMAGE_BYTE_LIMIT) {
+      await response.body?.cancel()
+      throw new Error("图片超过 10 MiB，无法安全导出")
+    }
+    reader = response.body?.getReader()
+    if (!reader) throw new Error("图片返回内容为空")
+    const chunks = []
+    let length = 0
+    while (true) {
+      const { value, done } = await reader.read()
+      check(signal)
+      if (done) break
+      length += value.byteLength
+      if (length > EXPORT_IMAGE_BYTE_LIMIT) {
+        await reader.cancel()
+        throw new Error("图片超过 10 MiB，无法安全导出")
+      }
+      chunks.push(value)
+    }
+    const bytes = new Uint8Array(length)
+    let offset = 0
+    for (const chunk of chunks) {
+      bytes.set(chunk, offset)
+      offset += chunk.length
+    }
+    const mime = exportImageMime(bytes, response.headers.get("Content-Type"))
+    return new Blob([bytes], { type: mime })
+  } catch (error) {
+    if (signal?.aborted) throw abortError()
+    if (timedOut) throw new Error("公开图片读取超时，请稍后重试")
+    throw error
+  } finally {
+    clearTimeout(timeout)
+    signal?.removeEventListener("abort", cancel)
+    reader?.releaseLock()
+  }
+}
+
+async function prepareImage(original, article, index, doc, assets, signal, scale) {
+  const sourceUrl = original?.currentSrc || original?.src
+  if (!sourceUrl || !/^(?:https?:|blob:|data:image\/)/i.test(sourceUrl))
+    throw new Error("图片地址不支持导出")
+  try {
+    return await normalizedImage(sourceUrl, doc, assets, signal, scale)
+  } catch (error) {
+    if (error.name === "AbortError") throw error
+    const plan = publicImageExportPlan(article, index, sourceUrl, {
+      pageUrl: article.body.ownerDocument.URL,
+      trustedApiBase: runtimeConfig.enabled ? runtimeConfig.apiBase : "",
+    })
+    if (!plan) throw error
+    const expected = await exportImageSourceDigest(plan.source)
+    check(signal)
+    for (const [candidate, url] of plan.urls.entries()) {
+      try {
+        const blob = await readPublicExportImage(url, expected, signal)
+        check(signal)
+        return await normalizedImage(assets.add(blob), doc, assets, signal, scale)
+      } catch (failure) {
+        if (failure.name === "AbortError") throw failure
+        // GitHub Pages has no local API. Only an absent endpoint may fall
+        // through to the fixed service bundled with the site; never route
+        // private articles, stale revisions or arbitrary source URLs there.
+        if (failure.status === 404 && candidate + 1 < plan.urls.length) continue
+        throw failure
+      }
+    }
+    throw error
+  }
+}
+
+async function prepareImages(
+  entries,
+  article,
+  doc,
+  assets,
+  signal,
+  warnings,
+  progress,
+  imageScale,
+) {
   let completed = 0
   // Do not let cloned remote images start a credentialed request. CORS-safe
   // loading below uses Image, which respects the site's existing img-src CSP.
-  for (const image of clones) {
+  for (const { image } of entries) {
     image.removeAttribute("srcset")
     image.removeAttribute("sizes")
     image.removeAttribute("src")
     image.loading = "eager"
   }
-  const entries = clones.map((image, index) => ({ image, original: originals[index] }))
   for (let offset = 0; offset < entries.length; offset += 3) {
     check(signal)
     await Promise.all(
-      entries.slice(offset, offset + 3).map(async ({ image, original }) => {
+      entries.slice(offset, offset + 3).map(async ({ image, original, index }) => {
         const sourceUrl = original?.currentSrc || original?.src
         try {
-          if (!sourceUrl || !/^(?:https?:|blob:|data:image\/)/i.test(sourceUrl))
-            throw new Error("图片地址不支持导出")
-          const normalized = await normalizedImage(sourceUrl, doc, assets, signal, imageScale)
+          const normalized = await prepareImage(
+            original,
+            article,
+            index,
+            doc,
+            assets,
+            signal,
+            imageScale,
+          )
           check(signal)
           image.src = normalized.url
           image.width = Math.min(normalized.width, EXPORT_WIDTH - 96)
@@ -312,7 +455,12 @@ async function prepareImages(source, body, doc, assets, signal, warnings, progre
           image.style.aspectRatio = `${normalized.width} / ${normalized.height}`
         } catch (error) {
           if (error.name === "AbortError") throw error
-          imagePlaceholder(doc, image, warnings)
+          let host = ""
+          try {
+            const url = new URL(sourceUrl)
+            if (/^https?:$/.test(url.protocol)) host = `${url.hostname}：`
+          } catch {}
+          imagePlaceholder(doc, image, warnings, `${host}${error.message || "原图无法加载"}`)
         } finally {
           completed++
           progress(`准备图片 ${completed}/${entries.length}`)
@@ -643,8 +791,8 @@ export async function exportArticle({
     check(signal)
     const imageScale = format === "png" ? (quality === "standard" ? 2 : mobile ? 2.5 : 3) : 3
     await prepareImages(
-      article.body,
-      layout.body,
+      layout.images,
+      article,
       layout.doc,
       assets,
       signal,

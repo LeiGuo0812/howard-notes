@@ -11,7 +11,166 @@ import {
   ArticleExportError,
   MAX_PDF_PAGES,
   finalDocumentHeight,
+  publicImageExportPlan,
+  exportImageSourceDigest,
+  exportImageMime,
+  EXPORT_IMAGE_BYTE_LIMIT,
 } from "./article-export-renderer-core.mjs"
+
+const ownedImage = "https://picture-of-howard.oss-cn-shanghai.aliyuncs.com/img/202308132223603.png"
+const publicArticle = {
+  id: "note-2e22f4d52c4d",
+  private: false,
+  revision: "38",
+  siteBase: "https://notes.example/howard-notes/",
+}
+const imageApiOptions = {
+  pageUrl: "https://notes.example/howard-notes/notes/note-2e22f4d52c4d",
+  trustedApiBase: "https://service.example/howard-notes/api/content",
+}
+
+test("public non-CORS images use article ordinals and revision without forwarding their URL", () => {
+  const plan = publicImageExportPlan(publicArticle, 3, ownedImage, imageApiOptions)
+  assert.equal(plan.source, ownedImage)
+  assert.deepEqual(plan.urls, [
+    "https://notes.example/howard-notes/api/content/export-image/note-2e22f4d52c4d/3?revision=38",
+    "https://service.example/howard-notes/api/content/export-image/note-2e22f4d52c4d/3?revision=38",
+  ])
+  assert.ok(plan.urls.every((url) => !url.includes("aliyuncs")))
+  assert.deepEqual(
+    publicImageExportPlan(publicArticle, 0, ownedImage, {
+      ...imageApiOptions,
+      trustedApiBase: "https://notes.example/howard-notes/api/content/",
+    }).urls,
+    ["https://notes.example/howard-notes/api/content/export-image/note-2e22f4d52c4d/0?revision=38"],
+  )
+})
+
+test("private and unknown reading contexts never send an image to the public API", () => {
+  for (const privateValue of [true, undefined, null, "false"])
+    assert.equal(
+      publicImageExportPlan(
+        { ...publicArticle, private: privateValue },
+        0,
+        ownedImage,
+        imageApiOptions,
+      ),
+      null,
+    )
+  for (const patch of [
+    { id: "../private" },
+    { id: "" },
+    { revision: "38&url=https://attacker.invalid" },
+    { revision: "-1" },
+    { revision: "Infinity" },
+    { revision: 9007199254740992 },
+    { siteBase: "https://attacker.invalid/howard-notes/" },
+    { siteBase: "https://notes.example/howard-notes/?url=secret" },
+    { siteBase: "https://user:secret@notes.example/howard-notes/" },
+  ])
+    assert.equal(
+      publicImageExportPlan({ ...publicArticle, ...patch }, 0, ownedImage, imageApiOptions),
+      null,
+    )
+  for (const index of [-1, 0.5, Infinity, "0", 10000, 10001])
+    assert.equal(publicImageExportPlan(publicArticle, index, ownedImage, imageApiOptions), null)
+})
+
+test("public fallback is limited to explicit published image hosts and clean anonymous addresses", () => {
+  for (const source of [
+    "https://attacker.invalid/image.png",
+    "https://picture-of-howard.oss-cn-shanghai.aliyuncs.com.attacker.invalid/img/1.png",
+    "https://user:secret@picture-of-howard.oss-cn-shanghai.aliyuncs.com/img/1.png",
+    "https://picture-of-howard.oss-cn-shanghai.aliyuncs.com:8443/img/1.png",
+    "https://picture-of-howard.oss-cn-shanghai.aliyuncs.com/private/1.png",
+    `${ownedImage}?token=secret`,
+    ownedImage.replace("https:", "http:"),
+    "blob:https://notes.example/private-image",
+    "data:image/png;base64,aGVsbG8=",
+    "javascript:alert(1)",
+    `${ownedImage}\n`,
+  ])
+    assert.equal(publicImageExportPlan(publicArticle, 0, source, imageApiOptions), null)
+  assert.equal(
+    publicImageExportPlan(
+      publicArticle,
+      0,
+      "https://cdn.nlark.com/yuque/0/2021/png/example.png#height=180&token=not-sent",
+      imageApiOptions,
+    ).source,
+    "https://cdn.nlark.com/yuque/0/2021/png/example.png",
+  )
+})
+
+test("static Pages images can check current public source identity without inventing a revision", () => {
+  const plan = publicImageExportPlan(
+    { ...publicArticle, revision: "" },
+    2,
+    ownedImage,
+    imageApiOptions,
+  )
+  assert.equal(new URL(plan.urls[0]).search, "")
+  const noTrusted = publicImageExportPlan(publicArticle, 1, ownedImage, {
+    ...imageApiOptions,
+    trustedApiBase: "https://user:secret@service.example/howard-notes/api/content?token=secret",
+  })
+  assert.equal(noTrusted.urls.length, 1)
+})
+
+test("returned public image identity is verified with SHA-256 of its canonical source", async () => {
+  assert.equal(
+    await exportImageSourceDigest("abc"),
+    "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad",
+  )
+  const first = publicImageExportPlan(publicArticle, 0, `${ownedImage}#height=200`, imageApiOptions)
+  const second = publicImageExportPlan(
+    publicArticle,
+    0,
+    `${ownedImage}#height=800`,
+    imageApiOptions,
+  )
+  assert.equal(
+    await exportImageSourceDigest(first.source),
+    await exportImageSourceDigest(second.source),
+  )
+  assert.notEqual(
+    await exportImageSourceDigest(first.source),
+    await exportImageSourceDigest(ownedImage.replace("603", "604")),
+  )
+})
+
+test("image fallback validates real bitmap signatures instead of trusting a MIME header", () => {
+  const png = new Uint8Array(24)
+  png.set([137, 80, 78, 71, 13, 10, 26, 10])
+  assert.equal(exportImageMime(png, "image/png; charset=binary"), "image/png")
+  assert.equal(exportImageMime(new Uint8Array([255, 216, 255, 224]), "image/jpeg"), "image/jpeg")
+  const gif = new Uint8Array(13)
+  gif.set(new TextEncoder().encode("GIF89a"))
+  assert.equal(exportImageMime(gif, "image/gif"), "image/gif")
+  const webp = new Uint8Array(16)
+  webp.set(new TextEncoder().encode("RIFF"))
+  webp.set(new TextEncoder().encode("WEBP"), 8)
+  assert.equal(exportImageMime(webp, "image/webp"), "image/webp")
+  const avif = new Uint8Array(16)
+  avif.set(new TextEncoder().encode("ftypavif"), 4)
+  assert.equal(exportImageMime(avif, "image/avif"), "image/avif")
+  const compatibleAvif = new Uint8Array(24)
+  compatibleAvif.set(new TextEncoder().encode("ftypmif1"), 4)
+  compatibleAvif.set(new TextEncoder().encode("avif"), 16)
+  assert.equal(exportImageMime(compatibleAvif, "image/avif"), "image/avif")
+  for (const [bytes, type] of [
+    [new TextEncoder().encode("<!DOCTYPE html><html>login</html>"), "image/png"],
+    [new TextEncoder().encode("<svg xmlns='http://www.w3.org/2000/svg'></svg>"), "image/svg+xml"],
+    [png, "text/html"],
+    [png, "image/jpeg"],
+    [new Uint8Array(0), "image/png"],
+    [new Uint8Array(EXPORT_IMAGE_BYTE_LIMIT + 1), "image/png"],
+  ])
+    assert.throws(
+      () => exportImageMime(bytes, type),
+      (error) => error.code === "IMAGE_INVALID",
+    )
+})
 
 test("high quality images default to 2700px desktop and 2250px mobile widths", () => {
   assert.equal(imageCaptureScale(1200), 3)

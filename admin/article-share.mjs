@@ -33,12 +33,23 @@ function cancelTask() {
   task?.dispose()
   task = null
 }
+function ensureStyles() {
+  let style = document.getElementById("howard-article-share-styles")
+  if (!style) {
+    style = el("style")
+    style.id = "howard-article-share-styles"
+    style.textContent = styles
+    document.head.append(style)
+  }
+  // Quartz reconciles the head on SPA navigation. Keep the lazy-loaded UI
+  // stylesheet, and recover it if another head update removes it.
+  style.setAttribute("data-persist", "")
+}
 function install() {
+  ensureStyles()
   if (installed) return
   installed = true
-  const style = el("style")
-  style.textContent = styles
-  document.head.append(style)
+  document.addEventListener("nav", ensureStyles)
   const leave = () => {
     closeDialog()
     cancelTask()
@@ -396,6 +407,9 @@ function startExport(context, format, includeSource, quality = "high") {
       if (!valid()) return cancel()
       result = await renderer.exportArticle({
         article: {
+          id: context.id,
+          private: context.private,
+          revision: context.revision,
           title: context.title,
           body: context.body,
           sourceUrl: context.url,

@@ -7,6 +7,7 @@ import { applyPageSecurity } from "../scripts/lib/content-security.mjs"
 import { createOwnerVerificationCache } from "./owner-verification.mjs"
 import { validateCatalog } from "../scripts/lib/catalog.mjs"
 import { validateSite, topicList } from "../scripts/lib/site-settings.mjs"
+import { exportImageResponse } from "./export-images.mjs"
 
 const encoder = new TextEncoder()
 const ownerVerification = new WeakMap()
@@ -516,7 +517,7 @@ const matchesETag = (request, etag) =>
   (request.headers.get("If-None-Match") || "")
     .split(",")
     .some((value) => value.trim() === "*" || value.trim().replace(/^W\//, "") === etag)
-async function publicRead(request, env, db, path, current) {
+async function publicRead(request, env, db, path, current, fetcher = fetch) {
   const origin = new URL(request.url).origin
   const base = origin + env.SITE_PREFIX.replace(/\/$/, "")
   if (path === "config")
@@ -530,6 +531,8 @@ async function publicRead(request, env, db, path, current) {
     })
   // Export reads follow the active public projection, never the owner's merged
   // library or an older revision that may still contain a withdrawn original.
+  if (path.startsWith("export-image/"))
+    return exportImageResponse(request, db, path, current, fetcher)
   if (path.startsWith("source/")) {
     const id = path.slice("source/".length)
     if (!idPattern.test(id)) return json({ error: "文章不存在或尚未公开。" }, 404)
@@ -740,7 +743,7 @@ export async function handle(request, env, ctx = {}, fetcher = fetch) {
       else throw new HttpError("接口不存在。", 404)
     } else if (isApi) {
       if (!["GET", "HEAD"].includes(request.method)) throw new HttpError("请求方法不正确。", 405)
-      response = await publicRead(request, env, db, route, await state(db))
+      response = await publicRead(request, env, db, route, await state(db), fetcher)
     } else {
       const current = await state(db)
       if (url.pathname === "/robots.txt" || route === "robots.txt")
