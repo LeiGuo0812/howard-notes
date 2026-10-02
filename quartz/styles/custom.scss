@@ -1037,6 +1037,7 @@ a.article-row.internal {
   max-width: var(--site-content-width);
 }
 .blog-layout.is-article > #main-content {
+  --glass-reading: var(--glass-reader-surface);
   border: 1px solid var(--glass-edge);
   border-radius: calc(var(--site-radius) + 4px);
   background: var(--glass-reading);

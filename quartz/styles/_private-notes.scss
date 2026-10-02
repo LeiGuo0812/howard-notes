@@ -256,8 +256,9 @@
     padding-left: 0.6rem;
   }
   .private-reading-body {
+    --glass-reading: var(--glass-reader-surface, #f4f5f6);
     min-width: 0;
-    background: var(--glass-reading, #eef0f2);
+    background: var(--glass-reading, #f4f5f6);
     border: 1px solid color-mix(in srgb, var(--lightgray) 65%, transparent);
     border-radius: 22px;
     padding: clamp(1.25rem, 3vw, 2.7rem);
