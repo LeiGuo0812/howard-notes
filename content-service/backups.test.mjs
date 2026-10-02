@@ -21,6 +21,7 @@ import {
 } from "../scripts/lib/backup-crypto.mjs"
 import { unpackBackupBundle, verifyAndRestoreBackup } from "../scripts/lib/backup-restore.mjs"
 import { encryptBackupStream, decryptBackupStream } from "../scripts/lib/backup-node-stream.mjs"
+import { handle } from "./worker.mjs"
 
 const secret = Buffer.alloc(32, 15).toString("base64url")
 const now = Date.parse("2026-10-02T09:00:00.000Z")
@@ -410,6 +411,335 @@ test("backup endpoints reject automation sync credentials before shared authoriz
   assert.equal(authorized, 0)
   assert.equal(f.queryCount(), 0)
   assert.equal(f.env.BACKUP_BUCKET.objects.size, 0)
+})
+const exportSecret = Buffer.alloc(32, 28).toString("base64url")
+const syncSecret = Buffer.alloc(32, 29).toString("base64url")
+function exportAccess(f) {
+  f.env.BACKUP_EXPORT_KEY = exportSecret
+  f.env.SYNC_SECRET = syncSecret
+  f.env.CONTENT_SYNC_KEY = syncSecret
+  let ownerCalls = 0
+  const call = (route = "backups/export/status", options = {}) =>
+    backupsResponse(
+      new Request(`https://notes.example/howard-notes/api/content/${route}`, {
+        ...options,
+        headers: { "X-Howard-Backup-Key": exportSecret, ...options.headers },
+      }),
+      f.env,
+      f.DB,
+      route.split("?")[0],
+      async () => {
+        ownerCalls++
+        throw new Error("Dedicated export must never call owner authorization.")
+      },
+    )
+  return { call, ownerCalls: () => ownerCalls }
+}
+test("dedicated export status reveals only complete snapshot metadata and never enters owner auth", async () => {
+  const f = fixture()
+  const result = await completeBackup(f)
+  const access = exportAccess(f)
+  await f.env.BACKUP_BUCKET.put(
+    "control/status.json",
+    JSON.stringify({
+      latest: { ...result.latest, raw: f.raw, recoveryKey: secret },
+      progress: { body: f.raw, token: "private-job-token" },
+      error: "private-storage-error",
+      checkedAt: "owner-only-field",
+      encryptionKey: secret,
+    }),
+  )
+  const before = f.queryCount()
+  const response = await access.call()
+  assert.equal(response.status, 200)
+  assert.equal(response.headers.get("Cache-Control"), "private, no-store")
+  assert.equal(response.headers.get("X-Content-Type-Options"), "nosniff")
+  assert.equal(response.headers.get("Access-Control-Allow-Headers"), null)
+  const status = await response.json()
+  assert.deepEqual(status, { configured: true, latest: result.latest })
+  assert.deepEqual(Object.keys(status.latest), [
+    "id",
+    "createdAt",
+    "completedAt",
+    "rows",
+    "tables",
+    "bytes",
+    "privateFiles",
+  ])
+  const text = JSON.stringify(status)
+  for (const privateValue of [
+    f.raw,
+    secret,
+    exportSecret,
+    syncSecret,
+    "private-job-token",
+    "private-storage-error",
+  ])
+    assert.equal(text.includes(privateValue), false)
+  assert.equal(access.ownerCalls(), 0)
+  assert.equal(f.queryCount(), before)
+})
+test("dedicated export accepts only a canonical 43-character 32-byte key and rejects login/sync substitutes", async () => {
+  const f = fixture()
+  const access = exportAccess(f)
+  const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_"
+  const noncanonical =
+    exportSecret.slice(0, -1) + alphabet[alphabet.indexOf(exportSecret.at(-1)) ^ 1]
+  assert.deepEqual(Buffer.from(noncanonical, "base64url"), Buffer.from(exportSecret, "base64url"))
+  for (const key of [
+    "",
+    "short",
+    exportSecret + "=",
+    "+".repeat(43),
+    noncanonical,
+    Buffer.alloc(32, 30).toString("base64url"),
+    secret,
+    syncSecret,
+    `${exportSecret}, ${exportSecret}`,
+  ]) {
+    const response = await access.call("backups/export/status", {
+      headers: { "X-Howard-Backup-Key": key },
+    })
+    assert.equal(response.status, 403)
+    assert.equal(response.headers.get("Cache-Control"), "private, no-store")
+    assert.doesNotMatch(
+      await response.text(),
+      /control\/|snapshots\/|personal_|private-job|generation/,
+    )
+  }
+  for (const headers of [
+    { "X-Howard-Backup-Key": "", Cookie: "owner=synthetic" },
+    { "X-Howard-Backup-Key": "", Authorization: "Bearer owner" },
+    { Cookie: "owner=synthetic" },
+    { Authorization: "Bearer owner" },
+    { "X-Howard-Sync-Key": syncSecret },
+    { "X-Howard-Sync-Key": "" },
+  ])
+    assert.equal((await access.call("backups/export/status", { headers })).status, 403)
+  assert.equal(access.ownerCalls(), 0)
+  assert.equal(f.queryCount(), 0)
+  assert.equal(f.env.BACKUP_BUCKET.objects.size, 0)
+})
+test("dedicated export is unconfigured without separate valid export, encryption and storage bindings", async () => {
+  const scenarios = [
+    { BACKUP_EXPORT_KEY: undefined },
+    { BACKUP_EXPORT_KEY: "invalid" },
+    { BACKUP_EXPORT_KEY: exportSecret + "=" },
+    { BACKUP_EXPORT_KEY: secret },
+    { BACKUP_SECRET: exportSecret + "=" },
+    { BACKUP_EXPORT_KEY: syncSecret },
+    { SYNC_SECRET: exportSecret },
+    { CONTENT_SYNC_KEY: exportSecret },
+    { BACKUP_SECRET: undefined },
+    { BACKUP_SECRET: "invalid" },
+    { BACKUP_BUCKET: undefined },
+  ]
+  for (const patch of scenarios) {
+    const f = fixture()
+    const access = exportAccess(f)
+    Object.assign(f.env, patch)
+    const response = await access.call()
+    assert.equal(response.status, 503)
+    assert.equal((await response.json()).configured, false)
+    assert.equal(access.ownerCalls(), 0)
+    assert.equal(f.queryCount(), 0)
+  }
+})
+test("dedicated key cannot access owner operations, extra routes, methods or arbitrary download parameters", async () => {
+  const f = fixture()
+  const access = exportAccess(f)
+  for (const [route, options, expected] of [
+    ["backups", {}, 403],
+    ["backups/status", {}, 403],
+    ["backups/download", {}, 403],
+    ["backups/run", { method: "POST", body: '{"action":"start"}' }, 403],
+    ["backups/run", { method: "POST", headers: { Authorization: "Bearer owner" } }, 403],
+    ["backups/export", {}, 404],
+    ["backups/export/start", { method: "POST" }, 404],
+    ["backups/export/run", { method: "POST" }, 404],
+    ["backups/export/files/control/status.json", {}, 404],
+    ["backups/export/status", { method: "HEAD" }, 405],
+    ["backups/export/status", { method: "POST", body: "private" }, 405],
+    ["backups/export/download", { method: "PUT" }, 405],
+    ["backups/export/status?id=anything", {}, 400],
+    ["backups/export/status?key=secret", {}, 400],
+    ["backups/export/download", {}, 400],
+    ["backups/export/download?id=control%2Fstatus.json", {}, 400],
+    ["backups/export/download?id=..%2Fprivate", {}, 400],
+    ["backups/export/download?id=objects%2Ffile", {}, 400],
+    ["backups/export/download?id=a&id=b", {}, 400],
+    ["backups/export/download?id=a&file=personal-files%2Fraw", {}, 400],
+    ["backups/export/download?id=a&key=secret", {}, 400],
+  ])
+    assert.equal((await access.call(route, options)).status, expected, route)
+  assert.equal(access.ownerCalls(), 0)
+  assert.equal(f.queryCount(), 0)
+  assert.equal(f.env.BACKUP_BUCKET.objects.size, 0)
+})
+test("Worker dispatch keeps server export independent of GitHub login and browser CORS credentials", async () => {
+  const f = fixture()
+  exportAccess(f)
+  Object.assign(f.env, {
+    SITE_PREFIX: "/howard-notes/",
+    FALLBACK_ORIGIN: "https://pages.example",
+  })
+  let authorizationRequests = 0
+  const call = (options) =>
+    handle(
+      new Request("https://notes.example/howard-notes/api/content/backups/export/status", options),
+      f.env,
+      {},
+      async () => {
+        authorizationRequests++
+        throw new Error("An export capability must not request GitHub authorization.")
+      },
+    )
+  const response = await call({ headers: { "X-Howard-Backup-Key": exportSecret } })
+  assert.equal(response.status, 200)
+  assert.deepEqual(await response.json(), { configured: true, latest: null })
+  assert.equal((await call({ headers: { Authorization: "Bearer owner" } })).status, 403)
+  const preflight = await call({
+    method: "OPTIONS",
+    headers: {
+      Origin: "https://pages.example",
+      "Access-Control-Request-Method": "GET",
+      "Access-Control-Request-Headers": "X-Howard-Backup-Key",
+    },
+  })
+  assert.equal(preflight.status, 204)
+  assert.doesNotMatch(preflight.headers.get("Access-Control-Allow-Headers"), /backup-key/i)
+  assert.equal(authorizationRequests, 0)
+  assert.equal(f.queryCount(), 0)
+})
+test("dedicated ciphertext download includes private attachments without reading private sources or D1", async () => {
+  const f = fixture()
+  const attachment = new TextEncoder().encode("private attachment original bytes")
+  const sha = await backupHash(attachment)
+  await f.env.PERSONAL_FILES_BUCKET.put(`personal-files/${sha}`, attachment)
+  f.sqlite
+    .prepare(
+      "INSERT INTO personal_files VALUES ('file','private-original.png','image/png',?,?,?,1,2,'{}')",
+    )
+    .run(attachment.byteLength, sha, `personal-files/${sha}`)
+  const result = await completeBackup(f)
+  const access = exportAccess(f)
+  f.env.PERSONAL_FILES_BUCKET.get = () => {
+    throw new Error("Export must not read the private source bucket.")
+  }
+  const before = f.queryCount()
+  const response = await access.call(`backups/export/download?id=${result.latest.id}`)
+  assert.equal(response.status, 200)
+  assert.equal(response.headers.get("Content-Type"), "application/octet-stream")
+  assert.equal(response.headers.get("Cache-Control"), "private, no-store")
+  assert.equal(
+    response.headers.get("Content-Disposition"),
+    `attachment; filename="notes-backup-${result.latest.id}.hnbackup"`,
+  )
+  const bundle = Buffer.from(await response.arrayBuffer())
+  for (const privateValue of [
+    f.raw,
+    secret,
+    exportSecret,
+    syncSecret,
+    "private-original.png",
+    "private attachment original bytes",
+  ])
+    assert.equal(bundle.includes(Buffer.from(privateValue)), false)
+  const directory = await fs.mkdtemp(path.join(os.tmpdir(), "notes-export-capability-test-"))
+  try {
+    const input = path.join(directory, "bundle.hnbackup")
+    await fs.writeFile(input, bundle)
+    const unpacked = await unpackBackupBundle(input, path.join(directory, "encrypted"))
+    const privateFilesPath = path.join(directory, "restored-private")
+    const report = await verifyAndRestoreBackup({
+      readObject: (key) => fs.readFile(path.join(unpacked.directory, key)),
+      manifestKey: `snapshots/${unpacked.snapshot}/manifest.hnbackup`,
+      secret,
+      databasePath: ":memory:",
+      privateFilesPath,
+    })
+    assert.equal(report.originalBytesVerified, true)
+    assert.equal(report.rows, 3)
+    assert.equal(report.privateFiles, 1)
+  } finally {
+    await fs.rm(directory, { recursive: true, force: true })
+  }
+  assert.equal(access.ownerCalls(), 0)
+  assert.equal(f.queryCount(), before)
+})
+test("dedicated status requires a complete snapshot and filters malformed or absent metadata", async () => {
+  const f = fixture()
+  const result = await completeBackup(f)
+  const access = exportAccess(f)
+  const key = `snapshots/${result.latest.id}/manifest.hnbackup`
+  const original = await manifestFor(f.env, result.latest.id)
+  for (const patch of [{ rows: "private body" }, { bytes: -1 }, { id: [result.latest.id] }]) {
+    await f.env.BACKUP_BUCKET.put(
+      "control/status.json",
+      JSON.stringify({ latest: { ...result.latest, ...patch } }),
+    )
+    assert.deepEqual(await (await access.call()).json(), { configured: true, latest: null })
+  }
+  await f.env.BACKUP_BUCKET.put("control/status.json", JSON.stringify({ latest: result.latest }))
+  await f.env.BACKUP_BUCKET.delete(key)
+  assert.deepEqual(await (await access.call()).json(), { configured: true, latest: null })
+  assert.equal((await access.call(`backups/export/download?id=${result.latest.id}`)).status, 404)
+  await f.env.BACKUP_BUCKET.put(
+    key,
+    await encryptBackup(encodeBackupJson({ ...original, completedAt: null }), secret, key),
+  )
+  assert.equal((await access.call()).status, 503)
+  assert.equal((await access.call(`backups/export/download?id=${result.latest.id}`)).status, 503)
+  assert.equal(access.ownerCalls(), 0)
+})
+test("completed manifests cannot export control objects, raw files, other snapshots or duplicate frames", async () => {
+  const f = fixture()
+  const result = await completeBackup(f)
+  const access = exportAccess(f)
+  const key = `snapshots/${result.latest.id}/manifest.hnbackup`
+  const original = await manifestFor(f.env, result.latest.id)
+  const seen = []
+  const originalGet = f.env.BACKUP_BUCKET.get.bind(f.env.BACKUP_BUCKET)
+  f.env.BACKUP_BUCKET.get = async (name, options) => {
+    seen.push(name)
+    return originalGet(name, options)
+  }
+  for (const partKey of [
+    "control/status.json",
+    "control/progress.hnbackup",
+    "personal-files/private",
+    `snapshots/${result.latest.id}/../control.hnbackup`,
+    "snapshots/2026-01-01T00-00-00-000Z-aaaaaaaa/000000.hnbackup",
+  ]) {
+    const changed = { ...original, parts: [{ ...original.parts[0], key: partKey }] }
+    await f.env.BACKUP_BUCKET.put(key, await encryptBackup(encodeBackupJson(changed), secret, key))
+    seen.length = 0
+    assert.equal((await access.call(`backups/export/download?id=${result.latest.id}`)).status, 503)
+    assert.deepEqual(seen, [key])
+  }
+  for (const changed of [
+    { ...original, parts: [...original.parts, original.parts[0]] },
+    {
+      ...original,
+      objects: [{ sha256: "a".repeat(64), key: "control/progress.hnbackup", parts: [] }],
+    },
+    {
+      ...original,
+      objects: [
+        {
+          sha256: "a".repeat(64),
+          key: `objects/${"a".repeat(64)}/manifest.hnbackup`,
+          parts: [{ key: "control/status.json" }],
+        },
+      ],
+    },
+  ]) {
+    await f.env.BACKUP_BUCKET.put(key, await encryptBackup(encodeBackupJson(changed), secret, key))
+    seen.length = 0
+    assert.equal((await access.call(`backups/export/download?id=${result.latest.id}`)).status, 503)
+    assert.deepEqual(seen, [key])
+  }
+  assert.equal(access.ownerCalls(), 0)
 })
 test("manual start is bounded and repeated starts resume; continue never creates another completed snapshot", async () => {
   const f = fixture()

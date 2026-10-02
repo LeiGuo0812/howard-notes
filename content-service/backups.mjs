@@ -26,6 +26,7 @@ const TARGET_BYTES = 128 * 1024
 const FILE_CHUNK_BYTES = 256 * 1024
 const SAFE_ID = /^\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}-\d{3}Z-[a-f0-9]{8}$/
 const textEncoder = new TextEncoder()
+const EXPORT_KEY_HEADER = "X-Howard-Backup-Key"
 const json = (value, status = 200, extra = {}) =>
   Response.json(value, {
     status,
@@ -460,16 +461,135 @@ export async function garbageCollectBackupObjects(env, { now = Date.now() } = {}
   return { deletedObjects: expired.length }
 }
 
+function canonicalExportKey(value) {
+  if (typeof value !== "string" || !/^[A-Za-z0-9_-]{43}$/.test(value)) return null
+  try {
+    const decoded = atob(value.replace(/-/g, "+").replace(/_/g, "/"))
+    if (
+      decoded.length !== 32 ||
+      btoa(decoded).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "") !== value
+    )
+      return null
+    return Uint8Array.from(decoded, (character) => character.charCodeAt(0))
+  } catch {
+    return null
+  }
+}
+
+async function equalKeyBytes(actual, configured) {
+  const digests = await Promise.all(
+    [actual, configured].map((bytes) => crypto.subtle.digest("SHA-256", bytes)),
+  )
+  const left = new Uint8Array(digests[0])
+  const right = new Uint8Array(digests[1])
+  let mismatch = 0
+  // Both hashes always have 32 bytes; do not stop at the first difference.
+  for (let index = 0; index < 32; index++) mismatch |= left[index] ^ right[index]
+  return mismatch === 0
+}
+
+async function exportKeyMatches(candidate, configured) {
+  const actual = canonicalExportKey(candidate)
+  return actual ? equalKeyBytes(actual, configured) : false
+}
+
+function isoTimestamp(value) {
+  return (
+    typeof value === "string" &&
+    /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/.test(value) &&
+    Number.isFinite(Date.parse(value)) &&
+    new Date(value).toISOString() === value
+  )
+}
+
+function completeManifestKeys(manifest, id) {
+  if (
+    !manifest ||
+    manifest.format !== "howard-notes-logical-backup-v1" ||
+    manifest.id !== id ||
+    !isoTimestamp(manifest.createdAt) ||
+    !isoTimestamp(manifest.completedAt) ||
+    !Array.isArray(manifest.tables) ||
+    !Array.isArray(manifest.parts) ||
+    !Array.isArray(manifest.objects)
+  )
+    throw new Error("Only a completed canonical snapshot may be exported.")
+  const snapshotPrefix = `${PREFIX}${id}/`
+  const keys = [snapshotPrefix + "manifest.hnbackup"]
+  const tables = new Set()
+  for (const table of manifest.tables) {
+    if (!BACKUP_TABLES.includes(table?.name) || tables.has(table.name))
+      throw new Error("Snapshot contains an unsupported table.")
+    tables.add(table.name)
+  }
+  for (const part of manifest.parts) {
+    if (
+      !part ||
+      !tables.has(part.table) ||
+      typeof part.key !== "string" ||
+      !part.key.startsWith(snapshotPrefix) ||
+      !/^\d{6}\.hnbackup$/.test(part.key.slice(snapshotPrefix.length))
+    )
+      throw new Error("Snapshot part does not belong to the selected snapshot.")
+    keys.push(part.key)
+  }
+  for (const object of manifest.objects) {
+    if (
+      !object ||
+      typeof object.sha256 !== "string" ||
+      !/^[a-f0-9]{64}$/.test(object.sha256) ||
+      !Array.isArray(object.parts)
+    )
+      throw new Error("Snapshot attachment reference is invalid.")
+    const objectPrefix = `objects/${object.sha256}/`
+    if (object.key !== objectPrefix + "manifest.hnbackup")
+      throw new Error("Snapshot attachment manifest is invalid.")
+    keys.push(object.key)
+    for (const part of object.parts) {
+      if (
+        typeof part?.key !== "string" ||
+        !part.key.startsWith(objectPrefix) ||
+        !/^\d{6}\.hnbackup$/.test(part.key.slice(objectPrefix.length))
+      )
+        throw new Error("Snapshot attachment part is invalid.")
+      keys.push(part.key)
+    }
+  }
+  if (new Set(keys).size !== keys.length)
+    throw new Error("Snapshot contains duplicate object references.")
+  return keys
+}
+
+function exportMetadata(value) {
+  if (
+    !value ||
+    typeof value.id !== "string" ||
+    !SAFE_ID.test(value.id) ||
+    !isoTimestamp(value.createdAt) ||
+    !isoTimestamp(value.completedAt) ||
+    ["rows", "tables", "bytes", "privateFiles"].some(
+      (field) => !Number.isSafeInteger(value[field]) || value[field] < 0,
+    ) ||
+    value.tables > BACKUP_TABLES.length
+  )
+    return null
+  return {
+    id: value.id,
+    createdAt: value.createdAt,
+    completedAt: value.completedAt,
+    rows: value.rows,
+    tables: value.tables,
+    bytes: value.bytes,
+    privateFiles: value.privateFiles,
+  }
+}
+
 async function backupBundle(env, id, extraHeaders) {
   if (!SAFE_ID.test(id)) return json({ error: "备份不存在。" }, 404, extraHeaders)
   const manifestKey = `${PREFIX}${id}/manifest.hnbackup`
   const manifest = await readEncrypted(env.BACKUP_BUCKET, manifestKey, env.BACKUP_SECRET)
   if (!manifest) return json({ error: "备份不存在。" }, 404, extraHeaders)
-  const keys = [
-    manifestKey,
-    ...manifest.parts.map((part) => part.key),
-    ...manifest.objects.flatMap((object) => [object.key, ...object.parts.map((part) => part.key)]),
-  ]
+  const keys = completeManifestKeys(manifest, id)
   let index = -1
   let reader = null
   const body = new ReadableStream({
@@ -516,6 +636,71 @@ async function backupBundle(env, id, extraHeaders) {
   })
 }
 
+/** Server automation can inspect or copy ciphertext, never operate as the owner. */
+async function exportBackupsResponse(request, env, route, extraHeaders) {
+  if (!["backups/export/status", "backups/export/download"].includes(route))
+    return json({ error: "备份导出操作不存在。" }, 404, extraHeaders)
+  if (request.method !== "GET")
+    return json({ error: "备份导出接口仅支持 GET。" }, 405, extraHeaders)
+  const configured = canonicalExportKey(env.BACKUP_EXPORT_KEY)
+  if (
+    !configured ||
+    !env.BACKUP_BUCKET ||
+    !env.BACKUP_SECRET ||
+    env.BACKUP_EXPORT_KEY === env.BACKUP_SECRET ||
+    env.BACKUP_EXPORT_KEY === env.SYNC_SECRET ||
+    env.BACKUP_EXPORT_KEY === env.CONTENT_SYNC_KEY
+  )
+    return json({ configured: false, error: "独立备份导出尚未配置。" }, 503, extraHeaders)
+  try {
+    // The encryption format also accepts a padded encoding. Compare decoded
+    // bytes so adding padding cannot accidentally reuse the recovery key.
+    if (await equalKeyBytes(backupKey(env.BACKUP_SECRET), configured))
+      return json({ configured: false, error: "独立备份导出尚未配置。" }, 503, extraHeaders)
+  } catch {
+    return json({ configured: false, error: "独立备份导出尚未配置。" }, 503, extraHeaders)
+  }
+  // No login cookie, bearer token or content-sync credential can substitute
+  // for this separate server-only capability, or combine to broaden its scope.
+  if (
+    request.headers.has("X-Howard-Sync-Key") ||
+    request.headers.has("Authorization") ||
+    request.headers.has("Cookie") ||
+    !(await exportKeyMatches(request.headers.get(EXPORT_KEY_HEADER), configured))
+  )
+    return json({ error: "备份导出凭据不正确。" }, 403, extraHeaders)
+  const parameters = new URL(request.url).searchParams
+  if (route === "backups/export/status") {
+    if ([...parameters].length)
+      return json({ error: "备份状态不接受查询参数。" }, 400, extraHeaders)
+    const status = await readJson(env.BACKUP_BUCKET, STATUS)
+    let latest = exportMetadata(status?.latest)
+    if (latest) {
+      const manifest = await readEncrypted(
+        env.BACKUP_BUCKET,
+        `${PREFIX}${latest.id}/manifest.hnbackup`,
+        env.BACKUP_SECRET,
+      )
+      if (!manifest) latest = null
+      else {
+        completeManifestKeys(manifest, latest.id)
+        if (manifest.createdAt !== latest.createdAt || manifest.completedAt !== latest.completedAt)
+          throw new Error("Backup metadata does not match its completed snapshot.")
+      }
+    }
+    // Never spread the stored status: progress, job errors, recovery secrets
+    // and future owner-only fields must stay outside this capability.
+    return json({ configured: true, latest }, 200, extraHeaders)
+  }
+  if (
+    [...parameters.keys()].some((key) => key !== "id") ||
+    parameters.getAll("id").length !== 1 ||
+    !SAFE_ID.test(parameters.get("id") || "")
+  )
+    return json({ error: "备份下载必须指定有效快照。" }, 400, extraHeaders)
+  return backupBundle(env, parameters.get("id"), extraHeaders)
+}
+
 /** Caller supplies the existing verified owner authorization and CORS policy. */
 export async function backupsResponse(
   request,
@@ -528,6 +713,12 @@ export async function backupsResponse(
 ) {
   if (route !== "backups" && !route.startsWith("backups/")) return null
   try {
+    if (route === "backups/export" || route.startsWith("backups/export/"))
+      return await exportBackupsResponse(request, env, route, extraHeaders)
+    // A server export credential is intentionally incapable of entering the
+    // existing owner authorization, including backup start/run endpoints.
+    if (request.headers.has(EXPORT_KEY_HEADER))
+      return json({ error: "备份导出凭据仅允许读取状态和下载密文。" }, 403, extraHeaders)
     // Shared owner authorization also recognizes an automation sync key.
     // That key never grants private backup status, execution or download.
     if (request.headers.has("X-Howard-Sync-Key"))
@@ -547,7 +738,7 @@ export async function backupsResponse(
       const id =
         new URL(request.url).searchParams.get("id") ||
         (await readJson(env.BACKUP_BUCKET, STATUS))?.latest?.id
-      return backupBundle(env, id || "", extraHeaders)
+      return await backupBundle(env, id || "", extraHeaders)
     }
     if (request.method === "POST" && route === "backups/run") {
       let body = {}
