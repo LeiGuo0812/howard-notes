@@ -82,6 +82,16 @@ const legacyEntry = await fs.readFile("public/admin/admin.js", "utf8")
 if (!legacyEntry.includes(adminVersion) || legacyEntry.includes("已取消登录"))
   failures.push("The legacy admin entry must upgrade to the current release")
 const maintenance = JSON.parse(await fs.readFile("public/maintenance-assets/manifest.json", "utf8"))
+if (
+  !/^maintenance-assets\/worker\/private-reading-[A-Z0-9]+\.js$/.test(
+    maintenance.privateWorkerEntry || "",
+  ) ||
+  !existing.has(path.join(publicDir, maintenance.privateWorkerEntry || "")) ||
+  !(await fs.readFile(path.join(publicDir, "private/index.html"), "utf8")).includes(
+    'id="private-notes-app"',
+  )
+)
+  failures.push("Private reading must have a data-free shell and a versioned private worker")
 const memories = JSON.parse(await fs.readFile("public/memory-assets/manifest.json", "utf8"))
 if (
   !/^memory-[A-Z0-9]+\.js$/.test(memories.entry) ||
@@ -158,8 +168,9 @@ const index = JSON.parse(await fs.readFile("public/static/contentIndex.json", "u
 for (const slug of allowed) {
   if (!existing.has(path.join(publicDir, slug + ".html")))
     failures.push(`Missing rendered document: ${slug}`)
-  if (!index[slug]) failures.push(`Missing search document: ${slug}`)
+  if (slug !== "private/index" && !index[slug]) failures.push(`Missing search document: ${slug}`)
 }
+if (index["private/index"]) failures.push("Private reading must stay outside public search")
 for (const slug of Object.keys(index))
   if (!allowed.has(slug) && slug !== "tags" && !slug.startsWith("tags/"))
     failures.push(`Unexpected search document: ${slug}`)

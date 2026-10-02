@@ -115,6 +115,7 @@ test("live projection preserves original Git bytes and Quartz callouts, GFM, cod
   )
   for (const { slug } of doc.toc) assert.ok(doc.html.includes(`id="${slug}"`))
   assert.equal(projected.contentIndex["notes/a"].title, "a")
+  assert.equal(projected.contentIndex["private/index"], undefined)
   assert.equal(projected.blogData.total, 2)
 })
 

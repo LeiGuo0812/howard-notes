@@ -29,6 +29,7 @@
       "/howard-notes/tags/*",
       "/howard-notes/collections/*",
       "/howard-notes/memory/*",
+      "/howard-notes/private/*",
       "/howard-notes/admin/*",
       "/howard-notes/about",
       "/howard-notes/about.html",

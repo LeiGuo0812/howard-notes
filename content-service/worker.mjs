@@ -204,6 +204,7 @@ function allowedRoutes(manifest, contentIndex, blogData) {
     "notes/index",
     "collections/index",
     "memory/index",
+    "private/index",
   ])
   for (const doc of manifest.documents) routes.add(`notes/${doc.id}`)
   for (const topic of topicList(manifest.settings, manifest.catalog.articles))
@@ -612,7 +613,9 @@ async function publicRead(request, env, db, path, current) {
   }
   if (path === "sitemap.xml") {
     const pages = await db
-      .prepare("SELECT path FROM public_pages WHERE revision = ? AND path != '404' ORDER BY path")
+      .prepare(
+        "SELECT path FROM public_pages WHERE revision = ? AND path NOT IN ('404', 'private/index') ORDER BY path",
+      )
       .bind(current.revision)
       .all()
     return new Response(
@@ -731,7 +734,8 @@ export async function handle(request, env, ctx = {}, fetcher = fetch) {
           throw new HttpError("页面地址不正确。", 404)
         }
         if (!validPath(path)) throw new HttpError("页面地址不正确。", 404)
-        if (["topics", "tags", "notes", "collections", "memory"].includes(path)) path += "/index"
+        if (["topics", "tags", "notes", "collections", "memory", "private"].includes(path))
+          path += "/index"
         const etag = `"${current.revision}-${encodeURIComponent(path)}"`
         const unmodified = path !== "404" && matchesETag(request, etag)
         const metadataOnly = request.method === "HEAD" || unmodified

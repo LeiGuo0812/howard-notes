@@ -7,7 +7,8 @@ configuration:
   locale: zh-CN
   baseUrl: leiguo0812.github.io/howard-notes
   ignorePatterns:
-    - private
+    # The generated index is a data-free login shell; all other private paths stay ignored.
+    - "private/!(index.md)"
     - templates
     - .obsidian
     - "**/.*"

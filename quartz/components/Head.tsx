@@ -63,6 +63,12 @@ export default (() => {
         )}
         <link rel="preconnect" href="https://cdnjs.cloudflare.com" crossOrigin="anonymous" />
         <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        {fileData.frontmatter?.type === "private-hub" && (
+          <>
+            <meta name="robots" content="noindex, nofollow" />
+            <meta name="referrer" content="no-referrer" />
+          </>
+        )}
 
         <meta name="og:site_name" content={cfg.pageTitle}></meta>
         <meta property="og:title" content={title} />

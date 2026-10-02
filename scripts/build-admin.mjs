@@ -8,6 +8,7 @@ import { upgradeAdmin } from "./lib/admin-upgrade.mjs"
 import { buildMaintenance } from "./build-maintenance.mjs"
 import { buildMemories } from "./build-memories.mjs"
 import { buildPublicationWorker } from "./build-publication-worker.mjs"
+import { buildPrivateNotesWorker } from "./build-private-notes-worker.mjs"
 import { runtimeBrowserPlugins } from "../runtime/build.mjs"
 const authConfig = JSON.parse(await fs.readFile("admin/auth-config.json", "utf8"))
 const settings = JSON.parse(await fs.readFile("library/site.json", "utf8"))
@@ -25,6 +26,7 @@ if (process.env.GITHUB_REF === "refs/heads/main" && !authConfig.brokerOrigin)
   throw new Error("Account login must be configured before deploying main.")
 await fs.mkdir("public/admin/katex", { recursive: true })
 const workerEntry = await buildPublicationWorker()
+const privateWorkerEntry = await buildPrivateNotesWorker()
 const bundle = await build({
   entryPoints: ["admin/app.mjs"],
   outdir: "public/admin",
@@ -70,5 +72,5 @@ await Promise.all([
   fs.cp("node_modules/katex/dist/fonts", "public/admin/katex/fonts", { recursive: true }),
 ])
 console.log(`Built /admin ${version} with a self-hosted Markdown editor.`)
-await buildMaintenance(template, workerEntry)
+await buildMaintenance(template, workerEntry, privateWorkerEntry)
 await buildMemories()

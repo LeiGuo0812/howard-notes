@@ -30,6 +30,21 @@ async function walk(dir) {
   }
 }
 await walk("content/notes")
+// The login-only shell contains no private data and stays outside public discovery.
+const searchFile = "public/static/contentIndex.json"
+const searchIndex = JSON.parse(await fs.readFile(searchFile, "utf8"))
+delete searchIndex["private/index"]
+await fs.writeFile(searchFile, JSON.stringify(searchIndex))
+const sitemapFile = "public/sitemap.xml"
+const sitemap = await fs.readFile(sitemapFile, "utf8")
+await fs.writeFile(
+  sitemapFile,
+  sitemap.replace(/<url>\s*<loc>([^<]+)<\/loc>[\s\S]*?<\/url>/g, (entry, location) =>
+    [base + "/private", base + "/private/", base + "/private/index"].includes(location)
+      ? ""
+      : entry,
+  ),
+)
 articles.sort((a, b) => b.date.localeCompare(a.date) || a.slug.localeCompare(b.slug))
 const items = articles
   .map(

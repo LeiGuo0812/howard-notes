@@ -167,6 +167,11 @@
   flex-direction: column;
   gap: 9px;
 }
+.maintenance-toolbar:not(.is-reading) .maintenance-dock-content {
+  flex-direction: row;
+  flex-wrap: wrap;
+  justify-content: space-between;
+}
 
 .blog-layout.is-article .page-header:has(.maintenance-edit:not([hidden])) {
   position: relative;
@@ -356,6 +361,9 @@
 }
 .center.maintenance-editing > article,
 .center.maintenance-editing > .page-footer {
+  display: none;
+}
+.center.maintenance-editing #private-notes-app > .private-reading-layout {
   display: none;
 }
 .blog-header:has(.search-container.active) {

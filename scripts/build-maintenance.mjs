@@ -4,10 +4,12 @@ import { createHash } from "node:crypto"
 import { build } from "esbuild"
 import { runtimeBrowserPlugins } from "../runtime/build.mjs"
 import { buildPublicationWorker } from "./build-publication-worker.mjs"
+import { buildPrivateNotesWorker } from "./build-private-notes-worker.mjs"
 
 // Both entry points instantiate the same workspace controller and the same form template.
-export async function buildMaintenance(template, workerEntry) {
+export async function buildMaintenance(template, workerEntry, privateWorkerEntry) {
   workerEntry ||= await buildPublicationWorker()
+  privateWorkerEntry ||= await buildPrivateNotesWorker()
   const outdir = "public/maintenance-assets"
   await fs.mkdir(outdir, { recursive: true })
   const bundle = await build({
@@ -22,7 +24,10 @@ export async function buildMaintenance(template, workerEntry) {
     platform: "browser",
     target: ["es2022"],
     metafile: true,
-    define: { __HOWARD_PUBLICATION_WORKER__: JSON.stringify(workerEntry) },
+    define: {
+      __HOWARD_PUBLICATION_WORKER__: JSON.stringify(workerEntry),
+      __HOWARD_PRIVATE_NOTES_WORKER__: JSON.stringify(privateWorkerEntry),
+    },
     plugins: runtimeBrowserPlugins(),
     loader: { ".scss": "empty" },
   })
@@ -61,7 +66,7 @@ export async function buildMaintenance(template, workerEntry) {
     fs.writeFile(path.join(outdir, "workspace.css"), styles + "\n" + overrides),
     fs.writeFile(
       path.join(outdir, "manifest.json"),
-      JSON.stringify({ entry: path.basename(entry[0]), version, workerEntry }),
+      JSON.stringify({ entry: path.basename(entry[0]), version, workerEntry, privateWorkerEntry }),
     ),
   ])
   console.log(`Built main-site maintenance ${version}.`)

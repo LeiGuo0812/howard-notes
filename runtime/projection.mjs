@@ -311,6 +311,7 @@ export async function prepareProjection({
   const contentIndex = {}
   for (const [file, bytes] of pages.output) {
     const slug = file.replace(/\.md$/, "")
+    if (slug === "private/index") continue
     const metadata = splitNote(decode(bytes)).data
     contentIndex[slug] = {
       slug,

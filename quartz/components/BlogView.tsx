@@ -8,6 +8,7 @@ import { ARTICLES_PER_PAGE } from "./scripts/browsing"
 import { prepareArticleImages } from "../util/article-images"
 import { prepareArticleLinks } from "../util/article-links"
 import { MemoryHub } from "./MemoryView"
+import { PrivateNotesHub } from "./PrivateNotesView"
 import { PageScrollControls } from "./PageScrollControls"
 import { Pagination } from "./Pagination"
 import {
@@ -98,6 +99,21 @@ const navRoutes: Record<string, string> = {
   memories: "memory/index",
   about: "about",
 }
+function PrivateNavigation({ props }: { props: QuartzComponentProps }) {
+  return (
+    <a
+      class="internal private-notes-nav"
+      data-private-nav
+      data-nav-id="private"
+      data-no-popover="true"
+      href={href(props, "private/index")}
+      aria-current={props.fileData.frontmatter?.type === "private-hub" ? "page" : undefined}
+      hidden
+    >
+      私密文章
+    </a>
+  )
+}
 export const BlogNav: QuartzComponent = (props) => (
   <>
     <a class="blog-brand internal" href={href(props, "index")} data-no-popover="true">
@@ -111,22 +127,28 @@ export const BlogNav: QuartzComponent = (props) => (
     </a>
     <nav class="blog-nav" aria-label="主导航">
       {data(props).settings.navigation.map((item) => (
-        <a
-          class="internal"
-          data-nav-id={item.id}
-          hidden={!item.visible}
-          data-no-popover="true"
-          href={href(props, navRoutes[item.id])}
-          aria-current={
-            (item.id === "notes" && props.fileData.slug?.startsWith("collections/")) ||
-            props.fileData.slug?.startsWith(navRoutes[item.id].replace("/index", ""))
-              ? "page"
-              : undefined
-          }
-        >
-          {item.label}
-        </a>
+        <>
+          <a
+            class="internal"
+            data-nav-id={item.id}
+            hidden={!item.visible}
+            data-no-popover="true"
+            href={href(props, navRoutes[item.id])}
+            aria-current={
+              (item.id === "notes" && props.fileData.slug?.startsWith("collections/")) ||
+              props.fileData.slug?.startsWith(navRoutes[item.id].replace("/index", ""))
+                ? "page"
+                : undefined
+            }
+          >
+            {item.label}
+          </a>
+          {item.id === "notes" && <PrivateNavigation props={props} />}
+        </>
       ))}
+      {!data(props).settings.navigation.some((item) => item.id === "notes") && (
+        <PrivateNavigation props={props} />
+      )}
       <a
         class="blog-admin"
         href={`${root(props)}/admin/`}
@@ -846,7 +868,6 @@ function MaintenanceTools() {
       <div class="maintenance-primary-tools">
         <MaintenanceButton action="new" label="新建文章" />
         <MaintenanceButton action="drafts" label="草稿箱" />
-        <MaintenanceButton action="private" label="私密文库" />
         <MaintenanceButton action="articles" label="文章管理" />
         <MaintenanceButton action="trash" label="回收站" />
         <MaintenanceButton action="settings" label="页面设置" />
@@ -868,7 +889,8 @@ export const BlogFrame: PageFrame = {
     const article = type === "article",
       hub = type === "topic-hub" || type === "tag-hub",
       listing = type === "listing",
-      memory = type === "memory-hub"
+      memory = type === "memory-hub",
+      privateNotes = type === "private-hub"
     const listingData = componentData.fileData.frontmatter?.listing as Listing | undefined
     const current = article
       ? data(props).articles.find((row) => componentData.fileData.slug === `notes/${row.id}`)
@@ -892,7 +914,7 @@ export const BlogFrame: PageFrame = {
           aria-label="网站维护"
           hidden
         >
-          {article ? (
+          {article || privateNotes ? (
             <details class="maintenance-tool-dock" open>
               <summary
                 class="maintenance-dock-toggle"
@@ -911,7 +933,7 @@ export const BlogFrame: PageFrame = {
           )}
         </nav>
         <div
-          class={`blog-layout ${home ? "is-home" : ""} ${article ? "is-article" : ""} ${hub || listing || memory ? "is-directory" : ""} ${memory ? "is-memory" : ""}`}
+          class={`blog-layout ${home ? "is-home" : ""} ${article ? "is-article" : ""} ${hub || listing || memory || privateNotes ? "is-directory" : ""} ${memory ? "is-memory" : ""} ${privateNotes ? "is-private" : ""}`}
         >
           {article && (
             <aside class="left sidebar reading-sidebar" aria-label="文章导航">
@@ -960,7 +982,7 @@ export const BlogFrame: PageFrame = {
             </aside>
           )}
           <main class="center" id="main-content" data-maintenance-article={current?.id}>
-            <div class="page-header">
+            <div class="page-header" hidden={privateNotes}>
               <div class="popover-hint">
                 {beforeBody.map((Component) => (
                   <Component {...componentData} />
@@ -991,7 +1013,7 @@ export const BlogFrame: PageFrame = {
                 </button>
               )}
             </div>
-            <div data-maintenance-slot hidden />
+            {!privateNotes && <div data-maintenance-slot hidden />}
             {!home &&
               (type === "topic-hub" ? (
                 <TopicDirectory props={componentData} />
@@ -999,6 +1021,8 @@ export const BlogFrame: PageFrame = {
                 <TagChips props={componentData} />
               ) : memory ? (
                 <MemoryHub {...componentData} />
+              ) : privateNotes ? (
+                <PrivateNotesHub {...componentData} />
               ) : listing && listingData ? (
                 <ListingPage props={componentData} listing={listingData} />
               ) : (

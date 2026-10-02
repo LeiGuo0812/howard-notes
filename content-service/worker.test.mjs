@@ -173,6 +173,7 @@ function fixture() {
       "notes/index",
       "collections/index",
       "memory/index",
+      "private/index",
       ...topicList(
         settings,
         catalog.articles.filter((a) => a.published),
@@ -354,6 +355,40 @@ test("memory content and tags never enter the article snapshot, search projectio
   const status = await (await f.call("status")).json()
   assert.equal(status.revision, before.revision)
   assert.equal(status.commit, before.commit)
+})
+
+test("private reading routes serve only a generic shell while originals remain owner-only", async () => {
+  const f = fixture()
+  await f.publish()
+  const privateArticle = {
+    ...f.article,
+    id: "private-reading-fixture",
+    file: "notes/private-reading-fixture.md",
+    title: "PRIVATE-READING-TITLE",
+    published: false,
+  }
+  const saved = await f.call("personal/articles", {
+    article: privateArticle,
+    raw: "PRIVATE-READING-RAW-NEVER-PUBLIC",
+    version: 0,
+    requestId: "00000000-0000-4000-8000-000000000009",
+  })
+  assert.ok([200, 201].includes(saved.status), await saved.clone().text())
+  for (const path of ["private/", "private/index", "private/?note=private-reading-fixture"]) {
+    const response = await handle(new Request(origin + base + path), f.env)
+    assert.equal(response.status, 200)
+    const html = await response.text()
+    assert.ok(html.includes("private/index"))
+    assert.ok(!html.includes(privateArticle.title))
+    assert.ok(!html.includes("PRIVATE-READING-RAW-NEVER-PUBLIC"))
+  }
+  const anonymous = await f.call("personal/articles/private-reading-fixture")
+  assert.equal(anonymous.status, 401)
+  const snapshot = await (await f.call("snapshot")).text()
+  assert.ok(!snapshot.includes(privateArticle.id))
+  assert.ok(!snapshot.includes(privateArticle.title))
+  const sitemap = await (await handle(new Request(origin + base + "sitemap.xml"), f.env)).text()
+  assert.ok(!sitemap.includes("private/index"))
 })
 
 test("memory automation import requires its own key and cannot borrow that key for ordinary writes", async () => {

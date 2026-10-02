@@ -319,7 +319,11 @@ export function renderPages(projection: RuntimeProjection, shell: RuntimeShell) 
     const canonical =
       path === "index" ? `${baseUrl}/` : `${baseUrl}/${path.replace(/\/index$/, "/")}`
     const description = options.description ?? settings.brand.subtitle
-    const head = `${shell.head}${brandIconDataLink(settings)}<title>${escape(pageTitle)} | ${escape(settings.brand.name)}</title><meta name="description" content="${escape(description)}"><meta property="og:site_name" content="${escape(settings.brand.name)}"><meta property="og:title" content="${escape(pageTitle)}"><meta property="og:description" content="${escape(description)}"><meta property="og:url" content="${escape(canonical)}"><link rel="canonical" href="${escape(canonical)}"><link rel="alternate" type="application/rss+xml" title="${escape(settings.brand.name)}" href="${escape(baseUrl)}/index.xml"><script data-persist="true">${contentIndexScript(basePath)}</script>`
+    const privacyHead =
+      type === "private-hub"
+        ? '<meta name="robots" content="noindex, nofollow"><meta name="referrer" content="no-referrer">'
+        : ""
+    const head = `${shell.head}${privacyHead}${brandIconDataLink(settings)}<title>${escape(pageTitle)} | ${escape(settings.brand.name)}</title><meta name="description" content="${escape(description)}"><meta property="og:site_name" content="${escape(settings.brand.name)}"><meta property="og:title" content="${escape(pageTitle)}"><meta property="og:description" content="${escape(description)}"><meta property="og:url" content="${escape(canonical)}"><link rel="canonical" href="${escape(canonical)}"><link rel="alternate" type="application/rss+xml" title="${escape(settings.brand.name)}" href="${escape(baseUrl)}/index.xml"><script data-persist="true">${contentIndexScript(basePath)}</script>`
     pages.push({
       path,
       html: `<!DOCTYPE html>\n<html lang="zh" dir="ltr"><head>${head}</head><body data-slug="${escape(path)}" data-basepath="${escape(basePath)}" data-runtime-revision="${escape(projection.revision ?? "")}"><div id="quartz-root" class="page" data-frame="blog"><div id="quartz-body">${render(body)}</div></div>${shell.postscript}</body></html>`,
@@ -351,6 +355,7 @@ export function renderPages(projection: RuntimeProjection, shell: RuntimeShell) 
   page("topics/index", "专题", "topic-hub")
   page("tags/index", "标签", "tag-hub")
   page("memory/index", "记忆卡", "memory-hub")
+  page("private/index", "私密文章", "private-hub")
   page("about", settings.about.title, "page", { html: projection.aboutHtml ?? "" })
   page("404", "页面不存在", "page", {
     html: `<p>没有找到这篇文章。</p><p><a class="internal" href="${escape(basePath)}/">返回首页</a></p>`,

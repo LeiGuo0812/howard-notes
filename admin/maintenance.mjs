@@ -4,6 +4,7 @@ import { signIn, resumeSignIn } from "./auth.mjs"
 import { mountFrostedSpotlight } from "../scripts/lib/frosted-spotlight.mjs"
 import { trackDeployment } from "./deployment.mjs"
 import { createPanelWindow } from "./panel-window.mjs"
+import { setupPrivateNotes } from "./private-notes.mjs"
 
 const INTENT_KEY = "howard-maintenance-return"
 
@@ -63,7 +64,6 @@ export async function createMaintenance({ siteBase, version }) {
   for (const [action, label] of [
     ["new", "新建"],
     ["drafts", "草稿箱"],
-    ["private", "私密文库"],
     ["trash", "回收站"],
     ["articles", "文章管理"],
     ["settings", "页面设置"],
@@ -191,6 +191,7 @@ export async function createMaintenance({ siteBase, version }) {
           detail: { loggedIn: !!account },
         }),
       )
+      setupPrivateNotes({ siteBase: base.href })
     },
     onReauthenticate: () => (account ? reconnect() : login()),
     onClose: hide,
@@ -223,6 +224,7 @@ export async function createMaintenance({ siteBase, version }) {
         showProgress("已移入本地回收站，保留 30 天。", "done", { reopen: false })
     },
     onSaved(result) {
+      document.dispatchEvent(new CustomEvent("howard-private-notes-changed"))
       stopDeployment()
       if (
         result?.kind === "delete" ||
@@ -312,6 +314,7 @@ export async function createMaintenance({ siteBase, version }) {
     }
     const toolbar = document.querySelector(".maintenance-toolbar")
     if (toolbar) toolbar.hidden = !account
+    for (const link of document.querySelectorAll("[data-private-nav]")) link.hidden = !account
     const label = document.querySelector(".maintenance-account")
     if (label) label.textContent = account || ""
     for (const button of document.querySelectorAll(".maintenance-edit"))
@@ -575,6 +578,7 @@ export async function createMaintenance({ siteBase, version }) {
     },
     afterNavigation() {
       updateControls()
+      setupPrivateNotes({ siteBase: base.href })
       attach()
       if (!deployment.hidden) document.body.append(deployment)
     },
