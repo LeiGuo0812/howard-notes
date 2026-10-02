@@ -528,6 +528,48 @@ async function publicRead(request, env, db, path, current) {
       commit: current.commit_sha,
       updatedAt: current.updated_at,
     })
+  // Export reads follow the active public projection, never the owner's merged
+  // library or an older revision that may still contain a withdrawn original.
+  if (path.startsWith("source/")) {
+    const id = path.slice("source/".length)
+    if (!idPattern.test(id)) return json({ error: "文章不存在或尚未公开。" }, 404)
+    const etag = `"${current.revision}-source-${id}"`
+    const unmodified = matchesETag(request, etag)
+    const metadataOnly = request.method === "HEAD" || unmodified
+    const row = await db
+      .prepare(
+        `SELECT ${metadataOnly ? "1 AS present" : "body"} FROM public_documents WHERE revision = ? AND id = ?`,
+      )
+      .bind(current.revision, id)
+      .first()
+    if (!row) return json({ error: "文章不存在或尚未公开。" }, 404)
+    let result
+    if (!metadataOnly) {
+      const document = JSON.parse(row.body)
+      if (
+        document.id !== id ||
+        typeof document.source !== "string" ||
+        !SHA.test(document.sourceSha)
+      )
+        throw new HttpError("文章原文暂时不可用，请稍后重试。", 503)
+      result = JSON.stringify({
+        id,
+        source: document.source,
+        sourceSha: document.sourceSha,
+        revision: current.revision,
+        commit: current.commit_sha,
+      })
+    }
+    return new Response(metadataOnly ? null : result, {
+      status: unmodified ? 304 : 200,
+      headers: {
+        "Content-Type": "application/json; charset=utf-8",
+        "Cache-Control": "no-cache",
+        ETag: etag,
+        "X-Content-Type-Options": "nosniff",
+      },
+    })
+  }
   if (path === "snapshot") {
     const rawPayload = async (name) =>
       (

@@ -1,0 +1,330 @@
+:root {
+  color-scheme: light !important;
+  --light: #ffffff;
+  --lightgray: #e6e9ee;
+  --gray: #75808e;
+  --darkgray: #35404d;
+  --dark: #202a35;
+  --secondary: #386283;
+  --tertiary: #667c88;
+  --highlight: #e9eef3;
+  --bodyFont: -apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft YaHei", sans-serif;
+  --headerFont: var(--bodyFont);
+  --codeFont: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+}
+html,
+body {
+  margin: 0 !important;
+  padding: 0 !important;
+  width: 900px !important;
+  min-width: 900px !important;
+  height: auto !important;
+  min-height: 0 !important;
+  background: #ffffff !important;
+  color: #202a35 !important;
+  font-family: var(--bodyFont) !important;
+}
+body::before,
+body::after {
+  display: none !important;
+}
+.article-export-document {
+  display: block !important;
+  position: relative !important;
+  box-sizing: border-box !important;
+  width: 900px !important;
+  margin: 0 !important;
+  padding: 46px 48px 44px !important;
+  background: #ffffff !important;
+  color: #202a35 !important;
+  font-family: var(--bodyFont) !important;
+  font-size: 17px !important;
+  line-height: 1.8 !important;
+  overflow: hidden !important;
+  isolation: isolate;
+}
+.article-export-document,
+.article-export-document * {
+  box-sizing: border-box !important;
+  animation: none !important;
+  transition: none !important;
+  backdrop-filter: none !important;
+  filter: none !important;
+  text-shadow: none !important;
+  box-shadow: none !important;
+  caret-color: transparent !important;
+}
+.article-export-title {
+  margin: 0 0 28px !important;
+  padding: 0 0 20px !important;
+  border: 0 !important;
+  border-bottom: 1px solid #e4e8ed !important;
+  font-size: 32px !important;
+  font-weight: 700 !important;
+  line-height: 1.45 !important;
+  color: #202a35 !important;
+  overflow-wrap: anywhere !important;
+}
+.article-export-body {
+  position: static !important;
+  width: auto !important;
+  min-width: 0 !important;
+  max-width: none !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  background: transparent !important;
+  border: 0 !important;
+  color: #202a35 !important;
+  font-family: var(--bodyFont) !important;
+  font-size: 17px !important;
+  line-height: 1.8 !important;
+  overflow: visible !important;
+}
+.article-export-body * {
+  max-width: 100%;
+  overflow-wrap: anywhere;
+}
+.article-export-body h1,
+.article-export-body h2,
+.article-export-body h3,
+.article-export-body h4,
+.article-export-body h5,
+.article-export-body h6 {
+  margin: 30px 0 13px !important;
+  color: #202a35 !important;
+  line-height: 1.5 !important;
+  font-weight: 650 !important;
+  font-family: var(--headerFont) !important;
+  padding: 0 !important;
+  border: 0 !important;
+  letter-spacing: normal !important;
+}
+.article-export-body h1 {
+  font-size: 28px !important;
+}
+.article-export-body h2 {
+  font-size: 25px !important;
+}
+.article-export-body h3 {
+  font-size: 22px !important;
+}
+.article-export-body h4,
+.article-export-body h5,
+.article-export-body h6 {
+  font-size: 19px !important;
+}
+.article-export-body p {
+  margin: 0 0 16px !important;
+}
+.article-export-body a {
+  color: #386283 !important;
+  text-decoration: none !important;
+}
+.article-export-body strong {
+  font-weight: 700 !important;
+  color: inherit !important;
+}
+.article-export-body ul,
+.article-export-body ol {
+  padding-left: 26px !important;
+  margin: 14px 0 18px !important;
+}
+.article-export-body li {
+  margin: 5px 0 !important;
+}
+.article-export-body li > p {
+  margin: 0 !important;
+}
+.article-export-body blockquote {
+  margin: 18px 0 !important;
+  padding: 12px 18px !important;
+  border: 0 !important;
+  border-left: 3px solid #abbaca !important;
+  background: #f3f5f7 !important;
+  color: #495564 !important;
+}
+.article-export-body blockquote p:last-child {
+  margin-bottom: 0 !important;
+}
+.article-export-body pre {
+  display: block !important;
+  position: static !important;
+  width: 100% !important;
+  margin: 18px 0 !important;
+  padding: 17px 19px !important;
+  background: #f3f5f7 !important;
+  color: #24313f !important;
+  border: 1px solid #e2e7ed !important;
+  border-radius: 8px !important;
+  font-size: 14px !important;
+  line-height: 1.7 !important;
+  white-space: pre-wrap !important;
+  word-break: break-word !important;
+  overflow: visible !important;
+}
+.article-export-body code,
+.article-export-body code * {
+  font-family: var(--codeFont) !important;
+  font-size: inherit !important;
+  line-height: inherit !important;
+  white-space: inherit !important;
+  text-wrap: wrap !important;
+}
+.article-export-body code {
+  background: #eef1f5 !important;
+  color: #35404d !important;
+  border-radius: 3px !important;
+  padding: 1px 4px !important;
+}
+.article-export-body pre code {
+  padding: 0 !important;
+  background: none !important;
+}
+.article-export-body .line {
+  display: inline !important;
+}
+.article-export-body .line::before,
+.article-export-body .line::after {
+  display: none !important;
+}
+.article-export-body table {
+  display: table !important;
+  width: 100% !important;
+  max-width: 100% !important;
+  table-layout: auto !important;
+  border-collapse: collapse !important;
+  margin: 18px 0 !important;
+  font-size: 14px !important;
+  line-height: 1.65 !important;
+  color: #293542 !important;
+  overflow: visible !important;
+}
+.article-export-body th,
+.article-export-body td {
+  padding: 9px 11px !important;
+  border: 1px solid #dce2e9 !important;
+  white-space: normal !important;
+  word-break: break-word !important;
+  min-width: 0 !important;
+}
+.article-export-body th {
+  font-weight: 650 !important;
+  background: #f0f3f6 !important;
+}
+.article-export-body td {
+  background: #ffffff !important;
+}
+.article-export-body .table-container,
+.article-export-body .katex-display,
+.article-export-body .katex-display > .katex {
+  overflow: visible !important;
+}
+.article-export-body .table-container {
+  width: 100% !important;
+  margin: 0 !important;
+}
+.article-export-body img,
+.article-export-body svg {
+  display: block;
+  max-width: 100% !important;
+  height: auto;
+  margin: 16px auto;
+  border-radius: 5px;
+}
+.article-export-body .article-export-diagram {
+  display: block !important;
+  width: 100% !important;
+  height: auto !important;
+  padding: 14px !important;
+  margin: 20px 0 !important;
+  border: 1px solid #e3e7ed !important;
+  border-radius: 8px !important;
+  background: #f8f9fb !important;
+}
+.article-export-body .article-export-diagram img {
+  margin: 0 auto !important;
+  border-radius: 0;
+}
+.article-export-body .article-export-svg {
+  margin: 0 !important;
+  display: inline-block;
+  vertical-align: middle;
+}
+.article-export-body .katex {
+  font-size: 1.1em;
+  color: #293542 !important;
+}
+.article-export-body .katex * {
+  overflow-wrap: normal;
+  max-width: none;
+}
+.article-export-body .katex-display {
+  margin: 22px 0 !important;
+}
+.article-export-body .katex-html {
+  max-width: 100% !important;
+}
+.article-export-body .katex-mathml {
+  display: none !important;
+}
+.article-export-body .callout {
+  width: auto !important;
+  margin: 18px 0 !important;
+  padding: 14px 18px !important;
+  border: 1px solid #dfe6ed !important;
+  border-radius: 8px !important;
+  background: #f3f6f8 !important;
+  color: #35404d !important;
+}
+.article-export-body .callout-title {
+  font-weight: 650 !important;
+  color: #35404d !important;
+  margin-bottom: 9px !important;
+}
+.article-export-body .callout-content {
+  display: block !important;
+  max-height: none !important;
+  opacity: 1 !important;
+}
+.article-export-body .callout-fold,
+.article-export-body .callout-icon {
+  display: none !important;
+}
+.article-export-body .callout-content p:last-child {
+  margin-bottom: 0 !important;
+}
+.article-export-body hr {
+  margin: 26px 0 !important;
+  border: 0 !important;
+  border-top: 1px solid #e1e6ed !important;
+}
+.article-export-body .footnotes {
+  font-size: 14px !important;
+  color: #5a6878 !important;
+}
+.article-export-image-missing {
+  display: block !important;
+  width: 100% !important;
+  padding: 22px 16px !important;
+  margin: 18px 0 !important;
+  border: 1px dashed #bcc6d2 !important;
+  border-radius: 5px !important;
+  background: #f6f8fa !important;
+  color: #657181 !important;
+  font-size: 14px !important;
+  text-align: center !important;
+}
+.article-export-source {
+  margin: 32px 0 0 !important;
+  padding-top: 16px !important;
+  border-top: 1px solid #e2e7ed !important;
+  color: #667585 !important;
+  font-size: 13px !important;
+  line-height: 1.7 !important;
+  overflow-wrap: anywhere !important;
+}
+
+.article-export-body pre code.mermaid,
+.article-export-body pre code.language-mermaid {
+  display: block !important;
+}

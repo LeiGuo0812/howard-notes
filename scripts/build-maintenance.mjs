@@ -6,6 +6,7 @@ import { runtimeBrowserPlugins } from "../runtime/build.mjs"
 import { buildPublicationWorker } from "./build-publication-worker.mjs"
 import { buildPrivateNotesWorker } from "./build-private-notes-worker.mjs"
 import { buildMermaidViewer } from "./build-mermaid-viewer.mjs"
+import { buildArticleShare } from "./build-article-share.mjs"
 
 // Both entry points instantiate the same workspace controller and the same form template.
 export async function buildMaintenance(
@@ -13,10 +14,12 @@ export async function buildMaintenance(
   workerEntry,
   privateWorkerEntry,
   mermaidViewerEntry,
+  articleShareEntry,
 ) {
   workerEntry ||= await buildPublicationWorker()
   privateWorkerEntry ||= await buildPrivateNotesWorker()
   mermaidViewerEntry ||= await buildMermaidViewer()
+  articleShareEntry ||= await buildArticleShare()
   const outdir = "public/maintenance-assets"
   await fs.mkdir(outdir, { recursive: true })
   const bundle = await build({
@@ -64,6 +67,7 @@ export async function buildMaintenance(
   const version = createHash("sha256")
     .update(entry[0])
     .update(mermaidViewerEntry)
+    .update(articleShareEntry)
     .update(main)
     .update(styles)
     .update(overrides)
@@ -80,6 +84,7 @@ export async function buildMaintenance(
         workerEntry,
         privateWorkerEntry,
         mermaidViewerEntry,
+        articleShareEntry,
       }),
     ),
   ])

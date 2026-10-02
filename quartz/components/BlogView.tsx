@@ -1001,6 +1001,29 @@ export const BlogFrame: PageFrame = {
               )}
               {current && (
                 <button
+                  class="article-share-button"
+                  type="button"
+                  data-article-share={current.id}
+                  aria-label="分享文章"
+                  title="分享文章"
+                >
+                  <svg
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="1.6"
+                    aria-hidden="true"
+                  >
+                    <path
+                      d="M12 15V3m-4 4 4-4 4 4M5 10v10h14V10"
+                      stroke-linecap="round"
+                      stroke-linejoin="round"
+                    />
+                  </svg>
+                </button>
+              )}
+              {current && (
+                <button
                   class="maintenance-edit"
                   type="button"
                   data-maintenance-action="edit"

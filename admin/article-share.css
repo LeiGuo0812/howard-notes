@@ -1,0 +1,181 @@
+.article-share-overlay,
+.article-export-progress {
+  font-family: var(--bodyFont, system-ui);
+  color: var(--darkgray, #344152);
+  box-sizing: border-box;
+}
+.article-share-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 2147482500;
+  display: grid;
+  place-items: center;
+  padding: 16px;
+  background: rgb(15 21 30 / 38%);
+}
+.article-share-dialog {
+  width: min(440px, 100%);
+  max-height: calc(100dvh - 32px);
+  overflow: auto;
+  padding: 22px;
+  border: 1px solid var(--lightgray, #d3dae3);
+  border-radius: 22px;
+  background: var(--light, #eef0f2);
+  box-shadow: 0 24px 80px rgb(0 0 0 / 20%);
+}
+.article-share-heading {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+}
+.article-share-heading h2 {
+  margin: 0;
+  font-size: 20px;
+}
+.article-share-article-title {
+  margin: 12px 0 20px;
+  color: var(--gray, #697789);
+  font-size: 14px;
+  overflow-wrap: anywhere;
+}
+.article-share-close,
+.article-export-actions button,
+.article-share-primary,
+.article-export-actions .article-share-primary {
+  font: inherit;
+  cursor: pointer;
+  border: 1px solid var(--lightgray, #d3dae3);
+  border-radius: 10px;
+  background: var(--light, #eef0f2);
+  color: inherit;
+  padding: 9px 13px;
+  transition: background-color 180ms ease;
+}
+.article-share-close {
+  font-size: 22px;
+  line-height: 1;
+  width: 36px;
+  height: 36px;
+  padding: 4px;
+}
+.article-share-primary {
+  background: var(--secondary, #365f8b);
+  border-color: var(--secondary, #365f8b);
+  color: var(--light, #fff);
+  font-weight: 600;
+}
+.article-share-dialog > .article-share-primary {
+  display: block;
+  width: 100%;
+  margin-top: 20px;
+  min-height: 44px;
+}
+.article-share-formats {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  padding: 0;
+  margin: 0;
+  border: 0;
+}
+.article-share-format {
+  display: block;
+  border: 1px solid var(--lightgray, #d3dae3);
+  border-radius: 13px;
+  padding: 14px 8px;
+  cursor: pointer;
+  text-align: center;
+  font-size: 14px;
+}
+.article-share-format:has(input:checked) {
+  background: var(--highlight, #dfe7ef);
+  border-color: var(--secondary, #365f8b);
+}
+.article-share-format input {
+  margin: 0 0 8px;
+  accent-color: var(--secondary, #365f8b);
+}
+.article-share-format span {
+  display: block;
+}
+.article-share-format strong {
+  display: block;
+  font-size: 14px;
+}
+.article-share-format small {
+  display: block;
+  font-size: 11px;
+  color: var(--gray, #697789);
+  margin-top: 4px;
+}
+.article-share-link-option {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 20px;
+  font-size: 14px;
+}
+.article-share-link-option input {
+  margin: 0;
+  transform: none;
+  flex: 0 0 16px;
+  width: 16px;
+  height: 16px;
+  accent-color: var(--secondary, #365f8b);
+}
+.article-share-private {
+  display: inline-block;
+  font-size: 12px;
+  margin: 0 0 14px;
+  padding: 3px 9px;
+  border-radius: 10px;
+  background: var(--highlight, #dfe7ef);
+}
+.article-export-progress {
+  position: fixed;
+  z-index: 2147482600;
+  left: max(16px, env(safe-area-inset-left));
+  bottom: max(16px, env(safe-area-inset-bottom));
+  width: min(390px, calc(100vw - 32px));
+  padding: 16px;
+  border: 1px solid var(--lightgray, #d3dae3);
+  border-radius: 18px;
+  background: var(--light, #eef0f2);
+  box-shadow: 0 8px 32px rgb(0 0 0 / 15%);
+}
+.article-export-progress p {
+  font-size: 14px;
+  line-height: 1.6;
+  margin: 0 0 10px;
+  overflow-wrap: anywhere;
+  max-height: 34dvh;
+  overflow-y: auto;
+}
+.article-export-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.article-export-actions button {
+  font-size: 13px;
+  min-height: 38px;
+}
+.article-export-actions button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.article-share-sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+}
+@media (prefers-reduced-motion: reduce) {
+  .article-share-close,
+  .article-export-actions button,
+  .article-share-primary {
+    transition: none;
+  }
+}

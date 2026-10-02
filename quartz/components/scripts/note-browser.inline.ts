@@ -6,6 +6,7 @@ import { mountPagination } from "../../../scripts/lib/pagination.mjs"
 import { mountFrostedSpotlight } from "../../../scripts/lib/frosted-spotlight.mjs"
 import { setupMaintenance } from "../../../admin/maintenance-loader.mjs"
 import { setupMemories } from "../../../admin/memory-loader.mjs"
+import { setupArticleShare } from "../../../admin/article-share-loader.mjs"
 import "./runtime-content.inline"
 
 function setupIconHints() {
@@ -65,6 +66,7 @@ function setupNoteBrowser() {
   setupMaintenanceDock()
   setupMaintenance()
   setupMemories()
+  setupArticleShare()
   const hideThumbnail = (image: HTMLImageElement) => {
     const wrapper = image.closest<HTMLElement>(".article-thumbnail")
     if (wrapper) wrapper.hidden = true

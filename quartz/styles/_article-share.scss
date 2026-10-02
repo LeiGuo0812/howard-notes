@@ -1,0 +1,50 @@
+@use "./liquid-glass" as material;
+.article-share-button {
+  @include material.control;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  flex: 0 0 44px;
+  padding: 0;
+  border-radius: 14px;
+  cursor: pointer;
+  svg {
+    width: 20px;
+    height: 20px;
+    pointer-events: none;
+  }
+}
+.blog-layout.is-article .page-header {
+  position: relative;
+  padding-right: 54px;
+  > .article-share-button {
+    position: absolute;
+    top: 0;
+    right: 0;
+  }
+  &:has(.maintenance-edit:not([hidden])) {
+    padding-right: 108px;
+    > .article-share-button {
+      right: 54px;
+    }
+  }
+}
+.private-reading-actions > .article-share-button {
+  margin-left: auto;
+}
+.article-export-launch-notice {
+  position: fixed;
+  z-index: 2147482600;
+  left: max(16px, env(safe-area-inset-left));
+  bottom: max(16px, env(safe-area-inset-bottom));
+  max-width: calc(100vw - 32px);
+  padding: 13px 16px;
+  margin: 0;
+  border: 1px solid var(--lightgray);
+  border-radius: 15px;
+  background: var(--light);
+  box-shadow: 0 8px 32px rgb(0 0 0 / 15%);
+  font-size: 14px;
+}

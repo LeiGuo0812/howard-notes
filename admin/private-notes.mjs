@@ -137,6 +137,7 @@ export function mountPrivateNotes(
     loading = false,
     denied = false,
     currentId = null,
+    exportReading = null,
     diagrams,
     searchTimer,
     requests = new AbortController()
@@ -144,6 +145,7 @@ export function mountPrivateNotes(
   const on = (target, name, callback) =>
     target.addEventListener(name, callback, { signal: listeners.signal })
   const clearResources = () => {
+    exportReading = null
     readSerial++
     requests.abort()
     requests = new AbortController()
@@ -527,6 +529,15 @@ export function mountPrivateNotes(
       edit.innerHTML =
         '<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.6"><path d="m15 5 4 4M5 19l4-1 11-11-3-3L6 15l-1 4Z"/></svg>'
       controls.append(button("返回列表", "back"), edit)
+      const share = node("button", "article-share-button")
+      share.type = "button"
+      share.dataset.articleShare = id
+      share.dataset.articleSharePrivate = "true"
+      share.title = "分享文章"
+      share.setAttribute("aria-label", "分享文章")
+      share.innerHTML =
+        '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M12 15V3m-4 4 4-4 4 4M5 10v10h14V10" stroke-linecap="round" stroke-linejoin="round"/></svg>'
+      controls.insertBefore(share, edit)
       header.append(
         controls,
         node("h1", "", note.article.title),
@@ -576,6 +587,15 @@ export function mountPrivateNotes(
       layout.append(toc, body)
       root.dataset.maintenanceArticle = id
       root.replaceChildren(header, slot, layout)
+      exportReading = {
+        id,
+        title: note.article.title,
+        raw: note.raw,
+        body,
+        url: privateNoteUrl(base, id),
+        signal: requests.signal,
+        isCurrent: () => current(ticket, serial) && body.isConnected && currentId === id,
+      }
       document.querySelector(".maintenance-toolbar")?.classList.add("is-reading")
       for (const title of body.querySelectorAll(".callout.is-collapsible .callout-title")) {
         title.tabIndex = 0
@@ -710,6 +730,15 @@ export function mountPrivateNotes(
     }
   })
   on(document, "howard-owner-statechange", () => syncAccess())
+  on(document, "howard-article-export-request", (event) => {
+    if (
+      event.detail?.root === root &&
+      event.detail.id === currentId &&
+      typeof event.detail.reply === "function" &&
+      exportReading?.isCurrent()
+    )
+      event.detail.reply(exportReading)
+  })
   on(document, "howard-private-notes-changed", () => {
     if (gate.sync().access) void load()
   })

@@ -10,6 +10,7 @@ import { buildMemories } from "./build-memories.mjs"
 import { buildPublicationWorker } from "./build-publication-worker.mjs"
 import { buildPrivateNotesWorker } from "./build-private-notes-worker.mjs"
 import { buildMermaidViewer } from "./build-mermaid-viewer.mjs"
+import { buildArticleShare } from "./build-article-share.mjs"
 import { runtimeBrowserPlugins } from "../runtime/build.mjs"
 const authConfig = JSON.parse(await fs.readFile("admin/auth-config.json", "utf8"))
 const settings = JSON.parse(await fs.readFile("library/site.json", "utf8"))
@@ -29,6 +30,7 @@ await fs.mkdir("public/admin/katex", { recursive: true })
 const workerEntry = await buildPublicationWorker()
 const privateWorkerEntry = await buildPrivateNotesWorker()
 const mermaidViewerEntry = await buildMermaidViewer()
+const articleShareEntry = await buildArticleShare()
 const bundle = await build({
   entryPoints: ["admin/app.mjs"],
   outdir: "public/admin",
@@ -57,6 +59,7 @@ const version = createHash("sha256")
   .update(htmlWithEntry)
   .update(JSON.stringify(authConfig))
   .update(mermaidViewerEntry)
+  .update(articleShareEntry)
   .digest("hex")
   .slice(0, 16)
 const adminHtml = htmlWithEntry.replace("__ADMIN_VERSION__", version)
@@ -75,5 +78,11 @@ await Promise.all([
   fs.cp("node_modules/katex/dist/fonts", "public/admin/katex/fonts", { recursive: true }),
 ])
 console.log(`Built /admin ${version} with a self-hosted Markdown editor.`)
-await buildMaintenance(template, workerEntry, privateWorkerEntry, mermaidViewerEntry)
+await buildMaintenance(
+  template,
+  workerEntry,
+  privateWorkerEntry,
+  mermaidViewerEntry,
+  articleShareEntry,
+)
 await buildMemories()

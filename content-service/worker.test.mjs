@@ -470,6 +470,129 @@ test("source hash mismatch, private source, private route and private index are 
       [403, 409].includes((await f.call("sync/chunk", { syncId: s.syncId, ...item })).status),
     )
 })
+test("anonymous article export returns only the current canonical Markdown with original UTF-8 bytes", async () => {
+  const f = fixture()
+  await f.publish()
+  f.gitRequests.length = 0
+  f.sqlQueries.length = 0
+  const response = await f.call("source/test-note", undefined, {
+    Origin: f.env.FALLBACK_ORIGIN,
+  })
+  assert.equal(response.status, 200)
+  const exported = await response.json()
+  assert.deepEqual(exported, {
+    id: "test-note",
+    source,
+    sourceSha: sha,
+    revision: 1,
+    commit: "a".repeat(40),
+  })
+  assert.deepEqual(Buffer.from(exported.source, "utf8"), Buffer.from(source, "utf8"))
+  assert.equal(response.headers.get("Content-Type"), "application/json; charset=utf-8")
+  assert.equal(response.headers.get("Cache-Control"), "no-cache")
+  assert.equal(response.headers.get("X-Content-Type-Options"), "nosniff")
+  assert.equal(response.headers.get("Access-Control-Allow-Origin"), f.env.FALLBACK_ORIGIN)
+  assert.equal(f.gitRequests.length, 0, "public export must not require owner or GitHub requests")
+  assert.ok(!f.sqlQueries.some((sql) => /personal_|public_payloads|public_pages/.test(sql)))
+})
+test("article export rejects private, draft, missing and malformed IDs even with wildcard validators", async () => {
+  const f = fixture()
+  await f.publish()
+  for (const id of ["private-note", "draft-note"])
+    f.sqlite
+      .prepare(
+        "INSERT INTO personal_articles(id,file,article,raw,created_at,updated_at,last_request_id) VALUES (?,?,?,?,1,1,?)",
+      )
+      .run(
+        id,
+        `notes/${id}.md`,
+        JSON.stringify({ ...f.article, id, published: false, draft: id === "draft-note" }),
+        "PRIVATE-SOURCE-MUST-NOT-APPEAR",
+        id,
+      )
+  f.sqlQueries.length = 0
+  f.gitRequests.length = 0
+  for (const id of ["private-note", "draft-note", "missing", "Bad_ID", "test-note/extra", "%2F"])
+    for (const method of ["GET", "HEAD"]) {
+      const response = await handle(
+        new Request(origin + base + "api/content/source/" + id, {
+          method,
+          headers: { "If-None-Match": "*" },
+        }),
+        f.env,
+      )
+      assert.equal(response.status, 404, id + " " + method)
+      assert.equal(response.headers.get("ETag"), null)
+      assert.equal(response.headers.get("Cache-Control"), "no-store")
+      assert.ok(!(await response.text()).includes("PRIVATE-SOURCE-MUST-NOT-APPEAR"))
+    }
+  assert.equal(f.gitRequests.length, 0)
+  assert.ok(!f.sqlQueries.some((sql) => /personal_|public_payloads/.test(sql)))
+})
+test("article export HEAD and conditional GET avoid loading Markdown and preserve CORS cache headers", async () => {
+  const f = fixture()
+  await f.publish()
+  const first = await f.call("source/test-note")
+  const etag = first.headers.get("ETag")
+  assert.ok(etag)
+  for (const method of ["GET", "HEAD"])
+    for (const condition of [etag, "W/" + etag, '"older", W/' + etag, "*"]) {
+      f.sqlQueries.length = 0
+      const response = await handle(
+        new Request(origin + base + "api/content/source/test-note", {
+          method,
+          headers: { "If-None-Match": condition, Origin: f.env.FALLBACK_ORIGIN },
+        }),
+        f.env,
+      )
+      assert.equal(response.status, 304)
+      assert.equal(await response.text(), "")
+      assert.equal(response.headers.get("ETag"), etag)
+      assert.equal(response.headers.get("Cache-Control"), "no-cache")
+      assert.equal(response.headers.get("Access-Control-Allow-Origin"), f.env.FALLBACK_ORIGIN)
+      assert.ok(!f.sqlQueries.some((sql) => /SELECT body FROM public_documents/.test(sql)))
+    }
+  f.sqlQueries.length = 0
+  const head = await handle(
+    new Request(origin + base + "api/content/source/test-note", { method: "HEAD" }),
+    f.env,
+  )
+  assert.equal(head.status, 200)
+  assert.equal(await head.text(), "")
+  assert.equal(head.headers.get("ETag"), etag)
+  assert.ok(!f.sqlQueries.some((sql) => /SELECT body FROM public_documents/.test(sql)))
+})
+test("article export changes atomically with publication and cannot retrieve withdrawn historical sources", async () => {
+  const f = fixture()
+  await f.publish()
+  const first = await f.call("source/test-note")
+  const priorTag = first.headers.get("ETag")
+  f.article.published = false
+  f.setCommit("b".repeat(40))
+  const pending = await f.start()
+  await f.upload(pending)
+  const staged = await f.call("source/test-note")
+  assert.equal(staged.status, 200)
+  assert.equal((await staged.json()).revision, 1, "an unfinished revision must remain invisible")
+  assert.equal((await f.call("sync/finish", { syncId: pending.syncId })).status, 200)
+  for (const condition of [priorTag, "*", '"2-source-test-note"']) {
+    const withdrawn = await f.call("source/test-note?revision=1", undefined, {
+      "If-None-Match": condition,
+    })
+    assert.equal(withdrawn.status, 404)
+    assert.equal(withdrawn.headers.get("ETag"), null)
+  }
+  f.article.published = true
+  f.setCommit("c".repeat(40))
+  await f.publish()
+  const republished = await f.call("source/test-note", undefined, { "If-None-Match": priorTag })
+  assert.equal(republished.status, 200)
+  assert.notEqual(republished.headers.get("ETag"), priorTag)
+  const current = await republished.json()
+  assert.equal(current.revision, 3)
+  assert.equal(current.commit, "c".repeat(40))
+  assert.equal(current.source, source)
+})
 test("superseded and expired stages cannot modify the new synchronization", async () => {
   const f = fixture()
   const old = await f.start()
