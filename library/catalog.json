@@ -3109,18 +3109,6 @@
       "published": true,
       "featured": false,
       "modified": "2026-10-02"
-    },
-    {
-      "id": "maintenance-smoke-405e3bc9-76c6-4c8b-bb77-1b23b4ccb8a9",
-      "file": "notes/维护验收/maintenance-smoke-405e3bc9-76c6-4c8b-bb77-1b23b4ccb8a9.md",
-      "title": "网页维护验收（临时）",
-      "category": "维护验收",
-      "date": "2026-10-02",
-      "tags": [
-        "维护验收"
-      ],
-      "featured": false,
-      "published": true
     }
   ]
 }
