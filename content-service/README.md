@@ -2,7 +2,7 @@
 
 主站：<https://howard-notes.howard-notes-login.workers.dev/howard-notes/>
 
-Worker Static Assets 保存前端和编辑器资源，独立 D1 `howard-notes-content` 保存当前公开文库、预生成页面、搜索索引、页面设置和同步暂存。原始 Markdown 和历史仍由 GitHub 保存，文章图片继续使用 GitHub 图床。记忆卡使用同一个 D1 的独立表，保存内容、可见性和迁入的附件，不进入公开 Git 仓库、文章索引或 RSS。现有 `howard-notes-login` 和登录数据库独立保留。
+Worker Static Assets 保存前端和编辑器资源，独立 D1 `howard-notes-content` 保存当前公开文库、预生成页面、搜索索引、页面设置和同步暂存。原始 Markdown 和历史仍由 GitHub 保存，文章图片继续使用 GitHub 图床。记忆卡使用同一个 D1 的独立表，保存内容、可见性和附件关联；正文不进入公开 Git 仓库、文章索引或 RSS。经维护者选择公开的迁入附件，原文件托管于独立图片仓库，D1 仅保留链接和校验信息。现有 `howard-notes-login` 和登录数据库独立保留。
 
 网页发布：先提交 GitHub，再在维护者浏览器增量准备 Quartz 投影，服务端验证维护者、仓库写权限、分支当前提交、公开名单与原始文件 Git blob SHA，完整上传后切换版本。失败显示待同步并可重试，不重复提交 Git。公开请求读取预生成 HTML，不运行 Markdown 编译。
 
@@ -27,9 +27,21 @@ GitHub Pages 保留静态回退版本。新主站内容更新以 D1 同步完成
 
 首次部署新模块前执行 `memories-schema.sql`，只创建独立表和索引，不清空文章或记忆卡。已有 OAuth 权限不能使用 D1 文件导入接口时，去掉 SQL 注释后用 `wrangler d1 execute howard-notes-content --remote --command=<SQL> --config content-service/wrangler.json` 执行相同建表语句。
 
-访客只能读取 `PUBLIC + NORMAL` 记录和它们引用的附件；`PRIVATE`、`PROTECTED`、已归档和回收站记录仅现有维护者账号可见。复用 HttpOnly 会话，GitHub Pages 回退站复用已验证维护会话的内存凭证。搜索、标签、分页计数和附件端点均在服务端应用同样的可见性限制，公共响应不包含原始元数据或私密关联。
+访客只能通过记忆卡 API 读取 `PUBLIC + NORMAL` 记录和它们引用的附件；`PRIVATE`、`PROTECTED`、已归档和回收站记录仅现有维护者账号可见。复用 HttpOnly 会话，GitHub Pages 回退站复用已验证维护会话的内存凭证。搜索、标签、分页计数和附件端点均在服务端应用同样的可见性限制，公共响应不包含原始元数据或私密关联。独立公开图床中的原文件可通过直接链接访问，此规则不受卡片可见性控制。
 
 Memos 导入通过受保护的 `memories/import` 和 `memories/import/files` 接口；来源地址与来源 ID 保证重跑不产生重复卡片，附件分块且校验 SHA-256。迁入 Markdown 原文、创建和修改时间保持原样；资源链接仅在显示时映射。密码仅从临时环境变量读取；导出内容和下载文件只放在忽略的 `.local/` 中。记忆卡保存在 D1，维护备份时应另外导出 D1，GitHub 的文章历史并不是记忆卡备份。
+
+### 已公开附件的 GitHub 存储
+
+2026-10-02 经维护者明确选择将原附件公开，关联的 367 个文件记录迁入 `LeiGuo0812/pic_cloud_gl` 的 `img/memory/`。相同 SHA-256 文件复用路径，实际存储 366 个独立原文件；包含图片和两份 ZIP。目录以内容哈希命名，链接固定到提交 `c52888fa8252fde07c67b232a2fe403b30a5d8c2`，不会随分支变化。
+
+`memory_files.metadata.storage` 与卡片附件的 `storage` 保存仓库、提交、路径、SHA-256 和大小。客户端在渲染时用新链接映射原资源引用，不修改正文和原始元信息。旧文件接口先执行原有权限检查，再跳转到校验过的不可变地址；无效指针不会触发外部跳转。卡片保持原可见性，公开文件与私密卡片的权限分别处理。
+
+迁移分为原文件备份、公开下载逐文件校验、带版本保护的链接更新、正文与关联审计、浏览器检查、分块清理六步。`scripts/lib/memory-attachment-migration.mjs` 提供独立的 SQL 计划及审计函数；清理语句要求文件和全部关联卡片链接匹配，并保留文件元信息与关联表供旧地址跳转。并发编辑或校验失败时保留原分块。迁移材料和私密快照仅保存在忽略的 `.local/`，不会提交正文或凭证。
+
+迁移完成后复查：474 张卡片正文、设置与 367 个附件关联全部保留，D1 附件分块由 583 条降为零；实测数据库占用从 343,752,704 字节降至 39,530,496 字节，释放 304,222,208 字节（约 304.2 MB）。全部公开原文件经过下载和 SHA-256 校验；真实浏览器检查了桌面与手机图片显示、旧地址跳转和访客隔离。
+
+专项回归：`node --test scripts/memory-attachment-migration.test.mjs content-service/memories.test.mjs`，覆盖不可变地址校验、路径穿越拒绝、并发编辑保护、原文完整保留、清理条件、幂等以及私密附件接口的兼容跳转。此适配不改变后续 Memos 导入默认的 D1 分块保存方式。
 
 ### Memos 0.22.5 全量迁入
 
