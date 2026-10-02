@@ -101,9 +101,11 @@ class Element extends EventTarget {
     const children = this.children.flatMap((child) => [child, ...child.querySelectorAll("*")])
     return children.filter((child) => {
       if (selector === "*") return true
-      if (selector.startsWith(".")) return child.className === selector.slice(1)
-      if (selector.startsWith("#")) return child.id === selector.slice(1)
-      return child.tagName.toLowerCase() === selector
+      return selector.split(/\s*,\s*/).some((part) => {
+        if (part.startsWith(".")) return child.classList.contains(part.slice(1))
+        if (part.startsWith("#")) return child.id === part.slice(1)
+        return child.tagName.toLowerCase() === part
+      })
     })
   }
   querySelector(selector) {
@@ -122,61 +124,107 @@ class Element extends EventTarget {
   }
 }
 
-function fixture(t, { loadGate, renderGate, fail = false } = {}) {
+function fixture(t, { loadGate, renderGate, fail = false, failLoad = false } = {}) {
   const document = new EventTarget()
   document.documentElement = new Element(document, "html")
   document.body = new Element(document, "body")
   document.documentElement.appendChild(document.body)
   document.center = new Element(document, "main")
   document.body.appendChild(document.center)
-  document.querySelector = (selector) => (selector === ".center" ? document.center : null)
+  const login = { href: "https://notes.test/howard-notes/admin/" }
+  document.querySelector = (selector) =>
+    selector === ".center"
+      ? document.center
+      : selector === "[data-maintenance-login]"
+        ? login
+        : null
   document.createElement = (tag) => new Element(document, tag)
   let codes = []
   document.center.querySelectorAll = (selector) => (selector === "code.mermaid" ? codes : [])
   const window = new EventTarget()
   const cleanups = []
   window.addCleanup = (fn) => cleanups.push(fn)
-  window.getComputedStyle = () => ({
-    getPropertyValue: (name) => name,
-    marginLeft: "0",
-    marginRight: "0",
-  })
   const calls = [],
+    mounts = [],
+    updates = [],
+    destroyed = [],
     failures = [],
-    configurations = []
+    loadURLs = [],
+    observers = new Set()
   let loads = 0,
-    failNext = fail
-  const mermaid = {
-    initialize: (config) => configurations.push(config),
-    render: async (id, source, host) => {
-      calls.push({ id, source, host, connectedInitially: host.isConnected })
-      if (renderGate) await renderGate.promise
-      assert.ok(host.isConnected, "Mermaid measurement DOM was removed during asynchronous layout")
-      assert.equal(
-        host.parentElement,
-        document.body,
-        "Mermaid's renderer cannot query SVG outside body",
-      )
-      if (failNext) {
-        failNext = false
-        throw new Error("synthetic syntax failure")
+    failNext = fail,
+    failNextLoad = failLoad
+  const themeKey = () => document.documentElement.getAttribute("saved-theme") || "light"
+  const viewer = {
+    diagramThemeKey: themeKey,
+    observeDiagramTheme(element, callback) {
+      assert.ok(element.isConnected)
+      const subscription = { callback, key: themeKey() }
+      observers.add(subscription)
+      return () => observers.delete(subscription)
+    },
+    renderDiagram: async (source, options) => {
+      if (!options.isCurrent()) return null
+      const theme = themeKey(),
+        id = `diagram-${calls.length + 1}`,
+        host = new Element(document, "div")
+      host.className = "mermaid-measurement"
+      host.inert = true
+      host.setAttribute("aria-hidden", "true")
+      host.style.pointerEvents = "none"
+      document.body.appendChild(host)
+      calls.push({ id, source, host, options, theme, connectedInitially: host.isConnected })
+      try {
+        if (renderGate) await renderGate.promise
+        assert.ok(host.isConnected, "measurement DOM disconnected during asynchronous layout")
+        assert.equal(host.parentElement, document.body)
+        if (!options.isCurrent()) return null
+        if (failNext) {
+          failNext = false
+          throw new Error("synthetic syntax failure")
+        }
+        return `<svg id="${id}" data-theme="${theme}"></svg>`
+      } finally {
+        host.remove()
       }
-      return { svg: `<svg id="${id}"></svg>` }
+    },
+    mountDiagram(host, options) {
+      const mounted = { host, options }
+      mounts.push(mounted)
+      host.innerHTML = options.svg
+      return {
+        update(svg) {
+          assert.ok(options.isCurrent())
+          updates.push({ host, svg })
+          host.innerHTML = svg
+        },
+        destroy() {
+          destroyed.push(mounted)
+          host.replaceChildren()
+        },
+      }
     },
   }
-  window.__testLoad = async () => {
+  window.__testLoad = async (url) => {
     loads++
+    loadURLs.push(url)
     if (loadGate) await loadGate.promise
-    return { default: mermaid }
+    if (failNextLoad) {
+      failNextLoad = false
+      throw new Error("synthetic module fetch failure")
+    }
+    return viewer
   }
   const source = runtime.replace(
-    /import\(\s*"https:\/\/cdn\.jsdelivr\.net\/npm\/mermaid@11\.17\.2\/dist\/mermaid\.esm\.min\.mjs"\s*\)/,
-    "window.__testLoad()",
+    /import\(new URL\("maintenance-assets\/mermaid-viewer\.js", base\)\.href\)/,
+    'window.__testLoad(new URL("maintenance-assets/mermaid-viewer.js", base).href)',
   )
-  assert.notEqual(source, runtime, "test loader failed to replace the production CDN import")
+  assert.notEqual(source, runtime, "test loader failed to replace the shared viewer import")
   vm.runInNewContext(source, {
     document,
     window,
+    URL,
+    location: { href: "https://notes.test/howard-notes/notes/example" },
     AbortController,
     console: { error: (...args) => failures.push(args) },
   })
@@ -187,6 +235,8 @@ function fixture(t, { loadGate, renderGate, fail = false } = {}) {
     code.setAttribute("data-clipboard", JSON.stringify(source))
     const button = new Element(document, "button")
     button.className = "expand-button"
+    const clipboard = new Element(document, "button")
+    clipboard.className = "clipboard-button"
     const modal = new Element(document, "div")
     modal.id = "mermaid-container"
     const space = new Element(document, "div")
@@ -197,15 +247,16 @@ function fixture(t, { loadGate, renderGate, fail = false } = {}) {
     modal.appendChild(space)
     pre.appendChild(code)
     pre.appendChild(button)
+    pre.appendChild(clipboard)
     pre.appendChild(modal)
     document.center.appendChild(pre)
     codes.push(code)
-    return { pre, code, button, modal, space, content }
+    return { pre, code, button, clipboard, modal, space, content }
   }
   const event = (name) => document.dispatchEvent(new Event(name))
-  const leave = () => {
+  const leave = ({ runCleanups = true } = {}) => {
     event("prenav")
-    cleanups.splice(0).forEach((fn) => fn())
+    if (runCleanups) cleanups.splice(0).forEach((fn) => fn())
     morphWithMeasurements(document.body, null, () => {
       document.center.replaceChildren()
       document.body.replaceChildren(document.center)
@@ -226,10 +277,26 @@ function fixture(t, { loadGate, renderGate, fail = false } = {}) {
     event,
     leave,
     calls,
+    mounts,
+    updates,
+    destroyed,
     failures,
-    configurations,
+    viewer,
+    loadURLs,
+    cleanups,
     surfaces,
     loads: () => loads,
+    observers: () => observers.size,
+    theme(value) {
+      document.documentElement.setAttribute("saved-theme", value)
+      for (const observer of [...observers]) {
+        if (observer.key !== themeKey()) {
+          observer.key = themeKey()
+          observer.callback()
+        }
+      }
+    },
+    failNextRender: () => (failNext = true),
   }
 }
 
@@ -282,7 +349,7 @@ test("configuration bundling and minification leave the reading runtime self-con
   assert.match(module.exports.runtime, /Copyright \(c\) 2026 Quartz Community/)
 })
 
-test("leaving during CDN loading discards old diagrams and reuses the import for the next page", async (t) => {
+test("leaving during lazy viewer loading discards old diagrams and reuses the self-hosted import", async (t) => {
   const loadGate = gate()
   const f = fixture(t, { loadGate })
   const old = f.note("graph TB; Old-->Removed")
@@ -297,10 +364,33 @@ test("leaving during CDN loading discards old diagrams and reuses the import for
   assert.equal(f.calls.length, 1)
   assert.equal(f.calls[0].source, next.code.textContent)
   assert.equal(old.code.innerHTML, "")
-  assert.ok(next.code.querySelector("svg"))
+  assert.equal(old.code.hidden, false)
+  assert.equal(next.code.hidden, true)
+  assert.ok(next.pre.querySelector("svg"))
+  assert.equal(next.code.querySelector("svg"), null)
   assert.equal(f.loads(), 1)
+  assert.deepEqual(f.loadURLs, [
+    "https://notes.test/howard-notes/maintenance-assets/mermaid-viewer.js",
+  ])
   assert.equal(f.surfaces().length, 0)
   assert.equal(f.failures.length, 0)
+})
+
+test("a failed shared-module load can be retried without depending on a third-party CDN", async (t) => {
+  const f = fixture(t, { failLoad: true }),
+    note = f.note()
+  f.event("nav")
+  await flush()
+  assert.equal(f.loads(), 1)
+  const error = note.pre.querySelector(".mermaid-reader-error")
+  assert.equal(error.getAttribute("role"), "status")
+  error.querySelector("button").dispatchEvent(new Event("click"))
+  await flush()
+  assert.equal(f.loads(), 2)
+  assert.equal(f.calls.length, 1)
+  assert.ok(note.pre.querySelector("svg"))
+  assert.equal(note.pre.querySelector(".mermaid-reader-error"), null)
+  assert.doesNotMatch(runtime, /https:\/\/cdn\.|import\("mermaid"\)/)
 })
 
 test("a pending layout retains its connected hidden DOM across SPA departure, then releases it", async (t) => {
@@ -320,58 +410,67 @@ test("a pending layout retains its connected hidden DOM across SPA departure, th
   renderGate.resolve()
   await flush()
   assert.equal(old.code.innerHTML, "")
+  assert.equal(f.mounts.length, 0)
   assert.equal(host.isConnected, false)
   assert.equal(f.surfaces().length, 0)
   assert.equal(f.failures.length, 0)
 })
 
-test("theme changes serialize rendering, keep raw sources, and only install the latest theme", async (t) => {
+test("a theme change during first layout invalidates pending output and retains the original source", async (t) => {
   const renderGate = gate()
   const f = fixture(t, { renderGate })
   const note = f.note()
   f.event("nav")
   await flush()
-  f.document.documentElement.setAttribute("saved-theme", "dark")
-  f.event("themechange")
+  f.theme("dark")
   assert.equal(f.calls.length, 1)
   renderGate.resolve()
   await flush()
   assert.equal(f.calls.length, 2)
-  assert.equal(f.configurations[0].theme, "base")
-  assert.equal(f.configurations[1].theme, "dark")
+  assert.equal(f.calls[0].theme, "light")
+  assert.equal(f.calls[1].theme, "dark")
   assert.equal(f.calls[0].source, f.calls[1].source)
-  assert.ok(note.code.innerHTML.includes(f.calls[1].id))
+  assert.equal(f.mounts.length, 1)
+  assert.ok(note.pre.querySelector("svg").id.includes(f.calls[1].id))
+  assert.equal(f.observers(), 1)
   assert.equal(f.surfaces().length, 0)
   assert.equal(f.failures.length, 0)
 })
 
-test("diagram directives cannot weaken security or inject HTML labels and configuration CSS", async (t) => {
+test("public reading delegates rendering and controls to the shared module without modifying source", async (t) => {
   const f = fixture(t)
-  f.note("graph LR; A-->B")
+  const source = "\uFEFFflowchart LR\r\n  A[开始] --> B[保留原文]\r\n",
+    note = f.note(source)
   f.event("nav")
   await flush()
-  const config = f.configurations[0]
-  assert.equal(config.securityLevel, "strict")
-  assert.equal(config.htmlLabels, false)
-  assert.equal(config.flowchart.htmlLabels, false)
-  for (const key of [
-    "secure",
-    "securityLevel",
-    "htmlLabels",
-    "flowchart",
-    "themeCSS",
-    "themeVariables",
-    "dompurifyConfig",
-    "fontFamily",
-  ])
-    assert.ok(config.secure.includes(key), key)
-  assert.equal(config.maxTextSize, 50000)
-  assert.equal(config.maxEdges, 300)
-  assert.match(runtime, /mermaid@11\.17\.2/)
-  assert.doesNotMatch(runtime, /mermaid\/11\.4\.0/)
+  assert.equal(f.calls[0].source, source)
+  assert.equal(f.mounts[0].options.source, source)
+  assert.equal(note.code.textContent, source)
+  assert.equal(note.code.getAttribute("data-clipboard"), JSON.stringify(source))
+  assert.equal(f.calls[0].options.element, note.pre.querySelector(".mermaid-reader-viewer"))
+  assert.equal(f.calls[0].options.idPrefix, "mermaid-reader")
+  assert.equal(f.mounts[0].options.isCurrent(), true)
+  f.leave()
+  assert.equal(f.mounts[0].options.isCurrent(), false)
 })
 
-test("duplicate nav/render notifications and repeated expansion do not duplicate renders or controls", async (t) => {
+test("legacy diagrams without clipboard metadata retain their text source across rerenders", async (t) => {
+  const f = fixture(t),
+    source = "flowchart LR\n A[旧文章] --> B[兼容渲染]",
+    note = f.note(source)
+  note.code.removeAttribute("data-clipboard")
+  f.event("nav")
+  await flush()
+  f.theme("dark")
+  await flush()
+  assert.equal(f.calls.length, 2)
+  assert.equal(f.calls[0].source, source)
+  assert.equal(f.calls[1].source, source)
+  assert.equal(f.mounts[0].options.source, source)
+  assert.equal(note.code.textContent, source)
+})
+
+test("duplicate nav/render notifications do not duplicate viewers or theme listeners", async (t) => {
   const f = fixture(t)
   const note = f.note()
   f.event("nav")
@@ -379,37 +478,61 @@ test("duplicate nav/render notifications and repeated expansion do not duplicate
   f.event("nav")
   await flush()
   assert.equal(f.calls.length, 1)
-  for (let index = 0; index < 3; index++) {
-    note.button.dispatchEvent(new Event("click"))
-    assert.equal(note.modal.classList.contains("active"), true)
-    assert.equal(note.space.querySelectorAll(".mermaid-controls").length, 1)
-    assert.notEqual(note.content.querySelector("svg").id, note.code.querySelector("svg").id)
-    const escape = new Event("keydown")
-    Object.defineProperty(escape, "key", { value: "Escape" })
-    f.document.dispatchEvent(escape)
-    assert.equal(note.modal.classList.contains("active"), false)
-    assert.equal(note.space.querySelectorAll(".mermaid-controls").length, 0)
-  }
+  assert.equal(f.mounts.length, 1)
+  assert.equal(f.observers(), 1)
+  assert.equal(note.pre.querySelectorAll(".mermaid-reader-viewer").length, 1)
+  assert.equal(note.pre.querySelector(".expand-button"), null)
+  assert.equal(note.pre.querySelector(".clipboard-button"), null)
+  assert.equal(note.pre.querySelector("#mermaid-container"), null)
+  f.event("render")
+  await flush()
+  assert.equal(f.calls.length, 1)
   f.leave()
-  note.button.dispatchEvent(new Event("click"))
-  assert.equal(note.modal.classList.contains("active"), false)
+  assert.equal(f.destroyed.length, 1)
+  assert.equal(f.observers(), 0)
+  assert.equal(note.code.hidden, false)
+  f.theme("dark")
+  await flush()
+  assert.equal(f.calls.length, 1)
 })
 
-test("current-page errors remain visible and can be retried; failure releases the measurement DOM", async (t) => {
+test("one invalid diagram stays retryable and does not block later diagrams", async (t) => {
   const f = fixture(t, { fail: true })
-  const note = f.note()
+  const note = f.note("invalid first diagram"),
+    valid = f.note("flowchart LR; A-->B")
   f.event("nav")
   await flush()
-  assert.equal(f.failures.length, 1)
-  assert.equal(note.pre.querySelector(".mermaid-render-error").getAttribute("role"), "alert")
+  assert.equal(f.calls.length, 2)
+  const error = note.pre.querySelector(".mermaid-reader-error")
+  assert.equal(error.getAttribute("role"), "status")
+  assert.ok(valid.pre.querySelector("svg"))
+  assert.equal(note.code.getAttribute("data-clipboard"), JSON.stringify("invalid first diagram"))
   assert.equal(f.surfaces().length, 0)
-  assert.equal(note.button.getAttribute("aria-busy"), null)
-  note.button.dispatchEvent(new Event("click"))
+  error.querySelector("button").dispatchEvent(new Event("click"))
   await flush()
-  assert.ok(note.code.querySelector("svg"))
-  assert.equal(note.pre.querySelector(".mermaid-render-error"), null)
-  assert.equal(note.modal.classList.contains("active"), true)
+  assert.equal(f.calls.length, 3, "already successful diagrams should not render again on retry")
+  assert.ok(note.pre.querySelector("svg"))
+  assert.equal(note.pre.querySelector(".mermaid-reader-error"), null)
+  assert.equal(f.mounts.length, 2)
   assert.equal(f.surfaces().length, 0)
+})
+
+test("a failed theme rerender preserves its retry panel after destroying the previous viewer", async (t) => {
+  const f = fixture(t),
+    note = f.note()
+  f.event("nav")
+  await flush()
+  f.failNextRender()
+  f.theme("dark")
+  await flush()
+  assert.equal(f.destroyed.length, 1)
+  const error = note.pre.querySelector(".mermaid-reader-error")
+  assert.ok(error, "destroying the old viewer must not erase the new retry panel")
+  error.querySelector("button").dispatchEvent(new Event("click"))
+  await flush()
+  assert.equal(f.mounts.length, 2)
+  assert.ok(note.pre.querySelector("svg"))
+  assert.equal(note.pre.querySelector(".mermaid-reader-error"), null)
 })
 
 test("live content updates on a reused code element render the new source, rather than old SVG labels", async (t) => {
@@ -422,8 +545,46 @@ test("live content updates on a reused code element render the new source, rathe
   await flush()
   assert.equal(f.calls.length, 2)
   assert.equal(f.calls[1].source, "graph LR; New-->Published")
-  assert.ok(note.code.innerHTML.includes(f.calls[1].id))
+  assert.ok(note.pre.querySelector("svg").id.includes(f.calls[1].id))
+  assert.equal(f.destroyed.length, 1)
+  assert.equal(f.mounts.length, 2)
+  assert.equal(f.observers(), 1)
   assert.equal(f.failures.length, 0)
+})
+
+test("theme updates reuse the viewer and unchanged theme notifications do not repeat layout", async (t) => {
+  const f = fixture(t),
+    note = f.note()
+  f.event("nav")
+  await flush()
+  f.theme("dark")
+  await flush()
+  assert.equal(f.calls.length, 2)
+  assert.equal(f.mounts.length, 1)
+  assert.equal(f.updates.length, 1)
+  assert.ok(note.pre.querySelector("svg").id.includes(f.calls[1].id))
+  f.theme("dark")
+  await flush()
+  assert.equal(f.calls.length, 2)
+  assert.equal(f.observers(), 1)
+})
+
+test("late cleanup from an earlier SPA page cannot destroy the current page viewer", async (t) => {
+  const f = fixture(t)
+  f.note("flowchart LR; Old-->Page")
+  f.event("nav")
+  await flush()
+  const oldCleanup = f.cleanups[0]
+  f.leave({ runCleanups: false })
+  const current = f.note("flowchart LR; Current-->Page")
+  f.event("nav")
+  await flush()
+  oldCleanup()
+  assert.equal(f.destroyed.length, 1)
+  assert.equal(f.mounts.length, 2)
+  assert.equal(f.mounts[1].options.isCurrent(), true)
+  assert.ok(current.pre.querySelector("svg"))
+  assert.equal(f.observers(), 1)
 })
 
 test("synchronous body reconciliation preserves active measurements and restores them even on failure", (t) => {

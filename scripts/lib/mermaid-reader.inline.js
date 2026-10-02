@@ -23,10 +23,9 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
  * SOFTWARE.
  */
-let mermaidModule,
+let viewerModule,
   renderQueue = Promise.resolve(),
-  currentPage = null,
-  sequence = 0
+  currentPage = null
 const originalSources = new WeakMap()
 
 function sourceFor(code) {
@@ -45,344 +44,95 @@ function sourceFor(code) {
   return source
 }
 
-function configuration() {
-  const style = window.getComputedStyle(document.documentElement)
-  const color = (name) => style.getPropertyValue(name)
-  return {
-    startOnLoad: false,
-    securityLevel: "strict",
-    htmlLabels: false,
-    flowchart: { htmlLabels: false },
-    maxTextSize: 50000,
-    maxEdges: 300,
-    suppressErrorRendering: true,
-    secure: [
-      "secure",
-      "securityLevel",
-      "startOnLoad",
-      "maxTextSize",
-      "maxEdges",
-      "suppressErrorRendering",
-      "htmlLabels",
-      "flowchart",
-      "themeCSS",
-      "themeVariables",
-      "theme",
-      "dompurifyConfig",
-      "fontFamily",
-      "fontSize",
-    ],
-    theme: document.documentElement.getAttribute("saved-theme") === "dark" ? "dark" : "base",
-    themeVariables: {
-      fontFamily: color("--codeFont"),
-      primaryColor: color("--light"),
-      primaryTextColor: color("--darkgray"),
-      primaryBorderColor: color("--tertiary"),
-      lineColor: color("--darkgray"),
-      secondaryColor: color("--secondary"),
-      tertiaryColor: color("--tertiary"),
-      clusterBkg: color("--light"),
-      edgeLabelBackground: color("--highlight"),
-    },
-  }
-}
-
-function loadMermaid() {
-  mermaidModule ??=
-    import("https://cdn.jsdelivr.net/npm/mermaid@11.17.2/dist/mermaid.esm.min.mjs").catch(
+function loadViewer() {
+  if (!viewerModule) {
+    const login = document.querySelector("[data-maintenance-login]")
+    const base = login ? new URL("../", login.href) : new URL("/howard-notes/", location.href)
+    viewerModule = import(new URL("maintenance-assets/mermaid-viewer.js", base).href).catch(
       (error) => {
-        mermaidModule = null
+        viewerModule = null
         throw error
       },
     )
-  return mermaidModule
+  }
+  return viewerModule
 }
-
 function isCurrent(page, generation, code) {
   return currentPage === page && page.generation === generation && code.isConnected
 }
-
-function measuringSurface(code) {
-  const host = document.createElement("div")
-  host.className = "mermaid-measurement"
-  host.setAttribute("aria-hidden", "true")
-  host.inert = true
-  const width = Math.max(
-    1,
-    Math.min(code.parentElement?.clientWidth || document.documentElement.clientWidth || 1024, 2000),
-  )
-  Object.assign(host.style, {
-    position: "fixed",
-    left: "-10000px",
-    top: "0",
-    width: `${width}px`,
-    visibility: "hidden",
-    pointerEvents: "none",
-    overflow: "hidden",
-  })
-  // Mermaid's flow renderer queries below body during layout. The SPA adapter
-  // keeps this surface connected while it synchronously reconciles the body.
-  document.body.appendChild(host)
-  return host
+function failure(page, state) {
+  state.status?.remove()
+  state.viewer?.destroy()
+  state.viewer = null
+  const panel = document.createElement("span")
+  panel.className = "mermaid-reader-error"
+  panel.setAttribute("role", "status")
+  panel.textContent = "图表暂时无法显示"
+  const retry = document.createElement("button")
+  retry.type = "button"
+  retry.textContent = "重试"
+  retry.addEventListener("click", () => renderPage(page), { signal: page.controller.signal })
+  panel.appendChild(retry)
+  state.host.replaceChildren(panel)
+  state.status = panel
 }
-
-function cloneDiagram(svg) {
-  const clone = svg.cloneNode(true)
-  const identifiers = new Map()
-  const elements = [clone, ...clone.querySelectorAll("*")]
-  const prefix = `mermaid-expanded-${++sequence}-`
-  for (const element of elements) {
-    if (element.id) identifiers.set(element.id, `${prefix}${element.id}`)
-  }
-  for (const element of elements) {
-    if (element.id) element.id = identifiers.get(element.id)
-    for (const attribute of [...element.attributes]) {
-      if (attribute.name === "id") continue
-      let value = attribute.value.replace(/url\(#([^)]*)\)/g, (match, id) =>
-        identifiers.has(id) ? `url(#${identifiers.get(id)})` : match,
-      )
-      if (value.startsWith("#") && identifiers.has(value.slice(1))) {
-        value = `#${identifiers.get(value.slice(1))}`
-      }
-      element.setAttribute(attribute.name, value)
-    }
-    if (element.tagName.toLowerCase() === "style") {
-      element.textContent = element.textContent.replace(/#([\w:-]+)/g, (match, id) =>
-        identifiers.has(id) ? `#${identifiers.get(id)}` : match,
-      )
-    }
-  }
-  return clone
-}
-
-function panZoom(space, content) {
-  const controller = new AbortController()
-  const signal = controller.signal
-  let scale = 1,
-    pan = { x: 0, y: 0 },
-    dragging = false,
-    start = { x: 0, y: 0 }
-  const transform = () => {
-    content.style.transform = `translate(${pan.x}px, ${pan.y}px) scale(${scale})`
-  }
-  const reset = () => {
-    const svg = content.querySelector("svg")
-    if (!svg || !space.isConnected) return
-    const bounds = svg.getBoundingClientRect()
-    pan = {
-      x: (space.clientWidth - bounds.width / scale) / 2,
-      y: (space.clientHeight - bounds.height / scale) / 2,
-    }
-    scale = 1
-    transform()
-  }
-  const zoom = (amount) => {
-    const next = Math.min(3, Math.max(0.5, scale + amount))
-    const bounds = content.getBoundingClientRect()
-    pan.x -= (bounds.width / 2) * (next - scale)
-    pan.y -= (bounds.height / 2) * (next - scale)
-    scale = next
-    transform()
-  }
-  const begin = (x, y) => {
-    dragging = true
-    start = { x: x - pan.x, y: y - pan.y }
-    space.style.cursor = "grabbing"
-  }
-  const move = (event, x, y) => {
-    if (!dragging) return
-    event.preventDefault()
-    pan = { x: x - start.x, y: y - start.y }
-    transform()
-  }
-  const end = () => {
-    dragging = false
-    space.style.cursor = "grab"
-  }
-  space.addEventListener(
-    "mousedown",
-    (event) => {
-      if (event.button === 0 && !event.target.closest("button")) begin(event.clientX, event.clientY)
-    },
-    { signal },
-  )
-  document.addEventListener("mousemove", (event) => move(event, event.clientX, event.clientY), {
-    signal,
-  })
-  document.addEventListener("mouseup", end, { signal })
-  space.addEventListener(
-    "touchstart",
-    (event) => {
-      if (event.touches.length === 1 && !event.target.closest("button")) {
-        begin(event.touches[0].clientX, event.touches[0].clientY)
-      }
-    },
-    { signal, passive: true },
-  )
-  document.addEventListener(
-    "touchmove",
-    (event) => {
-      if (event.touches.length === 1) {
-        move(event, event.touches[0].clientX, event.touches[0].clientY)
-      }
-    },
-    { signal, passive: false },
-  )
-  document.addEventListener("touchend", end, { signal })
-  window.addEventListener("resize", reset, { signal })
-  const controls = document.createElement("div")
-  controls.className = "mermaid-controls"
-  for (const [label, action] of [
-    ["−", () => zoom(-0.1)],
-    ["Reset", reset],
-    ["+", () => zoom(0.1)],
-  ]) {
-    const button = document.createElement("button")
-    button.type = "button"
-    button.textContent = label
-    button.className = "mermaid-control-button"
-    button.addEventListener("click", action, { signal })
-    controls.appendChild(button)
-  }
-  space.appendChild(controls)
-  space.style.cursor = "grab"
-  reset()
-  return () => {
-    controller.abort()
-    controls.remove()
-    content.replaceChildren()
-  }
-}
-
-function bindExpansion(page, state) {
-  const { code } = state
-  const pre = code.parentElement
-  const button = pre?.querySelector(".expand-button")
-  const modal = pre?.querySelector("#mermaid-container")
-  const space = modal?.querySelector("#mermaid-space")
-  const content = space?.querySelector(".mermaid-content")
-  if (!button || !modal || !space || !content) return
-  state.button = button
-  const clipboard = pre.querySelector(".clipboard-button")
-  if (clipboard) {
-    const style = window.getComputedStyle(clipboard)
-    const width =
-      clipboard.offsetWidth +
-      (parseFloat(style.marginLeft) || 0) +
-      (parseFloat(style.marginRight) || 0)
-    button.style.right = `calc(${width}px + 0.3rem)`
-    pre.prepend(button)
-  }
-  let cleanupZoom = null
-  state.close = () => {
-    state.pendingOpen = false
-    modal.classList.remove("active")
-    cleanupZoom?.()
-    cleanupZoom = null
-  }
-  state.open = () => {
-    if (currentPage !== page || !code.isConnected) return
-    const svg = code.querySelector("svg")
-    if (!svg) {
-      state.pendingOpen = true
-      if (state.failed) renderPage(page)
-      return
-    }
-    cleanupZoom?.()
-    content.replaceChildren(cloneDiagram(svg))
-    modal.classList.add("active")
-    state.pendingOpen = false
-    cleanupZoom = panZoom(space, content)
-  }
-  const signal = page.controller.signal
-  button.addEventListener("click", state.open, { signal })
-  modal.addEventListener(
-    "click",
-    (event) => {
-      if (event.target === modal) state.close()
-    },
-    { signal },
-  )
-  document.addEventListener(
-    "keydown",
-    (event) => {
-      if (event.key === "Escape") state.close()
-    },
-    { signal },
-  )
-  state.refreshOpen = () => {
-    if (state.pendingOpen || modal.classList.contains("active")) state.open()
-  }
-}
-
-function renderFailure(state, error) {
-  state.failed = true
-  state.pendingOpen = false
-  state.error?.remove()
-  const message = document.createElement("span")
-  message.className = "mermaid-render-error"
-  message.setAttribute("role", "alert")
-  message.textContent = "图表渲染失败，请点击放大按钮重试。"
-  state.code.after(message)
-  state.error = message
-  // Actual current-page failures stay visible and diagnosable. The DOM race is
-  // prevented by the connected measurement surface, rather than swallowed here.
-  console.error("Mermaid diagram rendering failed", error)
-}
-
 function renderPage(page) {
   if (currentPage !== page) return
   const generation = ++page.generation
-  const config = configuration()
-  const signature = JSON.stringify(config)
-  for (const state of page.states) {
-    if (state.signature === signature && state.code.querySelector("svg")) continue
-    state.button?.setAttribute("aria-busy", "true")
-    renderQueue = renderQueue.then(async () => {
-      const { code } = state
+  renderQueue = renderQueue.then(async () => {
+    if (currentPage !== page || generation !== page.generation) return
+    let module
+    try {
+      module = await loadViewer()
+    } catch {
+      if (currentPage === page && generation === page.generation)
+        for (const state of page.states) failure(page, state)
+      return
+    }
+    if (currentPage !== page || generation !== page.generation) return
+    if (!page.themeCleanup)
+      page.themeCleanup = module.observeDiagramTheme(page.states[0]?.host, () => renderPage(page))
+    const signature = module.diagramThemeKey(page.states[0]?.host)
+    for (const state of page.states) {
+      const { code, host } = state
+      if (state.signature === signature && state.viewer) continue
       if (!isCurrent(page, generation, code)) return
-      let host
       try {
-        const { default: mermaid } = await loadMermaid()
-        if (!isCurrent(page, generation, code)) return
-        host = measuringSurface(code)
-        mermaid.initialize(config)
-        const { svg, bindFunctions } = await mermaid.render(
-          `mermaid-reader-${++sequence}`,
-          state.source,
-          host,
-        )
-        if (!isCurrent(page, generation, code)) return
-        code.innerHTML = svg
-        code.setAttribute("data-processed", "true")
-        bindFunctions?.(code)
+        const svg = await module.renderDiagram(state.source, {
+          element: host,
+          idPrefix: "mermaid-reader",
+          isCurrent: () => isCurrent(page, generation, code),
+        })
+        if (!svg || !isCurrent(page, generation, code)) continue
+        if (state.viewer) state.viewer.update(svg)
+        else
+          state.viewer = module.mountDiagram(host, {
+            source: state.source,
+            svg,
+            isCurrent: () => currentPage === page && code.isConnected,
+          })
+        state.status = null
         state.signature = signature
-        state.failed = false
-        state.error?.remove()
-        state.error = null
-        state.refreshOpen?.()
-      } catch (error) {
-        if (isCurrent(page, generation, code)) renderFailure(state, error)
-      } finally {
-        host?.remove()
-        if (isCurrent(page, generation, code)) state.button?.removeAttribute("aria-busy")
+        code.setAttribute("data-processed", "true")
+      } catch {
+        if (isCurrent(page, generation, code)) failure(page, state)
       }
-    })
-  }
+    }
+  })
 }
-
 function leavePage() {
   const page = currentPage
   currentPage = null
   if (!page) return
   page.controller.abort()
+  page.themeCleanup?.()
   for (const state of page.states) {
-    state.close?.()
-    state.button?.removeAttribute("aria-busy")
-    state.error?.remove()
+    state.viewer?.destroy()
+    state.status?.remove()
+    state.host.remove()
+    state.code.hidden = false
   }
 }
-
 function mountPage() {
   const codes = [...(document.querySelector(".center")?.querySelectorAll("code.mermaid") || [])]
   if (
@@ -393,18 +143,32 @@ function mountPage() {
         currentPage.states[index].code === code &&
         currentPage.states[index].source === sourceFor(code),
     )
-  ) {
+  )
     return
-  }
   leavePage()
   if (!codes.length) return
   const page = {
     controller: new AbortController(),
     generation: 0,
-    states: codes.map((code) => ({ code, source: sourceFor(code) })),
+    states: codes.map((code) => {
+      const pre = code.parentElement
+      for (const legacy of pre.querySelectorAll(
+        ".expand-button, .clipboard-button, #mermaid-container",
+      ))
+        legacy.remove()
+      pre.classList.add("mermaid-reader-frame")
+      code.hidden = true
+      const host = document.createElement("div")
+      host.className = "mermaid-reader-viewer"
+      const status = document.createElement("span")
+      status.className = "mermaid-reader-loading"
+      status.textContent = "正在显示图表…"
+      host.appendChild(status)
+      pre.appendChild(host)
+      return { code, host, status, source: sourceFor(code) }
+    }),
   }
   currentPage = page
-  for (const state of page.states) bindExpansion(page, state)
   window.addCleanup(() => {
     if (currentPage === page) leavePage()
   })
@@ -414,6 +178,3 @@ function mountPage() {
 document.addEventListener("prenav", leavePage)
 document.addEventListener("nav", mountPage)
 document.addEventListener("render", mountPage)
-document.addEventListener("themechange", () => {
-  if (currentPage) renderPage(currentPage)
-})

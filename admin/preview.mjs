@@ -1,45 +1,14 @@
 import { Marked } from "marked"
 import DOMPurify from "dompurify"
 import katex from "katex"
+import { loadMermaidViewer } from "./mermaid-loader.mjs"
 
 const escape = (text) =>
   String(text).replace(
     /[&<>"']/g,
     (ch) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[ch],
   )
-let mermaidPromise,
-  serial = 0
-function loadMermaid() {
-  return (mermaidPromise ??= import("mermaid").then(({ default: mermaid }) => {
-    mermaid.initialize({
-      startOnLoad: false,
-      securityLevel: "strict",
-      theme: "neutral",
-      htmlLabels: false,
-      flowchart: { htmlLabels: false },
-      maxTextSize: 50000,
-      maxEdges: 300,
-      suppressErrorRendering: true,
-      secure: [
-        "secure",
-        "securityLevel",
-        "startOnLoad",
-        "maxTextSize",
-        "maxEdges",
-        "suppressErrorRendering",
-        "htmlLabels",
-        "flowchart",
-        "themeCSS",
-        "themeVariables",
-        "theme",
-        "dompurifyConfig",
-        "fontFamily",
-        "fontSize",
-      ],
-    })
-    return mermaid
-  }))
-}
+let serial = 0
 // A preview reuses only sanitized output for an unchanged diagram at the same
 // position. Position scopes Mermaid IDs; identical diagrams elsewhere in the
 // same document still receive independent IDs. The cache belongs to one editor
@@ -65,6 +34,11 @@ export function createDiagramCache({ maxEntries = 12, maxBytes = 1_000_000 } = {
       entry.promise = Promise.resolve()
         .then(render)
         .then((svg) => {
+          // Cancelled renders do not poison a subsequent retry in this editor.
+          if (typeof svg !== "string") {
+            if (entries.get(key) === entry) discard(key)
+            return svg
+          }
           if (entries.get(key) === entry) {
             entry.bytes = svg.length * 2
             bytes += entry.bytes
@@ -142,10 +116,43 @@ export function articleForLink(source, { articles = [], siteBase, articleFile } 
   )
   return matches.length === 1 ? matches[0] : null
 }
-export function createPreview(element, context) {
-  let epoch = 0
+export function createPreview(
+  element,
+  context,
+  { loadViewer = loadMermaidViewer, sanitize = (...args) => DOMPurify.sanitize(...args) } = {},
+) {
+  let epoch = 0,
+    contextEpoch = 0,
+    contextController = new AbortController(),
+    disposed = false,
+    lastMarkdown = null,
+    unobserveTheme = null,
+    observedTheme = null
   const imageCache = new Map()
   const diagramCache = createDiagramCache()
+  const viewers = new Set()
+  const removeViewers = () => {
+    for (const viewer of viewers) viewer.destroy()
+    viewers.clear()
+  }
+  const clear = () => {
+    epoch++
+    contextEpoch++
+    contextController.abort()
+    contextController = new AbortController()
+    lastMarkdown = null
+    observedTheme = null
+    unobserveTheme?.()
+    unobserveTheme = null
+    removeViewers()
+    diagramCache.clear()
+    element.replaceChildren()
+    for (const value of imageCache.values())
+      Promise.resolve(value)
+        .then((url) => URL.revokeObjectURL(url))
+        .catch(() => {})
+    imageCache.clear()
+  }
   const mathToken = (raw, expression, display) => ({
     type: display ? "displayMath" : "inlineMath",
     raw,
@@ -217,21 +224,22 @@ export function createPreview(element, context) {
       },
     ],
   })
-  return {
-    clear() {
-      epoch++
-      diagramCache.clear()
-      for (const value of imageCache.values())
-        Promise.resolve(value)
-          .then((url) => URL.revokeObjectURL(url))
-          .catch(() => {})
-      imageCache.clear()
+  const preview = {
+    clear,
+    destroy() {
+      if (disposed) return
+      disposed = true
+      clear()
     },
     async render(text) {
+      if (disposed) return
       const version = ++epoch,
+        generation = contextEpoch,
+        contextSignal = contextController.signal,
         scroll = element.scrollTop
+      removeViewers()
       const source = text.replace(/^\uFEFF?---\r?\n[\s\S]*?\r?\n---(?:\r?\n|$)/, "")
-      element.innerHTML = DOMPurify.sanitize(parser.parse(source), {
+      element.innerHTML = sanitize(parser.parse(source), {
         USE_PROFILES: { html: true },
         FORBID_TAGS: ["style", "iframe", "form", "button"],
         FORBID_ATTR: ["style", "srcset", "id", "name"],
@@ -296,6 +304,7 @@ export function createPreview(element, context) {
             : /\/api\/content\/personal\/files\//.test(src)
               ? src
               : null
+        if (version !== epoch || disposed || !img.isConnected) return
         if (privateSource) {
           img.removeAttribute("src")
           try {
@@ -307,7 +316,8 @@ export function createPreview(element, context) {
             const url = await imageCache.get(privateSource)
             if (version === epoch && img.isConnected) img.src = url
           } catch {
-            if (img.isConnected) img.alt = (img.alt || "图片") + "（私密附件加载失败）"
+            if (version === epoch && img.isConnected)
+              img.alt = (img.alt || "图片") + "（私密附件加载失败）"
           }
           return
         }
@@ -327,35 +337,60 @@ export function createPreview(element, context) {
           const url = await imageCache.get(sha)
           if (version === epoch && img.isConnected) img.src = url
         } catch {
-          if (img.isConnected) img.alt = (img.alt || "图片") + "（加载失败）"
+          if (version === epoch && img.isConnected) img.alt = (img.alt || "图片") + "（加载失败）"
         }
       })
+      const imagesReady = Promise.allSettled(imageTasks)
       const diagrams = [...element.querySelectorAll("pre > code.language-mermaid")]
       if (diagrams.length) {
+        lastMarkdown = text
         try {
-          const mermaid = await loadMermaid()
+          const diagramViewer = await loadViewer(ctx.siteBase)
+          if (version !== epoch || disposed || !element.isConnected) return
+          const theme = diagramViewer.diagramThemeKey(element)
+          observedTheme = theme
+          unobserveTheme ??= diagramViewer.observeDiagramTheme(element, () => {
+            const nextTheme = diagramViewer.diagramThemeKey(element)
+            if (
+              !disposed &&
+              element.isConnected &&
+              lastMarkdown !== null &&
+              nextTheme !== observedTheme
+            ) {
+              observedTheme = nextTheme
+              void preview.render(lastMarkdown).catch(() => {})
+            }
+          })
           for (const [index, code] of diagrams.entries()) {
-            if (version !== epoch) break
+            if (version !== epoch || disposed || !element.isConnected) break
             const host = document.createElement("div")
-            host.className = "mermaid-preview"
+            host.className = "mermaid-viewer-preview"
+            const diagramSource = code.textContent
             const diagramId = `preview-diagram-${++serial}`
             try {
               const svg = await diagramCache.get(
-                JSON.stringify([index, code.textContent]),
-                async () => {
-                  const { svg } = await mermaid.render(diagramId, code.textContent)
-                  return DOMPurify.sanitize(svg, {
-                    USE_PROFILES: { svg: true, svgFilters: true },
-                    FORBID_TAGS: ["foreignObject"],
-                  })
-                },
+                JSON.stringify([theme, index, diagramSource]),
+                () =>
+                  diagramViewer.renderDiagram(diagramSource, {
+                    element,
+                    idPrefix: diagramId,
+                    signal: contextSignal,
+                    isCurrent: () =>
+                      !disposed && generation === contextEpoch && element.isConnected,
+                  }),
               )
-              if (version !== epoch) break
-              host.innerHTML = svg
+              if (version !== epoch || disposed || !element.isConnected || !svg) break
               code.parentElement.replaceWith(host)
+              viewers.add(
+                diagramViewer.mountDiagram(host, {
+                  source: diagramSource,
+                  svg,
+                  isCurrent: () =>
+                    !disposed && version === epoch && element.isConnected && host.isConnected,
+                }),
+              )
             } catch {
-              document.getElementById("d" + diagramId)?.remove()
-              if (version === epoch) {
+              if (version === epoch && !disposed && code.isConnected) {
                 const error = document.createElement("small")
                 error.className = "preview-error"
                 error.textContent = "流程图语法有误"
@@ -364,14 +399,20 @@ export function createPreview(element, context) {
             }
           }
         } catch {
-          if (version === epoch) {
+          if (version === epoch && !disposed && element.isConnected) {
             const error = document.createElement("small")
             error.textContent = "流程图组件加载失败"
             element.append(error)
           }
         }
+      } else {
+        lastMarkdown = null
+        observedTheme = null
+        unobserveTheme?.()
+        unobserveTheme = null
       }
-      await Promise.allSettled(imageTasks)
+      await imagesReady
     },
   }
+  return preview
 }

@@ -1,0 +1,225 @@
+.mermaid-reader-frame.mermaid-reader-frame,
+.page[data-frame="blog"] .site-surface article pre.mermaid-reader-frame {
+  padding: 0;
+  border: none;
+  overflow: visible;
+  background: transparent;
+  white-space: normal;
+}
+.mermaid-reader-frame > code.mermaid[hidden] {
+  display: none;
+}
+.mermaid-reader-loading,
+.mermaid-reader-error {
+  display: block;
+  padding: 24px;
+  color: var(--darkgray, #344152);
+  font-family: var(--bodyFont, sans-serif);
+  font-size: 14px;
+}
+.mermaid-reader-error button {
+  margin-left: 12px;
+}
+.howard-diagram,
+.howard-diagram-modal {
+  --diagram-background: #f2f4f6;
+  --diagram-border: #d3dae3;
+  --diagram-foreground: #344152;
+  --diagram-muted: #697789;
+  --diagram-button: #e8edf2;
+  --diagram-hover: #dfe7ef;
+  --diagram-focus: #577a9d;
+  box-sizing: border-box;
+  color: var(--diagram-foreground);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft YaHei", sans-serif;
+  font-size: 14px;
+  line-height: 1.5;
+}
+.howard-diagram[data-diagram-theme="dark"],
+.howard-diagram-modal[data-diagram-theme="dark"] {
+  --diagram-background: #24282e;
+  --diagram-border: #46515e;
+  --diagram-foreground: #e0e6ee;
+  --diagram-muted: #aab5c3;
+  --diagram-button: #303841;
+  --diagram-hover: #3b4653;
+  --diagram-focus: #9ab5d1;
+}
+.howard-diagram.howard-diagram {
+  display: block;
+  position: relative;
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  padding: 0;
+  margin: 1.2em 0;
+  overflow: hidden;
+  border: 1px solid var(--diagram-border);
+  border-radius: 14px;
+  background: var(--diagram-background);
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 12%);
+}
+.howard-diagram-toolbar,
+.howard-diagram-modal-header {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--diagram-border);
+  flex-wrap: wrap;
+}
+.howard-diagram-caption {
+  flex: 1 1 auto;
+  color: var(--diagram-muted);
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: 0.03em;
+  margin: 0;
+}
+.howard-diagram-button.howard-diagram-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  width: 32px;
+  height: 32px;
+  min-width: 32px;
+  padding: 6px;
+  margin: 0;
+  color: var(--diagram-foreground);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  box-shadow: none;
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 14px;
+  line-height: 1;
+  transition:
+    background-color 180ms ease,
+    border-color 180ms ease;
+  -webkit-tap-highlight-color: transparent;
+}
+.howard-diagram-button.howard-diagram-button:hover {
+  color: var(--diagram-foreground);
+  background: var(--diagram-hover);
+  border-color: var(--diagram-border);
+  transform: none;
+}
+.howard-diagram-button:focus-visible,
+.howard-diagram-canvas:focus-visible {
+  outline: 2px solid var(--diagram-focus);
+  outline-offset: -2px;
+}
+.howard-diagram-button:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+.howard-diagram-button svg {
+  display: block;
+  width: 18px;
+  height: 18px;
+  max-width: none;
+  pointer-events: none;
+}
+.howard-diagram-canvas {
+  position: relative;
+  min-width: 0;
+  height: clamp(220px, 34vw, 460px);
+  overflow: hidden;
+  touch-action: pan-y;
+  user-select: none;
+  cursor: grab;
+}
+.howard-diagram-content {
+  position: absolute;
+  inset: 0 auto auto 0;
+  transform-origin: 0 0;
+  will-change: auto;
+}
+.howard-diagram-content > svg {
+  display: block;
+  max-width: none !important;
+  height: auto;
+  overflow: visible;
+}
+.howard-diagram-content svg .node rect {
+  rx: 8px;
+  ry: 8px;
+}
+.howard-diagram-content svg text {
+  -webkit-font-smoothing: antialiased;
+}
+.howard-diagram-status {
+  min-height: 18px;
+  padding: 0 12px 6px;
+  color: var(--diagram-muted);
+  font-size: 12px;
+  text-align: right;
+}
+.howard-diagram-status:empty {
+  min-height: 0;
+  padding: 0;
+}
+.howard-diagram-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 2147483000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: max(16px, env(safe-area-inset-top)) max(16px, env(safe-area-inset-right))
+    max(16px, env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left));
+  background: rgb(15 21 30 / 52%);
+}
+.howard-diagram-dialog {
+  display: flex;
+  flex-direction: column;
+  width: min(1280px, 100%);
+  height: min(900px, 100%);
+  overflow: hidden;
+  border: 1px solid var(--diagram-border);
+  border-radius: 18px;
+  background: var(--diagram-background);
+  box-shadow: 0 24px 80px rgb(0 0 0 / 25%);
+}
+.howard-diagram-modal .howard-diagram-canvas {
+  flex: 1;
+  height: auto;
+  min-height: 0;
+  touch-action: none;
+}
+.howard-diagram-sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+@media (max-width: 600px) {
+  .howard-diagram-toolbar,
+  .howard-diagram-modal-header {
+    gap: 2px;
+    padding: 6px;
+  }
+  .howard-diagram-button.howard-diagram-button {
+    width: 36px;
+    height: 36px;
+  }
+  .howard-diagram-modal {
+    padding: max(8px, env(safe-area-inset-top)) max(8px, env(safe-area-inset-right))
+      max(8px, env(safe-area-inset-bottom)) max(8px, env(safe-area-inset-left));
+  }
+  .howard-diagram-dialog {
+    border-radius: 12px;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .howard-diagram-button.howard-diagram-button {
+    transition: none;
+  }
+}

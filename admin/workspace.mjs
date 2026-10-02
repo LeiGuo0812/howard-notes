@@ -1690,6 +1690,7 @@ export function createWorkspace(root, options = {}) {
       articleVersions.dispose()
       publication.remove()
       clearImages()
+      viewer.destroy()
       if (client) client.token = ""
       client = null
       session = null

@@ -8,7 +8,7 @@ import {
   privateApiBase,
   privateReadingAnchor,
 } from "./private-notes-core.mjs"
-import DOMPurify from "dompurify"
+import { loadMermaidViewer } from "./mermaid-loader.mjs"
 import runtimeConfig from "../runtime/config.json" with { type: "json" }
 
 let mountedRoot, mounted
@@ -27,8 +27,96 @@ const button = (text, action, value) => {
 }
 const date = (value) => (/^\d{4}-\d{2}-\d{2}/.test(value || "") ? value.slice(0, 10) : "日期未记录")
 const validId = (id) => /^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(id || "")
-let diagramSerial = 0,
-  mermaidModule
+let diagramSerial = 0
+
+function sourceFor(code) {
+  try {
+    const source = JSON.parse(code.getAttribute("data-clipboard"))
+    if (typeof source === "string") return source
+  } catch {}
+  return code.textContent || ""
+}
+
+// This controller belongs to one authenticated reading epoch. It keeps only
+// the current article's diagram sources in memory, and never requests its body
+// again when the site theme changes.
+export function mountPrivateDiagrams(body, { viewer, isCurrent }) {
+  const controller = new AbortController()
+  let disposed = false,
+    theme = viewer.diagramThemeKey(body)
+  const active = () => !disposed && !controller.signal.aborted && body.isConnected && isCurrent()
+  const records = [...body.querySelectorAll("code.mermaid, code.language-mermaid")].map((code) => ({
+    code,
+    source: sourceFor(code),
+    serial: 0,
+    host: null,
+    view: null,
+    error: null,
+  }))
+  async function render(record) {
+    const serial = ++record.serial
+    const valid = () => active() && record.serial === serial
+    if (!valid()) return
+    record.error?.remove()
+    record.error = null
+    try {
+      const svg = await viewer.renderDiagram(record.source, {
+        element: body,
+        isCurrent: valid,
+        signal: controller.signal,
+        idPrefix: `private-reading-diagram-${++diagramSerial}`,
+      })
+      if (!svg || !valid()) return
+      if (record.view) {
+        record.view.update(svg)
+      } else {
+        const host = node("div", "private-mermaid")
+        record.code.parentElement.replaceWith(host)
+        record.host = host
+        record.view = viewer.mountDiagram(host, {
+          source: record.source,
+          svg,
+          isCurrent: active,
+          onRetry: () => render(record),
+        })
+      }
+    } catch {
+      if (!valid()) return
+      const error = node("small", "private-reading-error", "流程图暂时无法显示")
+      error.setAttribute("role", "status")
+      ;(record.host || record.code.parentElement).after(error)
+      record.error = error
+    }
+  }
+  const stopObserving = viewer.observeDiagramTheme(body, () => {
+    if (!active()) return
+    const next = viewer.diagramThemeKey(body)
+    if (next === theme) return
+    theme = next
+    for (const record of records) void render(record)
+  })
+  const ready = Promise.all(records.map(render))
+  return {
+    ready,
+    destroy() {
+      if (disposed) return
+      disposed = true
+      controller.abort()
+      stopObserving()
+      for (const record of records) {
+        record.serial++
+        record.view?.destroy()
+        record.error?.remove()
+        record.code.textContent = ""
+        record.code.removeAttribute("data-clipboard")
+        record.host?.replaceChildren()
+        record.source = ""
+        record.code = record.host = record.view = record.error = null
+      }
+      records.length = 0
+    },
+  }
+}
 
 export function mountPrivateNotes(
   root,
@@ -49,10 +137,10 @@ export function mountPrivateNotes(
     loading = false,
     denied = false,
     currentId = null,
+    diagrams,
     searchTimer,
     requests = new AbortController()
-  const blobs = new Set(),
-    diagramIds = new Set()
+  const blobs = new Set()
   const on = (target, name, callback) =>
     target.addEventListener(name, callback, { signal: listeners.signal })
   const clearResources = () => {
@@ -63,10 +151,10 @@ export function mountPrivateNotes(
     worker = null
     pendingRender?.reject(new Error("阅读已取消"))
     pendingRender = null
+    diagrams?.destroy()
+    diagrams = null
     for (const url of blobs) URL.revokeObjectURL(url)
     blobs.clear()
-    for (const id of diagramIds) document.getElementById(`d${id}`)?.remove()
-    diagramIds.clear()
   }
   const clearPrivate = () => {
     clearResources()
@@ -356,62 +444,15 @@ export function mountPrivateNotes(
     })
   }
   async function renderDiagrams(body, ticket, serial) {
-    const codes = [...body.querySelectorAll("code.mermaid, code.language-mermaid")]
-    if (!codes.length) return
-    mermaidModule ??= import("mermaid")
-      .then(({ default: mermaid }) => {
-        mermaid.initialize({
-          startOnLoad: false,
-          securityLevel: "strict",
-          htmlLabels: false,
-          flowchart: { htmlLabels: false },
-          maxTextSize: 50000,
-          maxEdges: 300,
-          suppressErrorRendering: true,
-          secure: [
-            "secure",
-            "securityLevel",
-            "startOnLoad",
-            "htmlLabels",
-            "flowchart",
-            "maxTextSize",
-            "maxEdges",
-            "suppressErrorRendering",
-            "themeCSS",
-            "themeVariables",
-            "theme",
-            "dompurifyConfig",
-          ],
-        })
-        return mermaid
-      })
-      .catch(() => {
-        mermaidModule = null
-        throw new Error("流程图无法载入")
-      })
+    if (!body.querySelector("code.mermaid, code.language-mermaid")) return
     try {
-      const mermaid = await mermaidModule
-      for (const code of codes) {
-        if (!current(ticket, serial)) return
-        const id = `private-reading-diagram-${++diagramSerial}`
-        diagramIds.add(id)
-        try {
-          const { svg } = await mermaid.render(id, code.textContent)
-          if (!current(ticket, serial)) return
-          const host = node("div", "private-mermaid")
-          host.innerHTML = DOMPurify.sanitize(svg, {
-            USE_PROFILES: { svg: true, svgFilters: true },
-            FORBID_TAGS: ["foreignObject"],
-          })
-          code.parentElement.replaceWith(host)
-        } catch {
-          if (current(ticket, serial))
-            code.parentElement.after(node("small", "private-reading-error", "流程图语法有误"))
-        } finally {
-          document.getElementById(`d${id}`)?.remove()
-          diagramIds.delete(id)
-        }
-      }
+      const viewer = await loadMermaidViewer(base)
+      if (!current(ticket, serial) || !body.isConnected) return
+      diagrams = mountPrivateDiagrams(body, {
+        viewer,
+        isCurrent: () => current(ticket, serial),
+      })
+      await diagrams.ready
     } catch {
       if (current(ticket, serial))
         body.append(node("small", "private-reading-error", "流程图组件暂时不可用"))

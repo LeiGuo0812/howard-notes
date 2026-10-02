@@ -5,11 +5,18 @@ import { build } from "esbuild"
 import { runtimeBrowserPlugins } from "../runtime/build.mjs"
 import { buildPublicationWorker } from "./build-publication-worker.mjs"
 import { buildPrivateNotesWorker } from "./build-private-notes-worker.mjs"
+import { buildMermaidViewer } from "./build-mermaid-viewer.mjs"
 
 // Both entry points instantiate the same workspace controller and the same form template.
-export async function buildMaintenance(template, workerEntry, privateWorkerEntry) {
+export async function buildMaintenance(
+  template,
+  workerEntry,
+  privateWorkerEntry,
+  mermaidViewerEntry,
+) {
   workerEntry ||= await buildPublicationWorker()
   privateWorkerEntry ||= await buildPrivateNotesWorker()
+  mermaidViewerEntry ||= await buildMermaidViewer()
   const outdir = "public/maintenance-assets"
   await fs.mkdir(outdir, { recursive: true })
   const bundle = await build({
@@ -56,6 +63,7 @@ export async function buildMaintenance(template, workerEntry, privateWorkerEntry
   const overrides = await fs.readFile("admin/maintenance.css", "utf8")
   const version = createHash("sha256")
     .update(entry[0])
+    .update(mermaidViewerEntry)
     .update(main)
     .update(styles)
     .update(overrides)
@@ -66,7 +74,13 @@ export async function buildMaintenance(template, workerEntry, privateWorkerEntry
     fs.writeFile(path.join(outdir, "workspace.css"), styles + "\n" + overrides),
     fs.writeFile(
       path.join(outdir, "manifest.json"),
-      JSON.stringify({ entry: path.basename(entry[0]), version, workerEntry, privateWorkerEntry }),
+      JSON.stringify({
+        entry: path.basename(entry[0]),
+        version,
+        workerEntry,
+        privateWorkerEntry,
+        mermaidViewerEntry,
+      }),
     ),
   ])
   console.log(`Built main-site maintenance ${version}.`)
