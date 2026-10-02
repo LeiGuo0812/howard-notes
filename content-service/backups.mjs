@@ -90,9 +90,14 @@ async function schema(db) {
   }
 }
 function rowCounts(definitions) {
-  return definitions
-    .map((table) => `SELECT '${table.name}' name,COUNT(*) count FROM "${table.name}"`)
-    .join(" UNION ALL ")
+  // D1's production compound-SELECT limit is lower than local SQLite's.
+  // Independent scalar counts keep one query without a ten-term UNION.
+  return (
+    "SELECT " +
+    definitions
+      .map((table) => `(SELECT COUNT(*) FROM "${table.name}") AS "${table.name}"`)
+      .join(",")
+  )
 }
 function pageQuery(table) {
   // Only the next 25 candidate identities and native JSON byte lengths are
@@ -255,8 +260,8 @@ async function performScheduledBackup(env, options) {
       const definitions = await schema(db)
       queries++
       const counts = definitions.tables.length
-        ? (await db.prepare(rowCounts(definitions.tables)).all()).results
-        : []
+        ? await db.prepare(rowCounts(definitions.tables)).first()
+        : {}
       if (definitions.tables.length) queries++
       const id =
         new Date(now).toISOString().replace(/[:.]/g, "-") + "-" + crypto.randomUUID().slice(0, 8)
@@ -266,10 +271,9 @@ async function performScheduledBackup(env, options) {
         generation,
         createdAt: new Date(now).toISOString(),
         tables: definitions.tables.map((table) => {
-          const count = counts.find((item) => item.name === table.name)
           return {
             ...table,
-            expectedRows: count?.count || 0,
+            expectedRows: counts?.[table.name] || 0,
             pageSize: table.name === "personal_files" ? 1 : 25,
           }
         }),

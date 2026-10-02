@@ -265,6 +265,20 @@ test("missing mutation guards prevent claiming a consistent canonical snapshot",
     false,
   )
 })
+test("all canonical table counts avoid D1's production compound SELECT limit", async () => {
+  const f = fixture()
+  const originalPrepare = f.DB.prepare
+  f.DB.prepare = (sql) => {
+    if (/\bUNION\b/i.test(sql)) throw new Error("D1_ERROR: too many terms in compound SELECT")
+    return originalPrepare(sql)
+  }
+  const result = await completeBackup(f)
+  const manifest = await manifestFor(f.env, result.latest.id)
+  assert.equal(manifest.tables.length, 10)
+  assert.equal(manifest.tables.find((table) => table.name === "personal_articles").expectedRows, 1)
+  assert.equal(manifest.tables.find((table) => table.name === "memory_cards").expectedRows, 1)
+  assert.equal(manifest.tables.find((table) => table.name === "personal_files").expectedRows, 0)
+})
 test("simultaneous invocations share a lease and low-CPU page limits resume safely", async () => {
   const f = fixture()
   f.sqlite.prepare("INSERT INTO backups_lease VALUES (1,'existing',?)").run(now + 60_000)
