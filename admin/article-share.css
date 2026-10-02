@@ -124,6 +124,27 @@
   height: 16px;
   accent-color: var(--secondary, #365f8b);
 }
+.article-share-quality {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 18px;
+  font-size: 14px;
+}
+.article-share-quality[hidden] {
+  display: none;
+}
+.article-share-quality select {
+  font: inherit;
+  color: inherit;
+  min-height: 38px;
+  min-width: 112px;
+  padding: 6px 12px;
+  border: 1px solid var(--lightgray, #d3dae3);
+  border-radius: 10px;
+  background: var(--light, #eef0f2);
+}
 .article-share-private {
   display: inline-block;
   font-size: 12px;

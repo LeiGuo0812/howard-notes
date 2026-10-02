@@ -1,5 +1,6 @@
 import fs from "node:fs/promises"
 import path from "node:path"
+import { createHash } from "node:crypto"
 import { build } from "esbuild"
 
 export async function buildArticleShare() {
@@ -13,6 +14,27 @@ export async function buildArticleShare() {
       .map((name) =>
         fs.copyFile(path.join("node_modules/katex/dist/fonts", name), path.join(fontsDir, name)),
       ),
+  )
+  const pdfFontsSource = "assets/article-pdf-fonts"
+  const pdfFontsDir = path.join(outdir, "article-pdf-fonts")
+  const provenance = JSON.parse(
+    await fs.readFile(path.join(pdfFontsSource, "provenance.json"), "utf8"),
+  )
+  await fs.rm(pdfFontsDir, { recursive: true, force: true })
+  await fs.mkdir(pdfFontsDir, { recursive: true })
+  for (const [name, expected] of Object.entries(provenance.files)) {
+    const bytes = await fs.readFile(path.join(pdfFontsSource, name))
+    if (
+      bytes.length !== expected.bytes ||
+      createHash("sha256").update(bytes).digest("hex") !== expected.sha256
+    )
+      throw new Error(`PDF font integrity check failed: ${name}`)
+    await fs.writeFile(path.join(pdfFontsDir, name), bytes)
+  }
+  await fs.copyFile(path.join(pdfFontsSource, "LICENSE"), path.join(pdfFontsDir, "LICENSE.txt"))
+  await fs.copyFile(
+    path.join(pdfFontsSource, "provenance.json"),
+    path.join(pdfFontsDir, "provenance.json"),
   )
   const result = await build({
     entryPoints: ["admin/article-share.mjs"],

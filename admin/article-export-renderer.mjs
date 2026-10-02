@@ -7,10 +7,8 @@ import { sourceLink } from "./article-share-core.mjs"
 import {
   ArticleExportError,
   EXPORT_WIDTH,
-  PDF_MARGIN,
-  PDF_WIDTH,
   PAGE_HEIGHT,
-  imageCaptureScale,
+  imageCapturePlan,
   pageSlices,
 } from "./article-export-renderer-core.mjs"
 export {
@@ -175,7 +173,7 @@ function createDocument(article, includeSource, format, signal, warnings) {
   // Original reader controls, popover helpers and hidden Markdown source are
   // not article content. The complete rendered diagram is retained below.
   for (const node of body.querySelectorAll(
-    "script, button, .clipboard-button, .anchor, .external-icon, .howard-diagram-toolbar, .howard-diagram-status, .katex-mathml, [data-export-ignore]",
+    "script, button, .clipboard-button, .anchor, a[role=anchor], .external-icon, .howard-diagram-toolbar, .howard-diagram-status, .katex-mathml, [data-export-ignore]",
   ))
     node.remove()
   for (const details of body.querySelectorAll("details")) details.open = true
@@ -284,7 +282,7 @@ function imagePlaceholder(doc, image, warnings, description) {
   image.replaceWith(element(doc, "div", "article-export-image-missing", label))
   warnings.push(description || label)
 }
-async function prepareImages(source, body, doc, assets, signal, warnings, progress) {
+async function prepareImages(source, body, doc, assets, signal, warnings, progress, imageScale) {
   const originals = [...source.querySelectorAll("img")]
   const clones = [...body.querySelectorAll("img")]
   let completed = 0
@@ -305,7 +303,7 @@ async function prepareImages(source, body, doc, assets, signal, warnings, progre
         try {
           if (!sourceUrl || !/^(?:https?:|blob:|data:image\/)/i.test(sourceUrl))
             throw new Error("图片地址不支持导出")
-          const normalized = await normalizedImage(sourceUrl, doc, assets, signal)
+          const normalized = await normalizedImage(sourceUrl, doc, assets, signal, imageScale)
           check(signal)
           image.src = normalized.url
           image.width = Math.min(normalized.width, EXPORT_WIDTH - 96)
@@ -421,7 +419,7 @@ function svgMarkup(original, clone, diagram) {
   clone.style.background = diagram ? "#f8f9fb" : "transparent"
   return { markup: new XMLSerializer().serializeToString(clone), width, height }
 }
-async function prepareSvgs(source, body, doc, assets, signal, warnings) {
+async function prepareSvgs(source, body, doc, assets, signal, warnings, imageScale) {
   const originals = [...source.querySelectorAll("svg")]
   const clones = [...body.querySelectorAll("svg")]
   // The cloned article has had toolbars/icons removed, so align by retained SVG
@@ -443,7 +441,7 @@ async function prepareSvgs(source, body, doc, assets, signal, warnings) {
     try {
       const { markup, width, height } = svgMarkup(original, clone.cloneNode(true), diagram)
       const rawUrl = assets.add(new Blob([markup], { type: "image/svg+xml;charset=utf-8" }))
-      const normalized = await normalizedImage(rawUrl, doc, assets, signal, 1.7)
+      const normalized = await normalizedImage(rawUrl, doc, assets, signal, imageScale)
       check(signal)
       const image = element(doc, "img", diagram ? "" : "article-export-svg")
       image.src = normalized.url
@@ -497,7 +495,7 @@ async function measureIntervals(root, signal) {
   }
   return intervals
 }
-async function capture(html2canvas, root, [start, end], scale, signal) {
+async function capture(html2canvas, root, [start, end], scale, signal, textNodesToHide = []) {
   check(signal)
   const canvas = await html2canvas(root, {
     backgroundColor: "#ffffff",
@@ -515,6 +513,14 @@ async function capture(html2canvas, root, [start, end], scale, signal) {
     allowTaint: false,
     imageTimeout: 8000,
     removeContainer: true,
+    onclone: (doc, clone) => {
+      const hidden = new Set(textNodesToHide)
+      const scope = clone || doc
+      for (const span of scope.querySelectorAll("[data-export-text-id]")) {
+        if (hidden.has(span.dataset.exportTextId))
+          span.style.setProperty("opacity", "0", "important")
+      }
+    },
   })
   if (signal?.aborted) {
     canvas.width = canvas.height = 1
@@ -535,6 +541,7 @@ export async function exportArticle({
   signal,
   onProgress = () => {},
   mobile = false,
+  quality = "high",
 } = {}) {
   if (!["pdf", "png"].includes(format))
     throw new ArticleExportError("不支持的导出格式", "INVALID_FORMAT")
@@ -553,12 +560,22 @@ export async function exportArticle({
     layout = createDocument(article, includeSource, format, signal, warnings)
     const [{ default: html2canvas }, pdfModule] = await Promise.all([
       import("html2canvas"),
-      format === "pdf" ? import("jspdf") : null,
+      format === "pdf" ? import("./article-export-pdf.mjs") : null,
       layout.ready,
     ])
     check(signal)
-    await prepareImages(article.body, layout.body, layout.doc, assets, signal, warnings, onProgress)
-    await prepareSvgs(article.body, layout.body, layout.doc, assets, signal, warnings)
+    const imageScale = format === "png" ? (quality === "standard" ? 2 : mobile ? 2.5 : 3) : 3
+    await prepareImages(
+      article.body,
+      layout.body,
+      layout.doc,
+      assets,
+      signal,
+      warnings,
+      onProgress,
+      imageScale,
+    )
+    await prepareSvgs(article.body, layout.body, layout.doc, assets, signal, warnings, imageScale)
     await wait(layout.doc.fonts.ready, signal, 6000).catch((error) => {
       if (error.name === "AbortError") throw error
       warnings.push("部分字体未能加载，已使用系统字体")
@@ -584,74 +601,40 @@ export async function exportArticle({
     }
     await yieldTurn(signal)
     const height = Math.ceil(layout.root.getBoundingClientRect().height)
-    let blob
+    let blob, dimensions
     if (format === "png") {
-      const scale = imageCaptureScale(height, { mobile })
-      onProgress("生成长图")
-      const canvas = await capture(html2canvas, layout.root, [0, height], scale, signal)
+      const plan = imageCapturePlan(height, { mobile, quality })
+      onProgress(`生成长图（${plan.width} × ${plan.height}）`)
+      const canvas = await capture(html2canvas, layout.root, [0, height], plan.scale, signal)
       try {
-        blob = await wait(canvasBlob(canvas), signal)
+        dimensions = { width: canvas.width, height: canvas.height }
+        blob = await wait(canvasBlob(canvas), signal, 30000)
       } finally {
         canvas.width = canvas.height = 1
       }
     } else {
       const pages = pageSlices(height, await measureIntervals(layout.root, signal))
-      const pdf = new pdfModule.jsPDF({
-        orientation: "portrait",
-        unit: "mm",
-        format: "a4",
-        compress: true,
+      const login = article.body.ownerDocument.querySelector("[data-maintenance-login]")
+      const siteBase =
+        article.siteBase ||
+        (login
+          ? new URL("../", login.href).href
+          : new URL("./", article.body.ownerDocument.baseURI).href)
+      const result = await pdfModule.renderSelectablePDF({
+        root: layout.root,
+        pages,
+        title: article.title,
+        sourceUrl: article.sourceUrl,
+        includeSource,
+        signal,
+        onProgress,
+        mobile,
+        fontBaseUrl: new URL("maintenance-assets/article-pdf-fonts/", siteBase).href,
+        capturePage: (slice, scale, hidden) =>
+          capture(html2canvas, layout.root, slice, scale, signal, hidden),
       })
-      pdf.setProperties({
-        title: article.title || "未命名文章",
-        creator: "Howard Notes",
-        subject: "文章导出",
-      })
-      const sourceFooter = layout.root.querySelector(".article-export-source")
-      const footerRect = sourceFooter?.getBoundingClientRect()
-      const rootRect = layout.root.getBoundingClientRect()
-      for (let index = 0; index < pages.length; index++) {
-        check(signal)
-        onProgress(`生成 PDF ${index + 1}/${pages.length}`)
-        const canvas = await capture(
-          html2canvas,
-          layout.root,
-          pages[index],
-          mobile ? 1.35 : 1.65,
-          signal,
-        )
-        try {
-          if (index) pdf.addPage()
-          pdf.addImage(
-            canvas.toDataURL("image/jpeg", 0.93),
-            "JPEG",
-            PDF_MARGIN,
-            PDF_MARGIN,
-            PDF_WIDTH,
-            ((pages[index][1] - pages[index][0]) / EXPORT_WIDTH) * PDF_WIDTH,
-            undefined,
-            "FAST",
-          )
-          if (footerRect && includeSource) {
-            const [start, end] = pages[index]
-            const top = Math.max(start, footerRect.top - rootRect.top)
-            const bottom = Math.min(end, footerRect.bottom - rootRect.top)
-            if (bottom > top)
-              pdf.link(
-                PDF_MARGIN + ((footerRect.left - rootRect.left) / EXPORT_WIDTH) * PDF_WIDTH,
-                PDF_MARGIN + ((top - start) / EXPORT_WIDTH) * PDF_WIDTH,
-                (footerRect.width / EXPORT_WIDTH) * PDF_WIDTH,
-                ((bottom - top) / EXPORT_WIDTH) * PDF_WIDTH,
-                { url: sourceLink(article.sourceUrl) },
-              )
-          }
-        } finally {
-          canvas.width = canvas.height = 1
-        }
-        await yieldTurn(signal)
-      }
-      check(signal)
-      blob = pdf.output("blob")
+      blob = result.blob
+      warnings.push(...result.warnings)
     }
     check(signal)
     return {
@@ -659,6 +642,7 @@ export async function exportArticle({
       mime: format === "pdf" ? "application/pdf" : "image/png",
       extension: format,
       warnings: [...new Set(warnings)],
+      ...(dimensions ? { dimensions } : {}),
     }
   } finally {
     signal?.removeEventListener("abort", cleanup)

@@ -4,7 +4,9 @@ export const PDF_MARGIN = 12
 export const PDF_WIDTH = 210 - PDF_MARGIN * 2
 export const PDF_HEIGHT = 297 - PDF_MARGIN * 2
 export const PAGE_HEIGHT = (PDF_HEIGHT / PDF_WIDTH) * EXPORT_WIDTH
-const MIN_IMAGE_SCALE = 0.85
+export const MIN_IMAGE_SCALE = 1.5
+export const IMAGE_PIXEL_BUDGET = Object.freeze({ desktop: 48_000_000, mobile: 16_000_000 })
+export const IMAGE_SIDE_LIMIT = Object.freeze({ desktop: 32760, mobile: 16384 })
 
 export class ArticleExportError extends Error {
   constructor(message, code = "EXPORT_FAILED") {
@@ -13,23 +15,59 @@ export class ArticleExportError extends Error {
     this.code = code
   }
 }
-// A single PNG must fit in one browser canvas. PDF captures one page at a time.
-export function imageCaptureScale(height, { mobile = false, preferredScale = 1.5 } = {}) {
+// One RGBA canvas can consume 192 MB on desktop / 64 MB on mobile before
+// encoding. Keep a quality floor: a huge, blurry image is not a useful export.
+// These are conservative application budgets, not claimed browser limits.
+export function imageCapturePlan(
+  height,
+  { mobile = false, quality = "high", preferredScale } = {},
+) {
   if (!Number.isFinite(height) || height < 1)
     throw new ArticleExportError("文章没有可导出的内容", "EMPTY_ARTICLE")
-  const pixelBudget = mobile ? 12_000_000 : 24_000_000
-  const sideLimit = mobile ? 16384 : 32760
-  const scale = Math.min(
-    preferredScale,
-    Math.sqrt(pixelBudget / (EXPORT_WIDTH * height)),
-    sideLimit / height,
+  if (!["standard", "high"].includes(quality))
+    throw new ArticleExportError("请选择有效的长图清晰度", "INVALID_IMAGE_QUALITY")
+  const requestedScale = preferredScale ?? (quality === "standard" ? 2 : mobile ? 2.5 : 3)
+  if (!Number.isFinite(requestedScale) || requestedScale < MIN_IMAGE_SCALE)
+    throw new ArticleExportError("长图清晰度不能低于 1.5 倍", "INVALID_IMAGE_QUALITY")
+  const pixelBudget = mobile ? IMAGE_PIXEL_BUDGET.mobile : IMAGE_PIXEL_BUDGET.desktop
+  const sideLimit = mobile ? IMAGE_SIDE_LIMIT.mobile : IMAGE_SIDE_LIMIT.desktop
+  let scale =
+    Math.floor(
+      Math.min(
+        requestedScale,
+        Math.sqrt(pixelBudget / (EXPORT_WIDTH * height)),
+        sideLimit / height,
+        sideLimit / EXPORT_WIDTH,
+      ) * 100,
+    ) / 100
+  // Round actual bitmap dimensions upward when checking the budget. Fractional
+  // CSS heights must not allocate a canvas just above the promised memory cap.
+  while (
+    scale >= MIN_IMAGE_SCALE &&
+    (Math.ceil(EXPORT_WIDTH * scale) * Math.ceil(height * scale) > pixelBudget ||
+      Math.ceil(height * scale) > sideLimit ||
+      Math.ceil(EXPORT_WIDTH * scale) > sideLimit)
   )
+    scale = Math.round((scale - 0.01) * 100) / 100
   if (scale < MIN_IMAGE_SCALE)
     throw new ArticleExportError(
-      "文章太长，长图会超过浏览器安全限制，请改为导出 PDF",
+      "文章太长，无法在安全范围内生成清晰长图，请改为导出 PDF",
       "IMAGE_TOO_LONG",
     )
-  return Math.floor(scale * 100) / 100
+  return {
+    scale,
+    width: Math.ceil(EXPORT_WIDTH * scale),
+    height: Math.ceil(height * scale),
+    requestedScale,
+    reduced: scale < requestedScale,
+    pixelBudget,
+    sideLimit,
+  }
+}
+
+// Keep the original scalar interface for renderers using html2canvas.
+export function imageCaptureScale(height, options) {
+  return imageCapturePlan(height, options).scale
 }
 
 // `intervals` describe visible text lines, table rows and image bounds. Never

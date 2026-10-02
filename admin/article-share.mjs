@@ -160,7 +160,7 @@ export function openArticleShare({ button: trigger, siteBase }) {
   const formats = el("fieldset", "article-share-formats")
   formats.append(el("legend", "article-share-sr-only", "导出格式"))
   for (const [value, label, sub] of [
-    ["pdf", "PDF", "分页文档"],
+    ["pdf", "PDF", "可选中文本"],
     ["png", "长图", "PNG 图片"],
     ["md", "Markdown", "原始笔记"],
   ]) {
@@ -180,6 +180,23 @@ export function openArticleShare({ button: trigger, siteBase }) {
   include.type = "checkbox"
   include.id = "article-share-include-link"
   linkOption.append(include, el("span", "", "附上原文链接"))
+  const qualityOption = el("label", "article-share-quality")
+  qualityOption.append(el("span", "", "长图清晰度"))
+  const quality = el("select")
+  quality.setAttribute("aria-label", "长图清晰度")
+  for (const [value, text] of [
+    ["high", "高清"],
+    ["standard", "标准"],
+  ]) {
+    const option = el("option", "", text)
+    option.value = value
+    quality.append(option)
+  }
+  qualityOption.append(quality)
+  qualityOption.hidden = true
+  formats.addEventListener("change", () => {
+    qualityOption.hidden = formats.querySelector("input:checked").value !== "png"
+  })
   const generate = button(
     usesMobileShare() ? "生成分享文件" : "导出并下载",
     () => {
@@ -189,12 +206,13 @@ export function openArticleShare({ button: trigger, siteBase }) {
       }
       const format = formats.querySelector("input:checked").value
       const withLink = include.checked
+      const imageQuality = quality.value
       closeDialog()
-      startExport(context, format, withLink)
+      startExport(context, format, withLink, imageQuality)
     },
     "article-share-primary",
   )
-  panel.append(formats, linkOption, generate)
+  panel.append(formats, qualityOption, linkOption, generate)
   overlay.append(panel)
   document.body.append(overlay)
   const controller = new AbortController()
@@ -220,7 +238,9 @@ export function openArticleShare({ button: trigger, siteBase }) {
         event.preventDefault()
         closeDialog()
       } else if (event.key === "Tab") {
-        const controls = [...panel.querySelectorAll("button,input")].filter((n) => !n.disabled)
+        const controls = [...panel.querySelectorAll("button,input,select")].filter(
+          (n) => !n.disabled && n.getClientRects().length,
+        )
         const first = controls[0],
           last = controls.at(-1)
         if (event.shiftKey && document.activeElement === first) {
@@ -237,7 +257,7 @@ export function openArticleShare({ button: trigger, siteBase }) {
   close.focus()
 }
 
-function startExport(context, format, includeSource) {
+function startExport(context, format, includeSource, quality = "high") {
   cancelTask()
   const controller = new AbortController()
   const toast = el("section", "article-export-progress")
@@ -375,8 +395,14 @@ function startExport(context, format, includeSource) {
       const renderer = await import("./article-export-renderer.mjs")
       if (!valid()) return cancel()
       result = await renderer.exportArticle({
-        article: { title: context.title, body: context.body, sourceUrl: context.url },
+        article: {
+          title: context.title,
+          body: context.body,
+          sourceUrl: context.url,
+          siteBase: context.siteBase,
+        },
         format,
+        quality,
         mobile: usesMobileShare(),
         includeSource,
         signal: controller.signal,
@@ -387,9 +413,12 @@ function startExport(context, format, includeSource) {
     job.file = new File([result.blob], exportFilename(context.title, result.extension), {
       type: result.mime,
     })
-    job.warning = result.warnings?.length
-      ? `文件已生成；${result.warnings.join("；")}`
+    const completed = result.dimensions
+      ? `文件已生成（${result.dimensions.width} × ${result.dimensions.height}）`
       : "文件已生成"
+    job.warning = result.warnings?.length
+      ? `${completed}；${result.warnings.join("；")}`
+      : completed
     if (!usesMobileShare()) {
       if (result.warnings?.length) {
         progress(job.warning)
@@ -410,7 +439,7 @@ function startExport(context, format, includeSource) {
       controls.prepend(
         button(
           "改为 PDF",
-          () => startExport(context, "pdf", includeSource),
+          () => startExport(context, "pdf", includeSource, quality),
           "article-share-primary",
         ),
       )
