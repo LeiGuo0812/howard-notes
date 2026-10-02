@@ -68,7 +68,9 @@ async function github(fetcher, env, token, path) {
 }
 async function authorize(request, env, fetcher) {
   const token = /^Bearer ([^\s]+)$/.exec(request.headers.get("Authorization") || "")?.[1]
-  if (!token || token.length > 256) throw new HttpError("请先登录。", 401)
+  // GitHub may issue long integration credentials; cap at a header-sized
+  // bound rather than assuming personal-token length for Actions/App tokens.
+  if (!token || token.length > 8192) throw new HttpError("请先登录。", 401)
   const origin = request.headers.get("Origin")
   if (origin && origin !== new URL(request.url).origin && origin !== env.FALLBACK_ORIGIN)
     throw new HttpError("请求来源不正确。", 403)

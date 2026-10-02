@@ -259,7 +259,40 @@ test("automation authorization cannot populate owner cache or access private rou
 test("invalid bearer tokens are rejected before any verification or cache lookup", async (t) => {
   const f = fixture(t)
   assert.equal((await f.call()).status, 200)
-  for (const Authorization of ["", "Bearer", "Bearer two values", `Bearer ${"x".repeat(257)}`])
+  for (const Authorization of ["", "Bearer", "Bearer two values", `Bearer ${"x".repeat(8193)}`])
     assert.equal((await f.call({ Authorization })).status, 401)
   assert.equal(f.requests.length, 2)
+})
+
+test("ordinary long bearer tokens still require exact owner and repository permissions without leaking credentials", async (t) => {
+  for (const size of [300, 1024]) {
+    await t.test(`${size} bytes`, async (t) => {
+      const f = fixture(t)
+      const token = "fixture-long-" + "x".repeat(size - "fixture-long-".length)
+      const headers = { Authorization: `Bearer ${token}` }
+      f.users.set(token, 999)
+      const wrongOwner = await f.call(headers)
+      assert.equal(wrongOwner.status, 403)
+      assert.ok(!(await wrongOwner.text()).includes(token))
+      assert.equal(f.requests.length, 2)
+      f.users.set(token, 101)
+      f.permissions.set(repository, false)
+      const noPermission = await f.call(headers)
+      assert.equal(noPermission.status, 403)
+      assert.ok(!(await noPermission.text()).includes(token))
+      assert.equal(f.requests.length, 4)
+      f.permissions.set(repository, true)
+      const valid = await f.call(headers)
+      assert.equal(valid.status, 200)
+      assert.ok(!(await valid.text()).includes(token))
+      assert.equal(f.requests.length, 6)
+      assert.equal((await f.call(headers)).status, 200)
+      assert.equal(f.requests.length, 6)
+      assert.ok(
+        f.requests.every(
+          (request) => request.path === "/user" || request.path === `/repos/${repository}`,
+        ),
+      )
+    })
+  }
 })
