@@ -10,6 +10,7 @@ import {
   PAGE_HEIGHT,
   imageCapturePlan,
   pageSlices,
+  finalDocumentHeight,
 } from "./article-export-renderer-core.mjs"
 export {
   ArticleExportError,
@@ -481,7 +482,14 @@ async function measureIntervals(root, signal) {
   let node,
     count = 0
   while ((node = walker.nextNode())) {
-    if (!node.textContent.trim() || node.parentElement.closest("style, script")) continue
+    if (
+      !node.textContent.trim() ||
+      node.parentElement.closest("style, script, [hidden], [data-export-ignore]")
+    )
+      continue
+    const style = doc.defaultView.getComputedStyle(node.parentElement)
+    if (style.display === "none" || style.visibility !== "visible" || Number(style.opacity) === 0)
+      continue
     const range = doc.createRange()
     range.selectNodeContents(node)
     for (const rect of range.getClientRects())
@@ -495,33 +503,102 @@ async function measureIntervals(root, signal) {
   }
   return intervals
 }
+// Measure after all font loads and DOM preparation, including the PDF text
+// wrappers. Capture the final visible content, not a stale pre-wrap box height.
+async function measureExportLayout(root, signal) {
+  const intervals = await measureIntervals(root, signal)
+  check(signal)
+  const bounds = root.getBoundingClientRect()
+  const view = root.ownerDocument.defaultView
+  let contentBottom = intervals.reduce((bottom, [, end]) => Math.max(bottom, end), 0)
+  for (const node of root.querySelectorAll(
+    ".article-export-body, .article-export-source, img, table, pre, p, blockquote, .callout, .katex-display, .article-export-diagram, h1, h2, h3, h4, h5, h6",
+  )) {
+    if (node.closest("[hidden], [data-export-ignore]")) continue
+    const style = view.getComputedStyle(node)
+    if (style.display === "none" || style.visibility !== "visible" || Number(style.opacity) === 0)
+      continue
+    const rect = node.getBoundingClientRect()
+    if (rect.width > 0 && rect.height > 0)
+      contentBottom = Math.max(contentBottom, rect.bottom - bounds.top)
+  }
+  const height = finalDocumentHeight({
+    boxHeight: bounds.height,
+    scrollHeight: root.scrollHeight,
+    contentBottom,
+    paddingBottom: parseFloat(view.getComputedStyle(root).paddingBottom) || 0,
+  })
+  // The root intentionally clips horizontal overflow. Increase its actual
+  // reading board when a last line/formula extends below the layout box, so
+  // a taller canvas captures that content rather than only extra blank space.
+  root.style.setProperty("min-height", `${height}px`, "important")
+  return { height, intervals }
+}
+
 async function capture(html2canvas, root, [start, end], scale, signal, textNodesToHide = []) {
   check(signal)
-  const canvas = await html2canvas(root, {
-    backgroundColor: "#ffffff",
-    scale,
-    width: EXPORT_WIDTH,
-    height: Math.ceil(end - start),
-    x: 0,
-    y: start,
-    windowWidth: EXPORT_WIDTH,
-    windowHeight: 1800,
-    scrollX: 0,
-    scrollY: 0,
-    logging: false,
-    useCORS: true,
-    allowTaint: false,
-    imageTimeout: 8000,
-    removeContainer: true,
-    onclone: (doc, clone) => {
-      const hidden = new Set(textNodesToHide)
-      const scope = clone || doc
-      for (const span of scope.querySelectorAll("[data-export-text-id]")) {
-        if (hidden.has(span.dataset.exportTextId))
-          span.style.setProperty("opacity", "0", "important")
-      }
-    },
-  })
+  const faces = [...root.ownerDocument.fonts].filter(
+    (face) =>
+      face.status === "loaded" &&
+      ["Howard Export Sans", "Howard Export Typewriter"].includes(face.family),
+  )
+  // html2canvas also creates its text canvas/font metrics in the calling
+  // document. Keep raster fallback text on the same public fonts while this
+  // capture runs, and remove only faces added by this task afterwards.
+  const added = faces.filter((face) => !document.fonts.has(face))
+  for (const face of added) document.fonts.add(face)
+  const clearFonts = () => {
+    for (const face of added) document.fonts.delete(face)
+  }
+  // Removing the export iframe can leave html2canvas's own loading promise
+  // pending. Logout must release our host fonts without waiting for it.
+  signal?.addEventListener("abort", clearFonts, { once: true })
+  let canvas
+  try {
+    check(signal)
+    const pending = html2canvas(root, {
+      backgroundColor: "#ffffff",
+      scale,
+      width: EXPORT_WIDTH,
+      height: Math.ceil(end - start),
+      x: 0,
+      y: start,
+      windowWidth: EXPORT_WIDTH,
+      windowHeight: 1800,
+      scrollX: 0,
+      scrollY: 0,
+      logging: false,
+      useCORS: true,
+      allowTaint: false,
+      imageTimeout: 8000,
+      removeContainer: true,
+      onclone: async (doc, clone) => {
+        // FontFace objects added from public bytes are not CSS rules and are
+        // absent from html2canvas's cloned document. Share the loaded faces so
+        // hidden text occupies the same lines as the native PDF text layer.
+        // This reuses memory; no data URLs, private text or new font fetches.
+        for (const face of faces) doc.fonts.add(face)
+        await wait(doc.fonts.ready, signal, 6000)
+        check(signal)
+        const hidden = new Set(textNodesToHide)
+        const scope = clone || doc
+        for (const span of scope.querySelectorAll("[data-export-text-id]")) {
+          if (hidden.has(span.dataset.exportTextId))
+            span.style.setProperty("opacity", "0", "important")
+        }
+      },
+    })
+    pending.then(
+      (lateCanvas) => {
+        if (signal?.aborted) lateCanvas.width = lateCanvas.height = 1
+      },
+      () => {},
+    )
+    canvas = await wait(pending, signal, 120000)
+  } finally {
+    signal?.removeEventListener("abort", clearFonts)
+    clearFonts()
+  }
   if (signal?.aborted) {
     canvas.width = canvas.height = 1
     throw abortError()
@@ -600,9 +677,9 @@ export async function exportArticle({
       }
     }
     await yieldTurn(signal)
-    const height = Math.ceil(layout.root.getBoundingClientRect().height)
     let blob, dimensions
     if (format === "png") {
+      const { height } = await measureExportLayout(layout.root, signal)
       const plan = imageCapturePlan(height, { mobile, quality })
       onProgress(`生成长图（${plan.width} × ${plan.height}）`)
       const canvas = await capture(html2canvas, layout.root, [0, height], plan.scale, signal)
@@ -613,7 +690,6 @@ export async function exportArticle({
         canvas.width = canvas.height = 1
       }
     } else {
-      const pages = pageSlices(height, await measureIntervals(layout.root, signal))
       const login = article.body.ownerDocument.querySelector("[data-maintenance-login]")
       const siteBase =
         article.siteBase ||
@@ -622,7 +698,10 @@ export async function exportArticle({
           : new URL("./", article.body.ownerDocument.baseURI).href)
       const result = await pdfModule.renderSelectablePDF({
         root: layout.root,
-        pages,
+        measurePages: async (root) => {
+          const { height, intervals } = await measureExportLayout(root, signal)
+          return pageSlices(height, intervals)
+        },
         title: article.title,
         sourceUrl: article.sourceUrl,
         includeSource,

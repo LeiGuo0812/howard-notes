@@ -9,6 +9,7 @@ import {
   pdfColor,
   textPageIndex,
   glyphTransform,
+  pdfFontRole,
   PDF_POINT_PER_CSS_PIXEL,
   PDF_MARGIN_POINTS,
   PDF_PAGE_POINTS,
@@ -63,8 +64,33 @@ test("glyph placement maps measured CSS widths and baselines into A4 geometry", 
   assert.equal(transform.x, PDF_MARGIN_POINTS + 48 * PDF_POINT_PER_CSS_PIXEL)
   assert.equal(transform.y, PDF_PAGE_POINTS[1] - PDF_MARGIN_POINTS - 30 * PDF_POINT_PER_CSS_PIXEL)
   assert.equal(transform.size, 20 * PDF_POINT_PER_CSS_PIXEL)
-  assert.equal(transform.horizontal, 2 * PDF_POINT_PER_CSS_PIXEL)
+  assert.equal(transform.horizontal, 1)
   assert.equal(transform.italic, 0.18)
+})
+
+test("native glyph outlines retain their proportions for narrow and wide Latin letters", () => {
+  for (const [text, naturalWidth, measuredWidth] of [
+    ["i", 2, 8],
+    ["m", 11, 8],
+    ["中", 14, 17],
+  ]) {
+    const transform = glyphTransform(
+      { text, fontSize: 14, left: 48, baseline: 100, width: measuredWidth },
+      naturalWidth,
+    )
+    assert.equal(transform.horizontal, 1)
+  }
+})
+
+test("monospace code uses matching ASCII glyphs while CJK and explicit bold use Noto", () => {
+  const characters = new Set(Array.from("im .()123").map((character) => character.codePointAt(0)))
+  const options = { code: true, weight: 400, monospaceCharacters: characters }
+  assert.equal(pdfFontRole("i", options), "mono")
+  assert.equal(pdfFontRole("m", options), "mono")
+  assert.equal(pdfFontRole("中", options), "regular")
+  assert.equal(pdfFontRole("α", options), "regular")
+  assert.equal(pdfFontRole("i", { ...options, weight: 700 }), "bold")
+  assert.equal(pdfFontRole("i", { ...options, code: false }), "regular")
 })
 
 test("CID subset preserves header offSize and maps repeated font dictionaries correctly", () => {
@@ -136,4 +162,33 @@ test("actual Noto CJK subsets embed legal CFF headers and Unicode text maps", as
     ).decode()
     assert.match(new TextDecoder().decode(unicode), /4E2D/i)
   }
+})
+
+test("the actual code font keeps i/m in equal cells and embeds a valid TrueType subset", async () => {
+  const bytes = await readFile(
+    new URL("../node_modules/katex/dist/fonts/KaTeX_Typewriter-Regular.ttf", import.meta.url),
+  )
+  const pdf = await PDFDocument.create()
+  pdf.registerFontkit(pdfFontkit)
+  const font = await pdf.embedFont(bytes, {
+    subset: true,
+    customName: "TESTCD+KaTeX-Typewriter-Regular",
+  })
+  assert.equal(font.widthOfTextAtSize("i", 14), font.widthOfTextAtSize("m", 14))
+  assert.ok(font.getCharacterSet().includes("i".codePointAt(0)))
+  assert.ok(!font.getCharacterSet().includes("中".codePointAt(0)))
+  pdf.addPage().drawText('iimmm return print("Howard")', { font, size: 14 })
+  const saved = await pdf.save()
+  const loaded = await PDFDocument.load(saved)
+  const fonts = loaded.getPages()[0].node.Resources().lookup(PDFName.of("Font"), PDFDict)
+  const dictionary = loaded.context.lookup(fonts.entries()[0][1], PDFDict)
+  const descendants = dictionary.lookup(PDFName.of("DescendantFonts"))
+  const descriptor = loaded.context
+    .lookup(descendants.get(0), PDFDict)
+    .lookup(PDFName.of("FontDescriptor"), PDFDict)
+  const program = decodePDFRawStream(
+    descriptor.lookup(PDFName.of("FontFile2"), PDFRawStream),
+  ).decode()
+  const signature = Array.from(program.slice(0, 4)).join(",")
+  assert.ok(["0,1,0,0", "116,114,117,101"].includes(signature))
 })

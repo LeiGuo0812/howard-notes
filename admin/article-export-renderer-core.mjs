@@ -70,6 +70,25 @@ export function imageCaptureScale(height, options) {
   return imageCapturePlan(height, options).scale
 }
 
+// Include visible overflow in the final capture height. A layout box alone can
+// be shorter than the last code/formula line; keep the reading bottom padding
+// after that content as well. Values are relative to the export root.
+export function finalDocumentHeight({
+  boxHeight = 0,
+  scrollHeight = 0,
+  contentBottom = 0,
+  paddingBottom = 0,
+} = {}) {
+  const finite = (value) => (Number.isFinite(value) && value > 0 ? value : 0)
+  return Math.ceil(
+    Math.max(
+      finite(boxHeight),
+      finite(scrollHeight),
+      finite(contentBottom) + finite(paddingBottom),
+    ),
+  )
+}
+
 // `intervals` describe visible text lines, table rows and image bounds. Never
 // cut through one unless it is itself taller than a complete page.
 export function pageSlices(height, intervals = [], pageHeight = PAGE_HEIGHT) {
@@ -80,7 +99,7 @@ export function pageSlices(height, intervals = [], pageHeight = PAGE_HEIGHT) {
     .sort((a, b) => a[0] - b[0])
   const pages = []
   let start = 0
-  while (start < height - 0.5) {
+  while (start < height) {
     let end = Math.min(height, start + pageHeight)
     if (end < height) {
       // Moving backward can enter the previous line/row, so repeat until safe.
@@ -96,7 +115,7 @@ export function pageSlices(height, intervals = [], pageHeight = PAGE_HEIGHT) {
         }
       }
     }
-    end = Math.max(start + 1, end)
+    end = Math.min(height, Math.max(start + 1, end))
     pages.push([start, end])
     if (pages.length > MAX_PDF_PAGES)
       throw new ArticleExportError(

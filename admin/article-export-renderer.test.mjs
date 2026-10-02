@@ -10,6 +10,7 @@ import {
   pageSlices,
   ArticleExportError,
   MAX_PDF_PAGES,
+  finalDocumentHeight,
 } from "./article-export-renderer-core.mjs"
 
 test("high quality images default to 2700px desktop and 2250px mobile widths", () => {
@@ -134,4 +135,58 @@ test("PDF page count is bounded and invalid intervals are ignored", () => {
     () => pageSlices((MAX_PDF_PAGES + 1) * 1000, [], 1000),
     (error) => error.code === "PDF_TOO_LONG",
   )
+})
+
+test("final capture keeps overflowing last lines and bottom reading padding", () => {
+  assert.equal(
+    finalDocumentHeight({
+      boxHeight: 6400.2,
+      scrollHeight: 6480,
+      contentBottom: 6503.75,
+      paddingBottom: 44,
+    }),
+    6548,
+  )
+  assert.equal(
+    finalDocumentHeight({
+      boxHeight: 800,
+      scrollHeight: 799,
+      contentBottom: 740,
+      paddingBottom: 44,
+    }),
+    800,
+  )
+})
+
+test("fractional final page fragments are covered instead of silently dropped", () => {
+  const pages = pageSlices(2000.2, [], 1000)
+  assert.deepEqual(pages, [
+    [0, 1000],
+    [1000, 2000],
+    [2000, 2000.2],
+  ])
+  assert.equal(pages.at(-1)[1], 2000.2)
+})
+
+test("a long code block retains its final measured line across many pages", () => {
+  const codeLines = Array.from({ length: 290 }, (_, index) => [
+    180 + index * 23.8,
+    198 + index * 23.8,
+  ])
+  const finalLine = codeLines.at(-1)
+  const height = finalDocumentHeight({
+    boxHeight: 6200,
+    scrollHeight: 6200,
+    contentBottom: finalLine[1],
+    paddingBottom: 44,
+  })
+  const pages = pageSlices(height, codeLines, 1000)
+  assert.ok(pages.length > 5)
+  assert.equal(pages.at(-1)[1], height)
+  assert.ok(
+    pages.some(([start, end]) => finalLine[0] >= start && finalLine[1] < end),
+    "last code line must be wholly represented on a final page",
+  )
+  for (let index = 1; index < pages.length; index++)
+    assert.equal(pages[index - 1][1], pages[index][0])
 })

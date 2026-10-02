@@ -22,15 +22,25 @@
 
 勾选来源时，PDF 末尾会显示可点击的原文链接；未勾选时不增加来源页脚或来源链接标注；正文原有安全链接保持可点击，网页生成的标题锚点控件不导出。PNG 仅显示来源文字，Markdown 仅在原文末尾追加来源。
 
-PDF 从导出 iframe 的浏览器布局读取实际文本位置、字号、颜色、粗细和倾斜，把可支持的正文绘制为可见的 PDF 文本；不是在整页截图上再盖一层透明的 OCR 文本。代码底色、表格边框、引用底板、链接外观、图片和图表由同一 CSS 排版的高清背景保留，文字捕获时隐藏对应文本，避免重影。PDF 保存的是排版结果，不是在文件内保存可重新运行的 CSS。中文字体使用同源自托管的 Noto Sans SC Regular/Bold 并按实际字形子集嵌入；字体家族统一用于可靠的中文复制，字号、颜色、粗细和页面几何按浏览器结果还原。少数字体不支持的字符、竖排或从右到左的文本仍以图形保留并明确警告，不能宣称所有图形内部文字均可选择。
+PDF 的正文相对链接按原文章 URL 解析；仅保留安全的 HTTP、HTTPS 或 mailto 地址，拒绝含凭据、控制字符或危险协议的链接。临时 iframe 的 `about:blank` 不作为正文链接基址。
+
+PDF 从导出 iframe 的浏览器布局读取实际文本位置、字号、颜色、粗细和倾斜，把可支持的正文绘制为可见的 PDF 文本；不是在整页截图上再盖一层透明的 OCR 文本。代码底色、表格边框、引用底板、链接外观、图片和图表由同一 CSS 排版的高清背景保留，文字捕获时隐藏对应文本，避免重影。PDF 保存的是排版结果，不是在文件内保存可重新运行的 CSS。
+
+PDF 排版和嵌入使用同一份字体字节：Noto Sans SC Regular/Bold 负责普通正文、中文与显式加粗；常规代码中的 ASCII 使用复用的 KaTeX Typewriter 等宽字体，中文和其他代码符号回落到 Noto，显式加粗的代码片段在浏览器排版时同样改用 Noto Bold。字体先通过 `FontFace(ArrayBuffer)` 加入临时导出文档，再测量文字；PDF 按自然字形比例绘制，不把比例字体的 `i`、`m` 等字符逐个水平拉伸成等宽单元，避免笔画粗细不一致。字体按实际字形子集嵌入，字号、颜色、粗细和位置来自最终浏览器排版。少数字体不支持的字符、竖排或从右到左的文本仍以图形保留并明确警告，不能宣称所有图形内部文字均可选择。
 
 PDF 分页优先避开文字行、表格行和单幅图形。超出一页高度的内容仍可能分段；并非任意复杂文档的出版排版器。代码和长链接适配导出宽度，导出不包含导航栏、维护工具、目录、图表工具栏或隐藏的 Mermaid 源码。浅色导出底板和节点配色保持打印可读，不把深色页面截成低对比内容。
+
+导出先完成字体加载与全部文字包装，再测量最终高度、文字行和分页；不会复用包装前的页面区间。纯换行及其他纯空白 `TextNode` 保持原结构，不包装成新的行元素；包装正文的 span 明确使用普通 inline，代码容器在导出时使用 `display: block`，避免 Shiki 的 grid 布局把换行包装算成额外行。最终高度同时覆盖布局框、滚动高度与实际可见内容底部，阅读底板随之扩展。任何原生文字找不到对应页时显式报错停止导出，不先隐藏整段后静默丢失末尾内容。网页自动生成的代码行号和包装 span 的伪元素不导出；原文手写的数字、编号与代码内容保留。
+
+html2canvas 的克隆文档和调用宿主都短暂复用已加载的公共 `FontFace`，使背景、代码底板与回退图形仍按同一字体布局。捕获结束或失败后移除本次加入宿主的字体，临时克隆与导出 iframe 随任务清理；不把文字改成 data URL，不上传正文，也不依靠额外的外部字体请求修正背景。字体共享只涉及公共字体字节，不包含文章内容或认证信息。
 
 图片通过匿名 CORS 加载和画布规范化，未携带维护者令牌。网页能显示一张外链图片，不代表该源站允许跨域画布读取；防盗链、过期签名、网络失败、浏览器资源限制及过大原图也可能导致无法导出。失败时保留可见占位和具体提示，不建立绕过源站权限的代理。已有私密 Blob 图片从当前已授权阅读态处理，不上传生成文档或私密内容到第三方服务。
 
 PNG 保持 900px 的 CSS 阅读布局，高清短文章桌面成品宽 2700px、手机宽 2250px；标准成品宽 1800px。长文章按实际高度计算安全捕获倍率，实际像素尺寸在左下角进度及待分享成品中显示。超过预算时只可下调到 1.5×；达不到这个清晰度就报错并提供改为 PDF 的入口，不静默生成低于阅读布局分辨率的模糊长图。提升导出倍率不能补回原始图片本身缺失的细节。
 
 PNG 的像素预算是降低内存风险的上限，不保证每部手机一定能处理接近上限的图片；特别长的文章优先使用 PDF 或 Markdown。html2canvas 的单次画布捕获仍可能短时占用主线程，不能把异步进度显示描述成完整的后台线程渲染。
+
+PDF 图形背景捕获倍率为桌面 2×、手机 1.5×，普通正文仍为原生文字。单张原始图片超过 32,000,000 像素时保留占位并提示；规范化图片高度最多 4096px。Markdown 文本分享回退还要求 `text.length ≤ 100000` 和系统文本分享接口可用，更长内容使用文件分享或明确下载。
 
 ## 模块与构建
 
@@ -41,15 +51,19 @@ PNG 的像素预算是降低内存风险的上限，不保证每部手机一定�
 | `admin/article-share-loader.mjs`                                   | 一次事件委托，点击才加载共享组件，页面离开取消旧打开意图 |
 | `admin/article-share.mjs`、`article-share.css`                     | 格式弹窗、默认来源选项、进度、生成/分享/下载与取消       |
 | `admin/article-share-core.mjs`                                     | 文件名、来源链接、原文 UTF-8、设备判断、原生分享和下载   |
-| `admin/article-export-renderer.mjs`、`article-export-renderer.css` | 临时导出排版、图片/图形处理、分页和画布生成              |
+| `admin/article-export-renderer.mjs`、`article-export-renderer.css` | 最终导出高度与分页、图片/图形、字体一致的背景捕获和清理  |
 | `admin/article-export-renderer-core.mjs`                           | 分页区间、PNG 清晰度方案、实际像素预算和页数上限         |
-| `admin/article-export-pdf.mjs`、`article-export-pdf-core.mjs`      | 浏览器文本几何、字体子集、可见文本绘制与 PDF 链接        |
+| `admin/article-export-pdf.mjs`、`article-export-pdf-core.mjs`      | 同字节字体排版、最终文本几何、无拉伸绘制与完整分页检查   |
 | `admin/article-export-pdf-fontkit.mjs`                             | 固定版本 CFF 子集编码兼容适配，保留中文字体字典映射      |
 | `admin/private-notes.mjs`                                          | 当前认证阅读原文提供者和注销/离篇取消                    |
 | `content-service/worker.mjs`                                       | 当前公开原文的单篇只读接口                               |
 | `scripts/build-article-share.mjs`                                  | 稳定同源入口、内容哈希模块及按需分块                     |
 
-`maintenance-assets/article-share.js` 转出带内容哈希的主组件。PDF/PNG 渲染模块以及 html2canvas 1.4.1 按实际格式继续懒加载；PDF 另加载 pdf-lib 1.17.1、@pdf-lib/fontkit 1.1.1，原 jsPDF 依赖已移除。两个同源 Noto Sans SC OTF 字体约 8.33MB/8.54MB，仅在导出 PDF 时按需获取并使用浏览器公共静态缓存复用，生成文件只嵌入使用的字形子集。字体来源及 SHA-256 见 `assets/article-pdf-fonts/provenance.json`，构建核验字节与校验值，发布原字体和 OFL 许可。固定版本 fontkit 的 CFF offSize 与 CID FDSelect 编码缺陷在独立适配器中修正，保持重复使用的字体字典映射，依赖源码与原字体不改。字体资源不包含文章或认证信息；读取、Markdown 或 PNG 不加载 PDF 库及这两个字体。不引入第二套前端框架或分享后端。
+`maintenance-assets/article-share.js` 转出带内容哈希的主组件。PDF/PNG 渲染模块以及 html2canvas 1.4.1 按实际格式继续懒加载；PDF 另加载 pdf-lib 1.17.1、@pdf-lib/fontkit 1.1.1，原 jsPDF 依赖已移除。两个同源 Noto Sans SC OTF 字体约 8.33MB/8.54MB，加上 27,556 字节的 Typewriter TTF，仅在导出 PDF 时按需获取并使用浏览器公共静态缓存复用，生成文件只嵌入使用的字形子集。Noto 字体来源及 SHA-256 见 `assets/article-pdf-fonts/provenance.json`，构建核验字节与校验值，发布原字体和 OFL 许可。固定版本 fontkit 的 CFF offSize 与 CID FDSelect 编码缺陷在独立适配器中修正，保持重复使用的字体字典映射，依赖源码与原字体不改。字体资源不包含文章或认证信息；读取、Markdown 或 PNG 不加载 PDF 库及这些 PDF 字体。不引入第二套前端框架或分享后端。
+
+原字体来自 `notofonts/noto-cjk` 固定提交 `f8d157532fbfaeda587e826d4cd5b21a49186f7c` 的 `Sans/SubsetOTF/SC`，采用 SIL Open Font License 1.1。构建发布 `LICENSE.txt` 和 `provenance.json`，字体说明 Markdown 留在源码内。字体读取限定同源 HTTP(S)，使用 `credentials: omit`、`redirect: error` 和无 referrer，不携带维护者凭据。升级固定 fontkit 1.1.1 时须重新验证 offSize、重复字典 FDSelect 映射、真实 Regular/Bold 子集、Unicode 映射及独立 PDF 渲染；只有文本能提取而中文渲染成方框仍不合格。
+
+等宽代码字体复用锁定的 KaTeX 0.18.9 包内 `KaTeX_Typewriter-Regular.ttf`，原文件 27,556 字节，SHA-256 为 `f01f3e87d9c6a61c0c081ceb577abd864eb00a612f7ac1620dd6915fad2ef5aa`，构建同时核验版本、长度和校验值。KaTeX 包的 JavaScript 使用 MIT 许可，这份字体本身采用 SIL Open Font License 1.1，不能把字体许可写成 MIT。发布目录分别保留 `KaTeX-LICENSE.txt`、带原版权和保留字体名称的 `KaTeX-Typewriter-LICENSE.txt`，以及 `code-font-provenance.json`。升级包或替换字体时须核对许可、字符覆盖、等宽宽度、浏览器与 PDF 字形一致性和真实 TrueType 子集输出。
 
 管理和主站维护 manifest 的版本包含 `articleShareEntry`。构建仍执行现有流水线，先部署包含前一套哈希资源的 Static Assets，再同步 D1 页面壳。只部署新按钮而不部署分享入口及分块会导致点击后失败。GitHub Pages 备用站同样提供前端组件，公开原文从受信任的主站内容服务读取，沿用既有 CORS。
 
@@ -57,20 +71,30 @@ PNG 的像素预算是降低内存风险的上限，不保证每部手机一定�
 
 公开 Markdown 使用 `GET/HEAD api/content/source/<ID>`，返回 `{ id, source, sourceSha, revision, commit }`。ID 必须通过既有白名单；仅查询当前公开 revision 的 `public_documents`，不读取合并了私密稿的维护 snapshot、认证 personal 表或全库 snapshot。私密、草稿、缺失和非法 ID 均为 404；撤下后的历史 revision 不可通过此端点取得。ETag 与当前 revision 对齐，支持 HEAD 和 304，响应使用 `no-cache`。主站旧阅读页与返回的公开 revision 不一致时拒绝导出 Markdown，提示刷新，避免把新原文与旧正文混为一个版本。
 
+数据库原文取自该行 `body` JSON 的 `source` 字段；`public_documents` 没有独立的 `source` 列。
+
 私密阅读通过同步 `howard-article-export-request` 请求/回复桥提供当前 `note.raw`、已渲染正文、标题、链接、`AbortSignal` 和 `isCurrent()`。提供者检查 root、文章 ID、认证身份和阅读 epoch，不泄露 token，不为分享再次拉取原文。无需全局原文缓存、localStorage、IndexedDB、服务器生成或文件上传。
 
 任务在生成前后以及分享/下载点击时验证当前文章。关闭任务、离开页面、私密返回列表、注销、身份过期或当前阅读态改变时中止并移除弹窗、提示、捕获 iframe 和临时 URL；清空文件与文本引用。旧响应或分离的按钮不得继续分享、下载或复活界面。已经交给操作系统的分享不能由网页收回；用户显式导出私密文章也不会使服务器中的文章转为公开。
 
+取消后立即清理当前任务和私密引用，并阻止后续生成、分享、下载。公共字体使用独立超时和共享 Promise 缓存，请求可能继续完成供下一次导出复用，不包含正文或认证信息。html2canvas 没有强制中断接口，已经开始的捕获可能短时继续；取消不等于立即停止全部计算和网络。
+
 ## 检查与已执行验证
 
-运行现有 `npm run check`、`npm run test:publish`、`npm test -- --test-concurrency=1`、`npm run build:cloudflare`、`npm run verify:site`，并包含 `admin/article-share-core.test.mjs`、`admin/article-export-renderer.test.mjs`、`admin/article-export-pdf.test.mjs` 和 `content-service/worker.test.mjs`。2026-10-02 可选择文本 PDF 升级后完整套件 769 项通过，发布套件 555 项 Node 测试和 59 项 tsx 测试通过；这些套件存在重叠，不能相加。类型/格式、Cloudflare 构建与 301 个 HTML 页面、173 篇公开文章的站点验证通过。最终部署证据记录在独立复现指南中。
+运行现有 `npm run check`、`npm run test:publish`、`npm test -- --test-concurrency=1`、`npm run build:cloudflare`、`npm run verify:site`，并包含 `admin/article-share-core.test.mjs`、`admin/article-export-renderer.test.mjs`、`admin/article-export-pdf.test.mjs` 和 `content-service/worker.test.mjs`。2026-10-02 本次字体与末尾内容修复后，定向套件 29 项、完整套件 775 项、发布套件 561 项 Node 测试及 59 项 tsx 测试通过；这些套件存在重叠，不能相加。此前可选择文本 PDF 升级阶段已完成类型/格式、Cloudflare 构建与 301 个 HTML 页面、173 篇公开文章的站点验证。最新资源的最终视觉复核与线上发布结果另行记录，不能把早期验证当作最新部署证明。
+
+本次早期本地浏览器已用用户指定的公开文章复现旧问题：包装换行节点使长代码布局增长，但旧分页没有随之更新，末尾内容被隐藏后遗漏。修复后确认文章尾部代码中的 35 个非空行全部保留，完整复用提示词只出现一次；普通文本仍可提取。代码字形测试确认窄字符 `i` 与宽字符 `m` 使用真实等宽字体且不拉伸，Noto 和 Typewriter 的真实子集、Unicode 映射、缺字回退与越页失败路径纳入回归。html2canvas 字体共享和自动行号清理后的最新视觉复核由最终验证流程继续完成；此处不宣称未执行的最终浏览器检查或线上发布。
 
 单篇公开接口已实测匿名读取、精确原文 UTF-8、私密/草稿拒绝、ETag/HEAD、原子 revision 切换及撤下历史不可读。
 
 私密界面已在 Chromium 通过合成 getAccess/API、真实私密编译 Worker 和真实分享组件验证：桌面 Markdown 两次下载分别验证默认精确字节及勾选链接后原文字节前缀不变；未请求公开 source，也未重复获取当前原文。390px 手机模拟验证文件在内存准备、原生分享参数、默认无 URL、系统取消不自动下载。注销时选择弹窗、待分享文件以及进行中的 PNG 捕获 iframe 均同步清理；旧分离按钮、晚到资源、私密返回列表及 Quartz `prenav` 不继续下载或恢复界面。测试只使用合成内容，未执行生产写入。
 
-本次实际浏览器生成三页 A4 文本 PDF，并用独立 Poppler 工具检查：Regular/Bold 字体均为嵌入子集且带 Unicode 映射，中文、英文、代码、表格可提取，渲染无字体警告。合成跨页测试的 38 段文字均出现一次，文本包裹前后文章高度一致；实际查看首页与末页的标题、引用、代码底色和表格边框。真实公开文章的 Mermaid 图形保持完整，既有失效图片以占位和明确提示处理。默认不新增原文来源，勾选后新增可点击来源注释。
+此前可选择文本 PDF 升级的私密合成验收含 20 项既有检查和 14 项新增 PDF 检查，共 34 项通过，零页面脚本错误。实际生成 116,172 字节 PDF，独立 Poppler 能提取中文正文，Regular/Bold 均为嵌入子集 Unicode 字体；默认无来源文字或来源链接注释。字体加载中注销及返回私密列表均即时清理任务、iframe 和正文，晚到资源不产生下载。字体请求仅同源、无认证信息，正文无上传，也未访问公开 source。测试只用合成内容，未读取真实私密全文或执行生产写入。
 
-同一公开文章桌面高清 PNG 实测 2700×9543，标准 1800×6362；390px 手机仿真高清为 2124×7507（15.94MP），随长文高度从目标 2.5×降至预算内约 2.36×。24 项手机交互检查通过：真实 PDF/PNG File 对象、有效用户点击、生成及系统取消不自动下载、来源默认关闭、显式下载回退，0 页面脚本错误。字体首次只在 PDF 请求，随后复用公共缓存；PNG 不请求 PDF 字体。最终部署证据见独立复现指南。
+初版可选择文本 PDF 的实际浏览器测试生成三页 A4 文本 PDF，并用独立 Poppler 工具检查：Regular/Bold 字体均为嵌入子集且带 Unicode 映射，中文、英文、代码、表格可提取，渲染无字体警告。合成跨页测试的 38 段文字均出现一次，文本包裹前后文章高度一致；实际查看首页与末页的标题、引用、代码底色和表格边框。真实公开文章的 Mermaid 图形保持完整，既有失效图片以占位和明确提示处理。默认不新增原文来源，勾选后新增可点击来源注释。该合成样例未覆盖后来在长代码 grid 中发现的换行包装问题，不能替代本次回归。
+
+此前发布版的公开文章桌面高清 PNG 实测 2700×9543，标准 1800×6362；390px 手机仿真高清为 2124×7507（15.94MP），随长文高度从目标 2.5×降至预算内约 2.36×。24 项手机交互检查通过：真实 PDF/PNG File 对象、有效用户点击、生成及系统取消不自动下载、来源默认关闭、显式下载回退，0 页面脚本错误。字体首次只在 PDF 请求，随后复用公共缓存；PNG 不请求 PDF 字体。最终部署证据见独立复现指南。
+
+本轮最后构建与检查使用修复后的捕获清理逻辑：`npm run check`、775 项完整测试、Cloudflare 构建及 301 个 HTML / 173 篇公开文章验证通过。实际下载用户报告文章的五页 PDF，用 Poppler 核对末尾 35 行非空提示词无遗漏、完整段落恰好一次；三个字体均为嵌入子集并有 Unicode 映射。实际查看首页及末页，代码底板与文本对齐，无额外自动行号。桌面高清 PNG 为 2700×17133，查看末尾内容完整；Markdown 16835 字节与线上源文件完全相同，PNG/Markdown 不请求 PDF 字体。390px 模拟通过 24 项交互检查，高清长图为 1584×10051（15.92MP），实际 PDF 的完整末段也恰好一次。实体手机的系统分享目标仍未验收。
 
 截图和导出测试文件位于本机 `<PROJECT_DIR>/output/playwright/`，不发布为站点文章。本轮浏览器模拟不能替代实体 Android Chrome、iOS Safari 或实际分享目标验收；应在真实设备检查 PDF、PNG 和 Markdown 的 `canShare`、目标应用接收和系统取消行为。

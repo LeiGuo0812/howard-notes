@@ -23,10 +23,16 @@ import {
   supportedTextChunks,
   pdfColor,
   textPageIndex,
+  pdfFontRole,
   glyphTransform,
 } from "./article-export-pdf-core.mjs"
 
-const FONT_FILES = Object.freeze({ regular: "NotoSansSC-Regular.otf", bold: "NotoSansSC-Bold.otf" })
+const FONT_FILES = Object.freeze({
+  regular: "NotoSansSC-Regular.otf",
+  bold: "NotoSansSC-Bold.otf",
+  mono: "KaTeX_Typewriter-Regular.ttf",
+})
+const FONT_FAMILY = Object.freeze({ sans: "Howard Export Sans", mono: "Howard Export Typewriter" })
 const fontBytesCache = new Map()
 const TEXT_ATTRIBUTE = "data-export-text-id"
 const NON_TEXT =
@@ -113,18 +119,61 @@ function visibleStyle(span, view) {
     direction: style.direction,
   }
 }
-function baselineMetrics(style, context, cache) {
+function baselineMetrics(style, context, cache, kind = "regular") {
   const font = `${style.fontStyle} ${style.fontWeight} ${style.fontSize}px ${style.fontFamily}`
-  if (!cache.has(font)) {
+  const key = `${font}|${kind}`
+  if (!cache.has(key)) {
     context.font = font
-    const metrics = context.measureText("Hg中")
+    // A monospace ASCII glyph's font box can differ from the CJK fallback's.
+    // Measure the actual selected face, not the union of both font boxes.
+    const metrics = context.measureText(kind === "mono" ? "Hg" : "中")
     const ascent =
       metrics.fontBoundingBoxAscent || metrics.actualBoundingBoxAscent || style.fontSize * 0.85
     const descent =
       metrics.fontBoundingBoxDescent ?? metrics.actualBoundingBoxDescent ?? style.fontSize * 0.2
-    cache.set(font, { ascent, descent })
+    cache.set(key, { ascent, descent })
   }
-  return cache.get(font)
+  return cache.get(key)
+}
+
+async function prepareFontLayout(root, bytes, signal) {
+  check(signal)
+  const doc = root.ownerDocument
+  const view = doc.defaultView
+  const specifications = [
+    [FONT_FAMILY.sans, bytes.regular, "400"],
+    [FONT_FAMILY.sans, bytes.bold, "700"],
+    [FONT_FAMILY.mono, bytes.mono, "400"],
+  ]
+  for (const [family, buffer, weight] of specifications) {
+    const face = new view.FontFace(family, buffer, {
+      weight,
+      style: "normal",
+      // Match the PDF's font selection exactly: ASCII is monospace; CJK and
+      // other code symbols use Noto even if Typewriter contains that symbol.
+      ...(family === FONT_FAMILY.mono ? { unicodeRange: "U+0020-007E" } : {}),
+    })
+    await waitFor(face.load(), signal)
+    check(signal)
+    doc.fonts.add(face)
+  }
+  root.style.setProperty("--bodyFont", `"${FONT_FAMILY.sans}"`)
+  root.style.setProperty("--headerFont", `"${FONT_FAMILY.sans}"`)
+  root.style.setProperty("--codeFont", `"${FONT_FAMILY.mono}", "${FONT_FAMILY.sans}"`)
+  for (const node of [root, ...root.querySelectorAll("*")]) {
+    if (node.closest(NON_TEXT)) continue
+    const weight = Number.parseFloat(view.getComputedStyle(node).fontWeight) || 400
+    const code = !!node.closest("pre, code")
+    const family =
+      code && weight < 600
+        ? `"${FONT_FAMILY.mono}", "${FONT_FAMILY.sans}"`
+        : `"${FONT_FAMILY.sans}"`
+    node.style.setProperty("font-family", family, "important")
+    node.style.setProperty("font-kerning", "none", "important")
+    node.style.setProperty("font-variant-ligatures", "none", "important")
+  }
+  await waitFor(doc.fonts.ready, signal)
+  await yieldTurn(signal)
 }
 
 /**
@@ -132,7 +181,14 @@ function baselineMetrics(style, context, cache) {
  * A fragment with unsupported glyphs remains in the background snapshot.
  * Returned IDs are the only nodes the screenshot callback may hide.
  */
-export async function collectTextRuns(root, signal, { supportsText = () => true } = {}) {
+export async function collectTextRuns(
+  root,
+  signal,
+  {
+    supportsText = () => true,
+    fontForText = (_, style) => (style.fontWeight >= 600 ? "bold" : "regular"),
+  } = {},
+) {
   check(signal)
   const doc = root.ownerDocument
   const view = doc.defaultView
@@ -140,7 +196,8 @@ export async function collectTextRuns(root, signal, { supportsText = () => true 
   const nodes = []
   let node
   while ((node = walker.nextNode())) {
-    if (!node.textContent || !node.parentElement || node.parentElement.closest(NON_TEXT)) continue
+    if (!node.textContent.trim() || !node.parentElement || node.parentElement.closest(NON_TEXT))
+      continue
     nodes.push(node)
   }
   const context = doc.createElement("canvas").getContext("2d")
@@ -148,12 +205,12 @@ export async function collectTextRuns(root, signal, { supportsText = () => true 
   const hiddenIds = []
   const runs = []
   const warnings = []
+  const candidates = []
   let serial = 0
   for (let index = 0; index < nodes.length; index++) {
     check(signal)
     const node = nodes[index]
     const fragment = doc.createDocumentFragment()
-    const candidates = []
     for (const chunk of supportedTextChunks(node.textContent, supportsText)) {
       if (!chunk.supported) {
         fragment.append(doc.createTextNode(chunk.text))
@@ -162,59 +219,81 @@ export async function collectTextRuns(root, signal, { supportsText = () => true 
       }
       const span = doc.createElement("span")
       span.setAttribute(TEXT_ATTRIBUTE, `pdf-text-${serial++}`)
-      // No class, inline font or display override: inherit the original style.
+      // Quartz treats a direct code > span as a line block. An inserted
+      // newline text wrapper must stay a plain inline text fragment instead.
+      // Keep the parent code/strong/link's background and styling untouched.
+      for (const [property, value] of [
+        ["display", "inline"],
+        ["margin", "0"],
+        ["padding", "0"],
+        ["border", "0"],
+        ["background", "none"],
+        ["border-radius", "0"],
+        ["font-family", "inherit"],
+        ["font-size", "inherit"],
+        ["font-weight", "inherit"],
+        ["font-style", "inherit"],
+        ["line-height", "inherit"],
+        ["color", "inherit"],
+        ["letter-spacing", "inherit"],
+        ["vertical-align", "baseline"],
+      ])
+        span.style.setProperty(property, value, "important")
       span.textContent = chunk.text
       fragment.append(span)
       candidates.push(span)
     }
     node.replaceWith(fragment)
-    const origin = root.getBoundingClientRect()
-    for (const span of candidates) {
-      const style = visibleStyle(span, view)
-      if (!style) continue
-      // Bidirectional and vertical layout needs shaping beyond simple PDF
-      // placement. Preserve its visual rather than corrupting its text.
-      if (
-        style.direction === "rtl" ||
-        view.getComputedStyle(span).writingMode !== "horizontal-tb"
-      ) {
-        warnings.push("部分竖排或从右到左的文本以图形保留")
-        continue
-      }
-      const text = span.firstChild
-      const range = doc.createRange()
-      const { ascent, descent } = baselineMetrics(style, context, metricsCache)
-      let visible = false
-      let units = 0
-      for (const unit of graphemes(text.textContent)) {
-        if (++units % 256 === 0) await yieldTurn(signal)
-        range.setStart(text, unit.start)
-        range.setEnd(text, unit.end)
-        const rects = [...range.getClientRects()].filter(
-          (rect) => rect.width > 0 && rect.height > 0,
-        )
-        if (!rects.length) continue
-        const rect = rects[0]
-        if (/^[\r\n]+$/.test(unit.text)) continue
-        // A collapsed line-break space can report the next line's zero-width
-        // rectangle. It contributes no glyph and must not duplicate text.
-        if (rect.width < 0.02) continue
-        const baseline = rect.top - origin.top + (rect.height * ascent) / (ascent + descent)
-        runs.push({
-          text: unit.text,
-          id: span.getAttribute(TEXT_ATTRIBUTE),
-          left: rect.left - origin.left,
-          top: rect.top - origin.top,
-          bottom: rect.bottom - origin.top,
-          width: rect.width,
-          baseline,
-          ...style,
-        })
-        visible = true
-      }
-      range.detach()
-      if (visible) hiddenIds.push(span.getAttribute(TEXT_ATTRIBUTE))
+    if (index % 24 === 0) await yieldTurn(signal)
+  }
+  // All wrappers must exist before any Range geometry is recorded. Earlier
+  // measuring while later nodes reflowed used stale coordinates and pages.
+  await yieldTurn(signal)
+  const origin = root.getBoundingClientRect()
+  for (let index = 0; index < candidates.length; index++) {
+    check(signal)
+    const span = candidates[index]
+    const style = visibleStyle(span, view)
+    if (!style) continue
+    // Bidirectional and vertical layout needs shaping beyond simple PDF
+    // placement. Preserve its visual rather than corrupting its text.
+    if (style.direction === "rtl" || view.getComputedStyle(span).writingMode !== "horizontal-tb") {
+      warnings.push("部分竖排或从右到左的文本以图形保留")
+      continue
     }
+    const text = span.firstChild
+    const range = doc.createRange()
+    let visible = false
+    let units = 0
+    for (const unit of graphemes(text.textContent)) {
+      if (++units % 256 === 0) await yieldTurn(signal)
+      range.setStart(text, unit.start)
+      range.setEnd(text, unit.end)
+      const rects = [...range.getClientRects()].filter((rect) => rect.width > 0 && rect.height > 0)
+      if (!rects.length) continue
+      const rect = rects[0]
+      if (/^[\r\n]+$/.test(unit.text)) continue
+      // A collapsed line-break space can report the next line's zero-width
+      // rectangle. It contributes no glyph and must not duplicate text.
+      if (rect.width < 0.02) continue
+      const fontKind = fontForText(unit.text, style, span)
+      const { ascent, descent } = baselineMetrics(style, context, metricsCache, fontKind)
+      const baseline = rect.top - origin.top + (rect.height * ascent) / (ascent + descent)
+      runs.push({
+        text: unit.text,
+        id: span.getAttribute(TEXT_ATTRIBUTE),
+        left: rect.left - origin.left,
+        top: rect.top - origin.top,
+        bottom: rect.bottom - origin.top,
+        width: rect.width,
+        baseline,
+        fontKind,
+        ...style,
+      })
+      visible = true
+    }
+    range.detach()
+    if (visible) hiddenIds.push(span.getAttribute(TEXT_ATTRIBUTE))
     if (index % 24 === 0) await yieldTurn(signal)
   }
   return { runs, textNodesToHide: hiddenIds, warnings: [...new Set(warnings)] }
@@ -257,6 +336,7 @@ function pageLink(pdf, page, rect, url, { mailto = false } = {}) {
 export async function renderSelectablePDF({
   root,
   pages,
+  measurePages,
   title,
   sourceUrl,
   includeSource = false,
@@ -268,35 +348,57 @@ export async function renderSelectablePDF({
 }) {
   check(signal)
   onProgress("加载 PDF 中文字体")
-  const [regularBytes, boldBytes] = await Promise.all([
+  const [regularBytes, boldBytes, monoBytes] = await Promise.all([
     fontBytes(fontBaseUrl, "regular", signal),
     fontBytes(fontBaseUrl, "bold", signal),
+    fontBytes(fontBaseUrl, "mono", signal),
   ])
   check(signal)
+  onProgress("应用 PDF 字体与阅读排版")
+  await prepareFontLayout(root, { regular: regularBytes, bold: boldBytes, mono: monoBytes }, signal)
   const pdf = await PDFDocument.create()
   pdf.registerFontkit(pdfFontkit)
   pdf.setTitle(title || "未命名文章")
   pdf.setCreator("Howard Notes")
   pdf.setSubject("保留排版的可选择文本文章导出")
   pdf.setLanguage("zh-CN")
-  const [regular, bold] = await Promise.all([
+  const [regular, bold, mono] = await Promise.all([
     pdf.embedFont(regularBytes, { subset: true, customName: "HWREGU+NotoSansSC-Regular" }),
     pdf.embedFont(boldBytes, { subset: true, customName: "HWBOLD+NotoSansSC-Bold" }),
+    pdf.embedFont(monoBytes, { subset: true, customName: "HWMONO+KaTeX-Typewriter-Regular" }),
   ])
   check(signal)
   const supported = new Set(regular.getCharacterSet())
   const supportedBold = new Set(bold.getCharacterSet())
+  const supportedMono = new Set(mono.getCharacterSet())
   const supportsText = (text) =>
     Array.from(text).every((character) => {
       const value = character.codePointAt(0)
       return /[\t\r\n]/.test(character) || (supported.has(value) && supportedBold.has(value))
     })
   onProgress("准备可选择文字与分页")
-  const prepared = await collectTextRuns(root, signal, { supportsText })
+  const fontForText = (text, style, span) => {
+    return pdfFontRole(text, {
+      code: !!span.closest("pre, code"),
+      weight: style.fontWeight,
+      monospaceCharacters: supportedMono,
+    })
+  }
+  const prepared = await collectTextRuns(root, signal, { supportsText, fontForText })
+  await yieldTurn(signal)
+  if (measurePages) pages = await measurePages(root)
+  check(signal)
+  if (!Array.isArray(pages) || !pages.length)
+    throw new ArticleExportError("PDF 分页失败，请重新打开文章后导出", "PDF_LAYOUT_CHANGED")
   const pageRuns = pages.map(() => [])
   for (const run of prepared.runs) {
     const index = textPageIndex(run, pages)
-    if (index >= 0) pageRuns[index].push(run)
+    if (index < 0)
+      throw new ArticleExportError(
+        "PDF 排版发生变化，已停止导出以避免遗漏文字，请重试",
+        "PDF_LAYOUT_CHANGED",
+      )
+    pageRuns[index].push(run)
   }
   const rootRect = root.getBoundingClientRect()
   const footerRect = root.querySelector(".article-export-source")?.getBoundingClientRect()
@@ -344,6 +446,7 @@ export async function renderSelectablePDF({
       const fontKeys = {
         regular: page.node.newFontDictionary(regular.name, regular.ref),
         bold: page.node.newFontDictionary(bold.name, bold.ref),
+        mono: page.node.newFontDictionary(mono.name, mono.ref),
       }
       const opacityKeys = new Map()
       const imageHeight = (slice[1] - slice[0]) * PDF_POINT_PER_CSS_PIXEL
@@ -355,14 +458,13 @@ export async function renderSelectablePDF({
       })
       for (let offset = 0; offset < pageRuns[index].length; offset++) {
         const run = pageRuns[index][offset]
-        const weight = run.fontWeight >= 600 ? "bold" : "regular"
-        const font = weight === "bold" ? bold : regular
+        const weight = run.fontKind
+        const font = { regular, bold, mono }[weight]
         // Whitespace placement remains reflected in the following glyph's
         // position. A literal space helps copy/paste preserve English/code.
         const encoded = font.encodeText(run.text.replace(/[\t\r\n]/g, " "))
         const size = run.fontSize * PDF_POINT_PER_CSS_PIXEL
-        const naturalWidth = font.widthOfTextAtSize(run.text.replace(/[\t\r\n]/g, " "), size)
-        const transform = glyphTransform(run, naturalWidth, slice[0])
+        const transform = glyphTransform(run, 0, slice[0])
         const key = fontKeys[weight]
         const opacity = run.color.opacity
         if (!opacityKeys.has(opacity)) {

@@ -25,7 +25,7 @@
 - `quartz/components/Blog.tsx`、`quartz/components/scripts/note-browser.inline.ts`：初始推荐、新推荐及目录接入。
 - `admin/admin.css`、`admin/index.html`、`admin/app.mjs`、`admin/theme.mjs`、`scripts/build-admin.mjs`：后台材质、主题、共享样式发布。
 
-## 实际验证
+## 2026-10-01 实际验证
 
 - `npm run build`、`npm run check`、`npm run test:publish`、`npm run verify:site` 通过：66 项测试，297 个 HTML 页面，172 篇文章。
 - 172 篇笔记的 688 份原文／发布／同步副本逐字节校验一致，用户最近的 `library/site.json` 设置已合并保留。
@@ -63,6 +63,14 @@
 - 最终构建、类型与格式检查、69 项测试及站点验证通过，仍为 297 个 HTML 页面和 172 篇文章；笔记原文、页面设置和依赖未修改。
 
 截图在 `output/playwright/soft-glow-*.png` 与 `howard-icon-*.png`，记录在 `.local/soft-glow-*.log`、`toc-scroll-*.log` 与 `site-icon-browser-check.log`。未实测 Safari、实体手机或浏览器标签栏的界面截图；图标已通过页面引用、资源请求、尺寸与解码验证。
+
+## 当前正文配色与材质隔离
+
+2026-10-02。公开与私密正文使用 `--glass-reader-surface`：浅色 `#fafbfc`、深色 `#343b45`。仅 `.blog-layout.is-article > #main-content` 和 `#private-notes-app .private-reading-body` 在自身范围内将 `--glass-reading` 覆盖为该阅读 token；正文、代码、表格与图表保持清晰，不给阅读内容加入磨砂或持续追光。
+
+公开阅读外围的 `--glass-reader-page` 为浅色 `#f3f5f7`、深色 `#242a33`，只作用于 `body:has(.blog-layout.is-article)`。私密外壳不套用此规则。全局 `--glass-reading` 仍为浅色 `#eef0f2`、深色 `#252a31`；首页、目录、搜索、热图和维护等模块保留原共享配色。不能为了调亮正文而改共享 token，或让相邻独立面板继承正文覆盖。
+
+材质与柔光继续使用 `--frost-*`、`--mouse-x`、`--mouse-y` 等既有变量和清理逻辑，正文调色不修改这些参数。上方日期明确的截图、像素比较和测试数字是对应阶段的历史验证，不代表本次文档更正重新执行了浏览器测试；完整当前视觉约定见 [Liquid Glass 前端](liquid-glass-frontend.md)。
 
 ## 参考
 

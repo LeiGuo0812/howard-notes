@@ -36,6 +36,50 @@ export async function buildArticleShare() {
     path.join(pdfFontsSource, "provenance.json"),
     path.join(pdfFontsDir, "provenance.json"),
   )
+  // Reuse the locked KaTeX package's small ASCII monospace font. The same
+  // original bytes serve browser layout and PDF embedding; do not stretch
+  // proportional glyphs to fit platform-specific code font widths.
+  const codeFontName = "KaTeX_Typewriter-Regular.ttf"
+  const codeFont = await fs.readFile(path.join("node_modules/katex/dist/fonts", codeFontName))
+  const codeFontSha = createHash("sha256").update(codeFont).digest("hex")
+  const katex = JSON.parse(await fs.readFile("node_modules/katex/package.json", "utf8"))
+  if (
+    katex.version !== "0.18.9" ||
+    codeFont.length !== 27556 ||
+    codeFontSha !== "f01f3e87d9c6a61c0c081ceb577abd864eb00a612f7ac1620dd6915fad2ef5aa"
+  )
+    throw new Error(
+      "PDF code font source changed; verify its provenance and rendering before updating.",
+    )
+  await fs.writeFile(path.join(pdfFontsDir, codeFontName), codeFont)
+  await fs.copyFile("node_modules/katex/LICENSE", path.join(pdfFontsDir, "KaTeX-LICENSE.txt"))
+  // The package uses MIT, but the original font's name table identifies OFL
+  // 1.1 with a reserved name. Publish its notice and the complete font license.
+  await fs.writeFile(
+    path.join(pdfFontsDir, "KaTeX-Typewriter-LICENSE.txt"),
+    "Copyright (c) 2009-2010, Design Science, Inc. (<www.mathjax.org>)\n" +
+      "Copyright (c) 2014-2018 Khan Academy (<www.khanacademy.org>),\n" +
+      "with Reserved Font Name KaTeX_Typewriter.\n\n" +
+      (await fs.readFile(path.join(pdfFontsSource, "LICENSE"), "utf8")),
+  )
+  await fs.writeFile(
+    path.join(pdfFontsDir, "code-font-provenance.json"),
+    JSON.stringify(
+      {
+        package: "katex",
+        version: katex.version,
+        file: codeFontName,
+        bytes: codeFont.length,
+        sha256: codeFontSha,
+        fontLicense: "SIL Open Font License 1.1",
+        fontLicenseFile: "KaTeX-Typewriter-LICENSE.txt",
+        packageLicense: "MIT",
+        packageLicenseFile: "KaTeX-LICENSE.txt",
+      },
+      null,
+      2,
+    ) + "\n",
+  )
   const result = await build({
     entryPoints: ["admin/article-share.mjs"],
     outdir,

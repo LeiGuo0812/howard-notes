@@ -49,6 +49,19 @@ export function textPageIndex(run, pages) {
   return index < 0 && pages.length && position === pages.at(-1)[1] ? pages.length - 1 : index
 }
 
+export function pdfFontRole(text, { code = false, weight = 400, monospaceCharacters } = {}) {
+  if (weight >= 600) return "bold"
+  if (
+    code &&
+    Array.from(text).every((character) => {
+      const point = character.codePointAt(0)
+      return point >= 0x20 && point <= 0x7e && monospaceCharacters?.has(point)
+    })
+  )
+    return "mono"
+  return "regular"
+}
+
 export function glyphTransform(run, naturalWidth, pageStart = 0) {
   const scale = PDF_POINT_PER_CSS_PIXEL
   const size = run.fontSize * scale
@@ -56,7 +69,10 @@ export function glyphTransform(run, naturalWidth, pageStart = 0) {
     size,
     x: PDF_MARGIN_POINTS + run.left * scale,
     y: PDF_PAGE_POINTS[1] - PDF_MARGIN_POINTS - (run.baseline - pageStart) * scale,
-    horizontal: naturalWidth > 0 ? (run.width * scale) / naturalWidth : 1,
+    // FontFace and the PDF now use the same font at the same CSS size. Never
+    // stretch proportional glyphs into measured monospace cells: that changes
+    // stem thickness and can make adjacent i/m characters look inconsistent.
+    horizontal: 1,
     italic: /italic|oblique/.test(run.fontStyle || "") ? 0.18 : 0,
   }
 }
