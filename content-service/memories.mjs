@@ -1,4 +1,5 @@
 import { sessionResponse } from "./session.mjs"
+import { githubMemoryAttachmentUrl } from "../scripts/lib/memory-attachment-storage.mjs"
 
 const DAY = 86_400_000
 const MAX_BODY_BYTES = 1_900_000
@@ -215,7 +216,11 @@ function visibleCard(row, owner, env) {
           size: attachment.size,
           sourcePath: attachmentSourcePath(attachment),
         }
-    if (attachment.fileId)
+    const hostedUrl = githubMemoryAttachmentUrl(attachment.storage)
+    if (hostedUrl) {
+      output.url = hostedUrl
+      output.storage = attachment.storage
+    } else if (attachment.fileId)
       output.url = `${env.SITE_PREFIX || "/howard-notes/"}api/content/memories/files/${attachment.fileId}`
     else if (owner) output.url = attachment.url
     return output
@@ -599,6 +604,18 @@ async function fileRead(request, env, db, id, owner, extraHeaders) {
     .bind(id)
     .first()
   if (!file) throw new MemoryError("附件不存在或尚未公开。", 404)
+  const storage = JSON.parse(file.metadata).storage
+  const hostedUrl = storage?.sha256 === file.sha256 ? githubMemoryAttachmentUrl(storage) : null
+  if (hostedUrl)
+    return new Response(null, {
+      status: 302,
+      headers: {
+        Location: hostedUrl,
+        "Cache-Control": "private, no-store",
+        "X-Content-Type-Options": "nosniff",
+        ...extraHeaders,
+      },
+    })
   const mime = safeMime(file.mime_type)
   const filename = encodeURIComponent(file.name).replace(
     /[!'()*]/g,

@@ -958,3 +958,39 @@ test("missing or mismatched source owners fail closed and retried completed file
   assert.equal(metadata.memo, "memos/1")
   assert.equal(metadata.origin, "https://different-source.example")
 })
+
+test("migrated attachments redirect without chunk reads and preserve private authorization", async () => {
+  const f = fixture()
+  await f.importFile()
+  await f.importCards([card(1, { visibility: "PRIVATE", attachments: [{ fileId: f.file.id }] })])
+  const storage = {
+    provider: "github",
+    repository: "owner/repo",
+    commit: "b".repeat(40),
+    sha256: f.file.sha256,
+    path: `img/memory/${f.file.sha256}.png`,
+    size: f.file.size,
+  }
+  f.sqlite
+    .prepare("UPDATE memory_files SET metadata=json_set(metadata,'$.storage',json(?))")
+    .run(JSON.stringify(storage))
+  const path = "memories/files/" + f.file.id
+  assert.equal((await f.call(path)).status, 404)
+  for (const method of ["GET", "HEAD"]) {
+    f.queries.length = 0
+    const response = await f.owner(path, undefined, {}, method)
+    assert.equal(response.status, 302)
+    assert.equal(
+      response.headers.get("Location"),
+      `https://raw.githubusercontent.com/owner/repo/${storage.commit}/${storage.path}`,
+    )
+    assert.equal(
+      f.queries.some((q) => q.sql.includes("FROM memory_file_chunks")),
+      false,
+    )
+  }
+  f.sqlite
+    .prepare("UPDATE memory_files SET metadata=json_set(metadata,'$.storage.commit','main')")
+    .run()
+  assert.equal((await f.owner(path)).status, 200)
+})

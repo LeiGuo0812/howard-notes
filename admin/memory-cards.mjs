@@ -5,6 +5,7 @@ import { createPanelWindow } from "./panel-window.mjs"
 import { requestOwnerAccess } from "./owner-access.mjs"
 import { createMemoryTagInput } from "./tag-input.mjs"
 import { mountPagination } from "../scripts/lib/pagination.mjs"
+import { githubMemoryAttachmentUrl } from "../scripts/lib/memory-attachment-storage.mjs"
 
 const PAGE_SIZE = 20
 const validSorts = new Set(["created-desc", "created-asc", "modified-desc", "modified-asc"])
@@ -314,9 +315,10 @@ export function mountMemories(hub, { siteBase }) {
   }
   const resourceUrl = (attachment) =>
     safeUrl(
-      attachment.fileId
-        ? `${apiBase}/files/${encodeURIComponent(attachment.fileId)}`
-        : attachment.url,
+      githubMemoryAttachmentUrl(attachment.storage) ||
+        (attachment.fileId
+          ? `${apiBase}/files/${encodeURIComponent(attachment.fileId)}`
+          : attachment.url),
       attachment.url?.startsWith("/howard-notes/api/content/memories/files/")
         ? new URL(apiBase).origin
         : siteBase,
