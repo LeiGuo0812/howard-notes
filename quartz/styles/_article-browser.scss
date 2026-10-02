@@ -395,12 +395,14 @@
     var(--glass-anchor-offset),
     calc(var(--timeline-header-bottom, 0px) + 32px)
   );
-  --timeline-panel-height: min(
-    480px,
-    60dvh,
-    max(
-      0px,
-      calc(100dvh - max(var(--listing-search-start, 0px), var(--timeline-sidebar-top)) - 24px)
+  --timeline-panel-height: max(
+    0px,
+    calc(
+      var(--listing-viewport-height, 100dvh) - max(
+          var(--listing-search-start, 0px),
+          var(--timeline-sidebar-top)
+        ) -
+        16px
     )
   );
   // A zero-height sticky anchor starts with the search row while leaving the

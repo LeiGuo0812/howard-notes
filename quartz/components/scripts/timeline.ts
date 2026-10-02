@@ -144,6 +144,9 @@ export function setupTimeline({ onViewChange }: { onViewChange: () => void }) {
       if (sidebarAnchor.style.getPropertyValue(name) !== value)
         sidebarAnchor.style.setProperty(name, value)
     }
+    // Measure only when the viewport or observed controls change. The CSS
+    // sticky anchor keeps scrolling independent from JavaScript work.
+    setProperty("--listing-viewport-height", `${document.documentElement.clientHeight}px`)
     setProperty("--timeline-header-bottom", `${Math.ceil(header.getBoundingClientRect().bottom)}px`)
     if (search && listingControls) {
       const searchBox = search.getBoundingClientRect()

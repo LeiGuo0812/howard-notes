@@ -1,9 +1,28 @@
+import { mountHomeMemoryPreviews } from "./home-memory-previews.mjs"
+
 let modulePromise
 let mountedHub
 let controller
 let version = 0
+let homeController, mountedHome
+
+function setupHomeMemories() {
+  const home = document.getElementById("home-memory-previews")
+  if (!home || home === mountedHome) return
+  mountedHome = home
+  homeController?.destroy()
+  homeController = mountHomeMemoryPreviews(home, {
+    siteBase: new URL(home.dataset.memoryBase, location.href).href,
+  })
+  window.addCleanup?.(() => {
+    homeController?.destroy()
+    homeController = null
+    mountedHome = null
+  })
+}
 
 export function setupMemories() {
+  setupHomeMemories()
   const hub = document.getElementById("memory-hub")
   if (!hub || hub === mountedHub) return
   const request = ++version

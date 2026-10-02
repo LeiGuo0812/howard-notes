@@ -1,5 +1,15 @@
 export const SITE_PATH = "library/site.json"
-export const SECTION_IDS = ["featured", "recent", "topics", "collections", "tags", "activity"]
+// Legacy IDs remain accepted when reading an older published snapshot or draft.
+// normalizeSite/orderedSections migrate them before editing and rendering.
+export const SECTION_IDS = [
+  "featured",
+  "recent",
+  "topics",
+  "memories",
+  "activity",
+  "collections",
+  "tags",
+]
 export const COLLECTION_IDS = ["recent", "featured", "all"]
 export const NAV_IDS = ["notes", "topics", "tags", "memories", "about"]
 import { sortNotes } from "./note-dates.mjs"
@@ -33,9 +43,7 @@ export function validateSite(settings) {
     throw new Error("首页设置不正确。")
   if (
     !Array.isArray(home.sections) ||
-    !["topics", "collections", "activity"].every((id) =>
-      home.sections.some((item) => item.id === id),
-    ) ||
+    !["topics", "activity"].every((id) => home.sections.some((item) => item.id === id)) ||
     !unique(home.sections, "id") ||
     home.sections.some(
       (item) =>

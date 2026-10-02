@@ -1,6 +1,8 @@
 import { paginateItems, sampleItems } from "./browsing"
 import { setupLayoutPreview } from "./layout-preview"
 import { setupTimeline } from "./timeline"
+import { setupPageScrollControls } from "./scroll-controls"
+import { mountPagination } from "../../../scripts/lib/pagination.mjs"
 import { mountFrostedSpotlight } from "../../../scripts/lib/frosted-spotlight.mjs"
 import { setupMaintenance } from "../../../admin/maintenance-loader.mjs"
 import { setupMemories } from "../../../admin/memory-loader.mjs"
@@ -129,19 +131,7 @@ function setupNoteBrowser() {
     panel.setAttribute("data-spotlight", "")
   }
   window.addCleanup(mountFrostedSpotlight(document))
-  const scrollControls = document.querySelector<HTMLElement>(".reading-scroll-controls")
-  if (scrollControls) {
-    const jump = (event: MouseEvent) => {
-      const button = (event.target as HTMLElement).closest<HTMLButtonElement>("button[data-scroll]")
-      if (!button) return
-      window.scrollTo({
-        top: button.dataset.scroll === "top" ? 0 : document.documentElement.scrollHeight,
-        behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "instant" : "smooth",
-      })
-    }
-    scrollControls.addEventListener("click", jump)
-    window.addCleanup(() => scrollControls.removeEventListener("click", jump))
-  }
+  setupPageScrollControls()
   const tools = document.querySelector<HTMLDetailsElement>(".reading-tools")
   if (tools) {
     const desktop = matchMedia("(min-width: 1240px)")
@@ -233,8 +223,7 @@ function setupNoteBrowser() {
   const sortedRows = new Map<string, HTMLLIElement[]>()
   let appliedOrder = "",
     appliedDateField = "",
-    appliedTag: string | undefined,
-    appliedPages = ""
+    appliedTag: string | undefined
   const params = new URLSearchParams(location.search)
   const tagIndex = document.querySelector<HTMLElement>("#listing-tags")
   let selectedTag = params.get("tag") || ""
@@ -318,37 +307,11 @@ function setupNoteBrowser() {
     document.querySelector<HTMLElement>("#listing-empty")!.hidden = matching.length > 0
     timeline?.update(matching, value)
     list.hidden = timeline?.isActive() || false
-    document.querySelector<HTMLElement>("#listing-pagination")!.hidden =
-      !!timeline?.isActive() || paginated.pages === 1
-    previous.disabled = currentPage === 1
-    next.disabled = currentPage === paginated.pages
-    document.querySelector("#listing-page-state")!.textContent =
-      `${currentPage} / ${paginated.pages}`
-    const pages = document.querySelector("#listing-pages")!
-    const pageSignature = `${currentPage}:${paginated.pages}`
-    if (appliedPages !== pageSignature) {
-      appliedPages = pageSignature
-      pages.replaceChildren()
-      const numbers = new Set([1, paginated.pages, currentPage - 1, currentPage, currentPage + 1])
-      let last = 0
-      for (const number of [...numbers]
-        .filter((n) => n > 0 && n <= paginated.pages)
-        .sort((a, b) => a - b)) {
-        if (last && number - last > 1) {
-          const gap = document.createElement("span")
-          gap.textContent = "…"
-          pages.append(gap)
-        }
-        const button = document.createElement("button")
-        button.type = "button"
-        button.dataset.page = String(number)
-        button.textContent = String(number)
-        button.setAttribute("aria-label", `第 ${number} 页`)
-        if (number === currentPage) button.setAttribute("aria-current", "page")
-        pages.append(button)
-        last = number
-      }
-    }
+    pager.update({
+      page: currentPage,
+      pages: paginated.pages,
+      hidden: !!timeline?.isActive() || paginated.pages === 1,
+    })
     document.querySelector<HTMLElement>("#activity-filter")!.hidden = !activity
     document.querySelector("#activity-filter-date")!.textContent = activity
       ? `${activity} 创建或更新`
@@ -388,22 +351,14 @@ function setupNoteBrowser() {
     currentPage = 1
     update()
   }
-  const previous = document.querySelector<HTMLButtonElement>("#listing-previous")!
-  const next = document.querySelector<HTMLButtonElement>("#listing-next")!
   const pagination = document.querySelector<HTMLElement>("#listing-pagination")!
-  const changePage = (event: MouseEvent) => {
-    const button = (event.target as HTMLElement).closest<HTMLButtonElement>("button")
-    if (!button || button.disabled) return
-    currentPage =
-      button === previous
-        ? currentPage - 1
-        : button === next
-          ? currentPage + 1
-          : Number(button.dataset.page)
-    update(true, true)
-    list.scrollIntoView({ block: "start" })
-  }
-  pagination.addEventListener("click", changePage)
+  const pager = mountPagination(pagination, {
+    onPageChange(page) {
+      currentPage = page
+      update(true, true)
+      list.scrollIntoView({ block: "start" })
+    },
+  })
   const clearButton = document.querySelector<HTMLButtonElement>("#clear-activity-filter")!
   order.addEventListener("change", refresh)
   search.addEventListener("input", refresh)
@@ -413,7 +368,7 @@ function setupNoteBrowser() {
     order.removeEventListener("change", refresh)
     search.removeEventListener("input", refresh)
     clearButton.removeEventListener("click", clear)
-    pagination.removeEventListener("click", changePage)
+    pager.destroy()
     tagIndex?.removeEventListener("click", chooseTag)
   })
   update()

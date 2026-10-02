@@ -1,0 +1,73 @@
+@use "./liquid-glass" as material;
+
+.reading-scroll-controls {
+  @include material.glass(16px);
+  position: fixed;
+  z-index: var(--glass-z-controls);
+  right: max(12px, env(safe-area-inset-right));
+  bottom: max(24px, env(safe-area-inset-bottom));
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 5px;
+  button {
+    @include material.control;
+    display: grid;
+    place-items: center;
+    width: 34px;
+    height: 40px;
+    padding: 5px;
+    border-color: transparent;
+    background: none;
+    box-shadow: none;
+    svg {
+      width: 20px;
+      height: 20px;
+    }
+  }
+}
+
+@media (max-width: 1399px) {
+  // The article tag/month button already occupies the bottom-right corner.
+  // Keep the page controls above it; the expanded drawer owns this space.
+  .site-surface:has(.timeline-sidebar) .reading-scroll-controls {
+    flex-direction: row;
+    right: max(16px, env(safe-area-inset-right));
+    bottom: max(80px, calc(env(safe-area-inset-bottom) + 80px));
+  }
+  .site-surface:has(.timeline-sidebar[open]) .reading-scroll-controls {
+    visibility: hidden;
+  }
+}
+
+@media (max-width: 800px) {
+  .reading-scroll-controls {
+    right: max(4px, env(safe-area-inset-right));
+    bottom: max(16px, env(safe-area-inset-bottom));
+    padding: 3px;
+    background: var(--glass-solid);
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+    opacity: 0.96;
+    button {
+      width: 36px;
+      height: 44px;
+    }
+  }
+  // Progress continues at the bottom left while controls remain usable at
+  // the right. Long messages wrap within their own independent panel.
+  .site-surface:has(.reading-scroll-controls) .maintenance-notice,
+  .site-surface:has(.reading-scroll-controls) .maintenance-progress {
+    max-width: calc(100vw - 80px);
+  }
+  .site-surface:has(.timeline-sidebar) .maintenance-notice,
+  .site-surface:has(.timeline-sidebar) .maintenance-progress {
+    max-width: calc(100vw - 128px);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .reading-scroll-controls button {
+    transition: none;
+  }
+}

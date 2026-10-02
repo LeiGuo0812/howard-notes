@@ -1,5 +1,6 @@
 import { QuartzComponent } from "./types"
 import { pathToRoot } from "../util/path"
+import { Pagination } from "./Pagination"
 
 // This public shell contains no memory content. Visibility is checked by the
 // content service on every request, independently from article publishing.
@@ -77,15 +78,7 @@ export const MemoryHub: QuartzComponent = (props) => {
           </p>
           <div id="memory-cards" class="memory-card-grid" />
           <div id="memory-timeline" class="memory-timeline" hidden />
-          <nav id="memory-pagination" class="memory-pagination" aria-label="记忆卡分页" hidden>
-            <button type="button" data-memory-page="previous">
-              上一页
-            </button>
-            <span id="memory-page-state" />
-            <button type="button" data-memory-page="next">
-              下一页
-            </button>
-          </nav>
+          <Pagination prefix="memory" label="记忆卡分页" hidden />
         </div>
       </div>
     </section>

@@ -32,14 +32,10 @@
         "enabled": true
       },
       {
-        "id": "tags",
-        "title": "标签",
-        "enabled": true
-      },
-      {
-        "id": "collections",
-        "title": "浏览",
-        "enabled": true
+        "id": "memories",
+        "title": "记忆卡",
+        "enabled": true,
+        "limit": 4
       },
       {
         "id": "activity",

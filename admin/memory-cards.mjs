@@ -3,6 +3,8 @@ import DOMPurify from "dompurify"
 import { formatSelection } from "./formatting.mjs"
 import { createPanelWindow } from "./panel-window.mjs"
 import { requestOwnerAccess } from "./owner-access.mjs"
+import { createMemoryTagInput } from "./tag-input.mjs"
+import { mountPagination } from "../scripts/lib/pagination.mjs"
 
 const PAGE_SIZE = 20
 const validSorts = new Set(["created-desc", "created-asc", "modified-desc", "modified-asc"])
@@ -59,10 +61,13 @@ export function mountMemories(hub, { siteBase }) {
     count = get("#memory-count"),
     activeFilter = get("#memory-active-filter")
   const query = new URLSearchParams(location.search)
+  let requestedCard = location.hash.startsWith("#memory-card-") ? location.hash.slice(1) : null
   let state = {
     q: query.get("q") || "",
     tag: query.get("tag") || "",
-    page: Math.max(1, Number(query.get("page")) || 1),
+    page: Number.isSafeInteger(Math.floor(Number(query.get("page"))))
+      ? Math.max(1, Math.floor(Number(query.get("page"))) || 1)
+      : 1,
     sort: validSorts.has(query.get("sort")) ? query.get("sort") : "created-desc",
     view: query.get("view") === "timeline" ? "timeline" : "cards",
     status: "NORMAL",
@@ -80,6 +85,23 @@ export function mountMemories(hub, { siteBase }) {
     authEpoch = 0
   const records = new Map(),
     listeners = []
+  let pageCount = 1
+  const pager = mountPagination(pagination, {
+    onPageChange(page) {
+      state.page = page
+      writeUrl()
+      void load()
+      hub.scrollIntoView({ block: "start" })
+    },
+  })
+  const updatePagination = (busy = false) => {
+    pager.update({
+      page: state.page,
+      pages: pageCount,
+      hidden: state.view !== "cards" || pageCount <= 1,
+      busy,
+    })
+  }
   const resourceBlobs = new Map()
   let resourceEpoch = 0
   const releaseResources = () => {
@@ -316,6 +338,8 @@ export function mountMemories(hub, { siteBase }) {
     state.tag = ""
     state.q = ""
     state.page = 1
+    pageCount = 1
+    updatePagination()
     search.value = ""
     activeFilter.replaceChildren()
     activeFilter.hidden = true
@@ -406,6 +430,7 @@ export function mountMemories(hub, { siteBase }) {
   function renderCard(memory) {
     const card = createElement("article", "memory-card")
     card.dataset.memoryId = memory.id
+    card.id = `memory-card-${memory.id}`
     const header = createElement("header", "memory-card-heading")
     const time = createElement("time", "", dateLabel(memory.created))
     time.dateTime = memory.created
@@ -568,6 +593,7 @@ export function mountMemories(hub, { siteBase }) {
     pendingFetch?.abort()
     pendingFetch = new AbortController()
     updateControls()
+    updatePagination(true)
     if (!quiet) {
       message.textContent = "正在加载…"
       message.hidden = false
@@ -597,10 +623,15 @@ export function mountMemories(hub, { siteBase }) {
         return load()
       }
       const values = result.memories || []
+      pageCount = Math.max(1, Math.ceil((result.total || 0) / PAGE_SIZE))
       if (state.view === "cards" && state.page > 1 && !values.length && result.total > 0) {
-        state.page = Math.ceil(result.total / PAGE_SIZE)
+        state.page = pageCount
         writeUrl()
         return load()
+      }
+      if (state.view === "cards" && !result.total && state.page !== 1) {
+        state.page = 1
+        writeUrl()
       }
       records.clear()
       for (const memory of values) records.set(String(memory.id), memory)
@@ -610,11 +641,7 @@ export function mountMemories(hub, { siteBase }) {
       if (state.view === "cards") renderTags(result.tags)
       else tags.replaceChildren()
       count.textContent = `${result.total || 0} 张`
-      const pages = Math.max(1, Math.ceil((result.total || 0) / PAGE_SIZE))
-      pagination.hidden = state.view !== "cards" || pages <= 1
-      get("#memory-page-state").textContent = `${state.page} / ${pages}`
-      get('[data-memory-page="previous"]').disabled = state.page <= 1
-      get('[data-memory-page="next"]').disabled = state.page >= pages
+      updatePagination()
       if (state.view === "timeline") {
         list.replaceChildren()
         await renderTimeline(values, serial)
@@ -623,6 +650,19 @@ export function mountMemories(hub, { siteBase }) {
         timeline.replaceChildren()
         timeNavigation.replaceChildren()
         list.replaceChildren(...values.map(renderCard))
+        if (requestedCard) {
+          let id = requestedCard
+          try {
+            id = decodeURIComponent(id)
+          } catch {
+            // A malformed hash cannot select a card.
+          }
+          const selected = document.getElementById(id)
+          if (selected && list.contains(selected)) {
+            requestedCard = null
+            selected.scrollIntoView({ block: "start" })
+          }
+        }
       }
       message.hidden = values.length > 0
       message.textContent =
@@ -636,6 +676,8 @@ export function mountMemories(hub, { siteBase }) {
       message.hidden = false
       message.textContent = error.message
       notify("记忆卡加载未完成。", "error", () => void load())
+    } finally {
+      if (alive && serial === request) updatePagination()
     }
   }
   const mutate = async (memory, action, body) => {
@@ -663,18 +705,25 @@ export function mountMemories(hub, { siteBase }) {
       })
   }
   function createEditor() {
+    const editorListeners = []
+    const on = (target, type, listener) => {
+      target.addEventListener(type, listener)
+      editorListeners.push(() => target.removeEventListener(type, listener))
+    }
     const host = createElement("section", "memory-editor")
     host.hidden = true
     host.setAttribute("role", "dialog")
     host.setAttribute("aria-modal", "false")
     host.setAttribute("aria-labelledby", "memory-editor-heading")
-    host.innerHTML = `<header class="memory-editor-heading"><span id="memory-editor-heading" tabindex="0">新建记忆卡</span><div><button type="button" data-editor-window="maximize" title="全屏显示" aria-label="全屏显示">↗</button><button type="button" data-editor-window="close" title="收起窗口" aria-label="收起窗口">${icon('<path d="m5 5 14 14M5 19 19 5"/>')}</button></div></header><div class="memory-editor-toolbar"><button type="button" data-memory-format="bold" title="加粗"><strong>B</strong></button><button type="button" data-memory-format="italic" title="斜体"><i>I</i></button><button type="button" data-memory-format="h2" title="二级标题">H2</button><button type="button" data-memory-format="quote" title="引用">❝</button><button type="button" data-memory-format="unordered" title="列表">☷</button><button type="button" data-memory-format="task" title="任务列表">☑</button><button type="button" data-memory-format="inline-code" title="行内代码">&lt;/&gt;</button><button type="button" data-memory-format="link" title="插入链接">↗</button><div class="memory-editor-views"><button type="button" data-editor-view="edit" aria-pressed="false" title="编辑">编辑</button><button type="button" data-editor-view="split" aria-pressed="true" title="编辑并预览">双栏</button><button type="button" data-editor-view="preview" aria-pressed="false" title="实时预览">预览</button></div></div><div class="memory-editor-content" data-editor-view="split"><label class="sr-only" for="memory-editor-text">记忆卡内容 Markdown</label><textarea id="memory-editor-text" spellcheck="false" placeholder="记下一件事… #标签"></textarea><div class="memory-editor-preview memory-card-body" aria-label="实时预览"></div></div><footer class="memory-editor-footer"><label>可见性 <select id="memory-editor-visibility"><option value="PRIVATE">私密</option><option value="PROTECTED">未公开</option><option value="PUBLIC">公开</option></select></label><label class="memory-editor-tag-label">标签 <input id="memory-editor-tags" placeholder="#标签，多个用逗号分隔" /></label><button type="button" class="memory-editor-delete" hidden title="移入回收站，保留 30 天">删除</button><button type="button" class="memory-editor-save">发布</button></footer>`
+    host.innerHTML = `<header class="memory-editor-heading"><span id="memory-editor-heading" tabindex="0">新建记忆卡</span><div><button type="button" data-editor-window="maximize" title="全屏显示" aria-label="全屏显示">↗</button><button type="button" data-editor-window="close" title="收起窗口" aria-label="收起窗口">${icon('<path d="m5 5 14 14M5 19 19 5"/>')}</button></div></header><div class="memory-editor-toolbar"><button type="button" data-memory-format="bold" title="加粗"><strong>B</strong></button><button type="button" data-memory-format="italic" title="斜体"><i>I</i></button><button type="button" data-memory-format="h2" title="二级标题">H2</button><button type="button" data-memory-format="quote" title="引用">❝</button><button type="button" data-memory-format="unordered" title="列表">☷</button><button type="button" data-memory-format="task" title="任务列表">☑</button><button type="button" data-memory-format="inline-code" title="行内代码">&lt;/&gt;</button><button type="button" data-memory-format="link" title="插入链接">↗</button><div class="memory-editor-views"><button type="button" data-editor-view="edit" aria-pressed="false" title="编辑">编辑</button><button type="button" data-editor-view="split" aria-pressed="true" title="编辑并预览">双栏</button><button type="button" data-editor-view="preview" aria-pressed="false" title="实时预览">预览</button></div></div><div class="memory-editor-content" data-editor-view="split"><label class="sr-only" for="memory-editor-text">记忆卡内容 Markdown</label><textarea id="memory-editor-text" spellcheck="false" placeholder="记下一件事… #标签"></textarea><div class="memory-editor-preview memory-card-body" aria-label="实时预览"></div></div><footer class="memory-editor-footer"><label>可见性 <select id="memory-editor-visibility"><option value="PRIVATE">私密</option><option value="PROTECTED">未公开</option><option value="PUBLIC">公开</option></select></label><div class="memory-editor-tag-label"><label for="memory-editor-tags">标签</label><div class="memory-editor-tag-input" role="group" aria-label="记忆卡标签"><div class="memory-editor-tag-chips"></div><input id="memory-editor-tags" placeholder="输入标签，按回车添加" autocomplete="off" /></div></div><button type="button" class="memory-editor-delete" hidden title="移入回收站，保留 30 天">删除</button><button type="button" class="memory-editor-save">发布</button></footer>`
     const heading = host.querySelector(".memory-editor-heading"),
       caption = host.querySelector("#memory-editor-heading")
     const textarea = host.querySelector("textarea"),
       preview = host.querySelector(".memory-editor-preview")
-    const visibility = host.querySelector("#memory-editor-visibility"),
-      tagInput = host.querySelector("#memory-editor-tags")
+    const visibility = host.querySelector("#memory-editor-visibility")
+    const tagControl = createMemoryTagInput(host.querySelector(".memory-editor-tag-input"), {
+      onError: (text) => notify(text, "error"),
+    })
     const save = host.querySelector(".memory-editor-save"),
       remove = host.querySelector(".memory-editor-delete")
     let current,
@@ -705,7 +754,7 @@ export function mountMemories(hub, { siteBase }) {
       caption.textContent = memory ? "编辑记忆卡" : "新建记忆卡"
       textarea.value = lastContent
       visibility.value = memory?.visibility || "PRIVATE"
-      tagInput.value = (memory?.tags || []).join(", ")
+      tagControl.setTags(memory?.tags || [])
       remove.hidden = !memory
       save.textContent = memory ? "保存" : "发布"
       host.querySelector('[data-editor-view="edit"]').click()
@@ -723,16 +772,14 @@ export function mountMemories(hub, { siteBase }) {
         notify("请输入记忆卡内容。", "error")
         return
       }
+      if (!tagControl.commit()) return
       const body = {
         content:
           textarea.value === lastContent.replace(/\r\n?/g, "\n") ? lastContent : textarea.value,
         visibility: visibility.value,
         tags: [
           ...new Set([
-            ...tagInput.value
-              .split(/[,，\n]+/)
-              .map((tag) => tag.trim().replace(/^#/, ""))
-              .filter(Boolean),
+            ...tagControl.getTags(),
             ...(() => {
               renderMarkdown(preview, textarea.value, lastAttachments)
               return [...preview.querySelectorAll("[data-memory-tag]")].map(
@@ -860,6 +907,13 @@ export function mountMemories(hub, { siteBase }) {
       hide,
       destroy() {
         if (previewFrame) cancelAnimationFrame(previewFrame)
+        for (const remove of editorListeners) remove()
+        tagControl.destroy()
+        textarea.value = ""
+        preview.replaceChildren()
+        lastContent = ""
+        lastAttachments = []
+        current = null
         editorWindow.destroy?.()
         editorWindow.detach()
         host.remove()
@@ -881,14 +935,6 @@ export function mountMemories(hub, { siteBase }) {
       writeUrl()
       updateControls()
       void load()
-      return
-    }
-    const page = event.target.closest("[data-memory-page]")
-    if (page) {
-      state.page += page.dataset.memoryPage === "next" ? 1 : -1
-      writeUrl()
-      void load()
-      hub.scrollIntoView({ block: "start" })
       return
     }
     const period = event.target.closest("[data-memory-period]")
@@ -945,16 +991,22 @@ export function mountMemories(hub, { siteBase }) {
   }
   const measureHeader = () => {
     const header = document.querySelector(".blog-header")
-    if (header)
-      sidebar.style.setProperty(
-        "--memory-header-bottom",
-        `${Math.max(100, Math.ceil(header.getBoundingClientRect().bottom) + 32)}px`,
-      )
+    const bottom = `${Math.max(100, Math.ceil(header?.getBoundingClientRect().bottom || 110) + 32)}px`
+    const summaryHeight = `${Math.ceil(sidebar.querySelector("summary").getBoundingClientRect().height)}px`
+    const start = `${Math.ceil(get(".memory-layout").getBoundingClientRect().top + window.scrollY)}px`
+    if (sidebar.style.getPropertyValue("--memory-header-bottom") !== bottom)
+      sidebar.style.setProperty("--memory-header-bottom", bottom)
+    if (sidebar.style.getPropertyValue("--memory-sidebar-summary-height") !== summaryHeight)
+      sidebar.style.setProperty("--memory-sidebar-summary-height", summaryHeight)
+    if (sidebar.style.getPropertyValue("--memory-sidebar-start") !== start)
+      sidebar.style.setProperty("--memory-sidebar-start", start)
   }
   const headerObserver =
     typeof ResizeObserver !== "undefined" ? new ResizeObserver(measureHeader) : null
   if (document.querySelector(".blog-header"))
     headerObserver?.observe(document.querySelector(".blog-header"))
+  headerObserver?.observe(sidebar.querySelector("summary"))
+  headerObserver?.observe(get(".memory-layout"))
   on(window, "resize", () => {
     responsiveSidebar()
     measureHeader()
@@ -1015,6 +1067,7 @@ export function mountMemories(hub, { siteBase }) {
       clearTimeout(searchTimer)
       clearTimeout(noticeTimer)
       headerObserver?.disconnect()
+      pager.destroy()
       for (const remove of listeners) remove()
       editor?.destroy()
       releaseResources()

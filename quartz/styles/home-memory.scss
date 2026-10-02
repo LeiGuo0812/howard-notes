@@ -1,0 +1,104 @@
+@use "./liquid-glass" as material;
+
+.home-memory-previews {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: var(--site-card-gap);
+  min-width: 0;
+}
+.home-memory-surface {
+  min-width: 0;
+  isolation: isolate;
+}
+a.home-memory-card.internal {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  min-width: 0;
+  height: 100%;
+  min-height: 188px;
+  padding: 20px;
+  color: var(--dark);
+  text-decoration: none;
+  transition:
+    transform var(--glass-transition),
+    box-shadow var(--glass-transition);
+  &:hover {
+    transform: translateY(-2px);
+  }
+}
+.home-memory-card-heading {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  font-size: 11px;
+  color: var(--gray);
+  font-variant-numeric: tabular-nums;
+  time {
+    white-space: nowrap;
+  }
+}
+.home-memory-visibility {
+  font-size: 10px;
+  color: var(--gray);
+  white-space: nowrap;
+}
+.home-memory-excerpt {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 4;
+  overflow: hidden;
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.9;
+  overflow-wrap: anywhere;
+}
+.home-memory-preview-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: auto;
+  color: var(--secondary);
+  font-size: 10px;
+  line-height: 1.5;
+  span {
+    max-width: 100%;
+    padding: 4px 7px;
+    border-radius: var(--glass-radius-pill);
+    background: color-mix(in srgb, var(--secondary) 7%, transparent);
+    overflow-wrap: anywhere;
+  }
+}
+.home-memory-message {
+  grid-column: 1 / -1;
+  margin: 0;
+  padding: 16px 0;
+  color: var(--gray);
+  font-size: 13px;
+}
+.home-memory-retry {
+  @include material.control;
+  margin-left: 10px;
+  padding: 5px 10px;
+  font-size: 12px;
+}
+.layout-split .home-memory-previews {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+@media (max-width: 1000px) {
+  .home-memory-previews {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+@media (max-width: 520px) {
+  .home-memory-previews,
+  .layout-split .home-memory-previews {
+    grid-template-columns: 1fr;
+    gap: 14px;
+  }
+  a.home-memory-card.internal {
+    min-height: 160px;
+  }
+}

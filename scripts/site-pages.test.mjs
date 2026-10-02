@@ -42,7 +42,7 @@ test("layout defaults preserve existing configuration; templates and heatmap pin
   assert.equal(normalized.design.accentColor, "#365f8b")
   const knowledge = applyHomeTemplate(legacy, "knowledge")
   assert.equal(knowledge.home.sections[0].id, "topics")
-  assert.equal(knowledge.home.sections.find((section) => section.id === "tags").enabled, true)
+  assert.equal(knowledge.home.sections.find((section) => section.id === "memories").enabled, true)
   const activity = knowledge.home.sections.find((section) => section.id === "activity")
   knowledge.home.sections = [
     activity,
@@ -79,6 +79,59 @@ test("style validation rejects injected CSS and invalid sizes; configured counts
   }
   configured.pages.topicLayout = "arbitrary"
   assert.throws(() => validateSite(configured), /模板/)
+})
+
+test("legacy home tag slot migrates to four memory previews and removes browsing without changing other settings", () => {
+  const legacy = structuredClone(settings)
+  legacy.home.sections = [
+    { id: "recent", title: "近期阅读", enabled: true, limit: 8 },
+    { id: "tags", title: "旧标签", enabled: false },
+    { id: "collections", title: "浏览", enabled: true },
+    { id: "topics", title: "主题", enabled: true },
+    { id: "featured", title: "推荐", enabled: true, limit: 3 },
+    { id: "activity", title: "活动", enabled: true },
+  ]
+  const before = JSON.stringify(legacy)
+  assert.doesNotThrow(() => validateSite(legacy))
+  const normalized = normalizeSite(legacy)
+  assert.deepEqual(
+    normalized.home.sections.map((section) => section.id),
+    ["recent", "memories", "topics", "featured", "activity"],
+  )
+  assert.deepEqual(normalized.home.sections[1], {
+    id: "memories",
+    title: "记忆卡",
+    enabled: false,
+    limit: 4,
+  })
+  assert.equal(normalized.home.sections[0].limit, 8)
+  assert.deepEqual(orderedSections(legacy), normalized.home.sections)
+  assert.deepEqual(normalized.collections, legacy.collections)
+  assert.equal(JSON.stringify(legacy), before)
+  assert.doesNotThrow(() => validateSite(normalized))
+  assert.deepEqual(normalizeSite(normalized).home.sections, normalized.home.sections)
+  for (const template of ["classic", "articles", "knowledge"])
+    assert.ok(
+      applyHomeTemplate(legacy, template).home.sections.every(
+        (section) => !["tags", "collections"].includes(section.id),
+      ),
+    )
+})
+
+test("a saved new memory module takes precedence over its old tag module", () => {
+  const changed = structuredClone(settings)
+  const memory = changed.home.sections.find((section) => section.id === "memories")
+  memory.title = "随手记录"
+  memory.enabled = false
+  changed.home.sections.unshift({ id: "tags", title: "标签", enabled: true })
+  const modules = orderedSections(changed)
+  assert.equal(modules.filter((section) => section.id === "memories").length, 1)
+  assert.deepEqual(
+    modules.find((section) => section.id === "memories"),
+    memory,
+  )
+  memory.limit = 5
+  assert.throws(() => validateSite(changed), /展示数量/)
 })
 
 test("legacy typography migrates to separate language choices without changing saved settings", () => {

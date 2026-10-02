@@ -1,0 +1,97 @@
+@use "./liquid-glass" as material;
+
+nav.site-pagination {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-top: 32px;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  &[hidden] {
+    display: none !important;
+  }
+  .pagination-main,
+  .pagination-pages,
+  .pagination-jump {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+  button,
+  input {
+    @include material.control;
+    box-sizing: border-box;
+    min-height: 40px;
+    padding: 7px 11px;
+    color: var(--darkgray);
+    font: inherit;
+    line-height: 1.25;
+    background-clip: border-box;
+  }
+  button {
+    cursor: pointer;
+    min-width: 38px;
+    &:hover {
+      color: var(--secondary);
+    }
+    &[aria-current="page"] {
+      background: var(--secondary);
+      background-clip: border-box;
+      border-color: var(--secondary);
+      color: var(--light);
+      box-shadow: none;
+    }
+    &:disabled {
+      opacity: 0.4;
+      cursor: default;
+      transform: none;
+    }
+  }
+  input {
+    width: 62px;
+    padding-inline: 6px;
+    text-align: center;
+    appearance: textfield;
+    &::-webkit-inner-spin-button,
+    &::-webkit-outer-spin-button {
+      -webkit-appearance: none;
+      margin: 0;
+    }
+  }
+  button:focus-visible,
+  input:focus-visible {
+    outline: 2px solid var(--secondary);
+    outline-offset: 2px;
+  }
+  .pagination-state,
+  .pagination-gap,
+  .pagination-jump > label,
+  .pagination-jump > span {
+    color: var(--gray);
+  }
+  .pagination-state {
+    white-space: nowrap;
+  }
+  @media (max-width: 600px) {
+    gap: 10px;
+    // Leave a clear lane for fixed page and index controls, including while
+    // this pagination is centered by keyboard focus or a new page selection.
+    padding-right: 96px;
+    .pagination-main {
+      flex-basis: 100%;
+    }
+    .pagination-pages {
+      order: 1;
+      flex-basis: 100%;
+      gap: 4px;
+    }
+    button,
+    input {
+      min-height: 44px;
+    }
+  }
+}

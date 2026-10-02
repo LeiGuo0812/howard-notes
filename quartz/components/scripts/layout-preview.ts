@@ -91,15 +91,6 @@ function applyPreview() {
       refreshRecommendations()
   }
   const directory = document.querySelector<HTMLElement>(".topic-directory")
-  const collections = document.querySelector(".module-collections .collection-chips")
-  for (const item of draft.collections) {
-    const chip = collections?.querySelector<HTMLAnchorElement>(`[data-collection-id="${item.id}"]`)
-    if (chip) {
-      chip.hidden = !item.enabled
-      chip.querySelector("span")!.textContent = item.title
-      collections!.append(chip)
-    }
-  }
   const topicCards = sitePages(draft).topicLayout === "cards"
   if (directory)
     directory.className = `topic-directory topic-layout-${topicCards ? "cards topic-card-grid" : "list"}`

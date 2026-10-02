@@ -171,7 +171,6 @@ export function normalizeSite(settings) {
   for (const [id, title] of [
     ["featured", "试试手气"],
     ["recent", "最近文章"],
-    ["tags", "标签"],
   ])
     if (!result.home.sections.some((section) => section.id === id))
       result.home.sections.push({ id, title, enabled: false })
@@ -179,10 +178,29 @@ export function normalizeSite(settings) {
   return result
 }
 export function sectionLimit(section) {
-  return section?.limit ?? (section?.id === "featured" ? 3 : 6)
+  return section?.id === "memories" ? 4 : (section?.limit ?? (section?.id === "featured" ? 3 : 6))
 }
 export function orderedSections(settings) {
-  const sections = [...settings.home.sections]
+  // Older published settings and local layout drafts keep their other choices.
+  // Tags become a memory preview in the same slot; collection routes still exist.
+  const hasMemories = settings.home.sections.some((section) => section.id === "memories")
+  const sections = settings.home.sections.flatMap((section) => {
+    if (section.id === "collections") return []
+    if (section.id === "tags")
+      return hasMemories
+        ? []
+        : [{ id: "memories", title: "记忆卡", enabled: section.enabled, limit: 4 }]
+    return [{ ...section }]
+  })
+  if (!sections.some((section) => section.id === "memories")) {
+    const activityIndex = sections.findIndex((section) => section.id === "activity")
+    sections.splice(activityIndex < 0 ? sections.length : activityIndex, 0, {
+      id: "memories",
+      title: "记忆卡",
+      enabled: true,
+      limit: 4,
+    })
+  }
   return settings.home.activityPinned !== false
     ? sections.sort((a, b) => Number(a.id === "activity") - Number(b.id === "activity"))
     : sections
@@ -191,9 +209,9 @@ export function applyHomeTemplate(settings, template) {
   const result = normalizeSite(settings)
   result.pages.homeTemplate = template
   const orders = {
-    classic: ["featured", "recent", "topics", "collections", "tags", "activity"],
-    articles: ["featured", "recent", "tags", "topics", "collections", "activity"],
-    knowledge: ["topics", "tags", "featured", "recent", "collections", "activity"],
+    classic: ["featured", "recent", "topics", "memories", "activity"],
+    articles: ["featured", "recent", "memories", "topics", "activity"],
+    knowledge: ["topics", "memories", "featured", "recent", "activity"],
   }
   if (!orders[template]) throw new Error("首页模板不正确。")
   result.home.sections.sort(
@@ -202,7 +220,7 @@ export function applyHomeTemplate(settings, template) {
   result.home.layout = template === "knowledge" ? "split" : "single"
   if (template === "knowledge")
     for (const section of result.home.sections)
-      if (["topics", "tags"].includes(section.id)) section.enabled = true
+      if (["topics", "memories"].includes(section.id)) section.enabled = true
   return result
 }
 export function designVariables(settings) {
@@ -272,8 +290,10 @@ export function validateDesign(settings) {
   for (const section of settings.home?.sections || [])
     if (
       section.limit !== undefined &&
-      (!["featured", "recent"].includes(section.id) ||
-        !number(section.limit, 1, section.id === "featured" ? 6 : 20, true))
+      ((section.id === "memories" && section.limit !== 4) ||
+        (section.id !== "memories" &&
+          (!["featured", "recent"].includes(section.id) ||
+            !number(section.limit, 1, section.id === "featured" ? 6 : 20, true))))
     )
       throw new Error("文章展示数量不正确。")
 }

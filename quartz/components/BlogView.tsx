@@ -8,6 +8,8 @@ import { ARTICLES_PER_PAGE } from "./scripts/browsing"
 import { prepareArticleImages } from "../util/article-images"
 import { prepareArticleLinks } from "../util/article-links"
 import { MemoryHub } from "./MemoryView"
+import { PageScrollControls } from "./PageScrollControls"
+import { Pagination } from "./Pagination"
 import {
   designStyle,
   orderedSections,
@@ -190,25 +192,6 @@ function TagChips({
           </span>
           <span>{tag.title}</span>
           {tag.count !== undefined && <small class="tag-count">{tag.count}</small>}
-        </a>
-      ))}
-    </nav>
-  )
-}
-function CollectionChips({ props }: { props: QuartzComponentProps }) {
-  return (
-    <nav class="topic-chips collection-chips" aria-label="文章入口">
-      {data(props).collections.map((item) => (
-        <a
-          class="internal topic-chip"
-          data-collection-id={item.id}
-          hidden={!item.enabled}
-          data-no-popover="true"
-          href={href(props, `collections/${item.id}`)}
-        >
-          <span>{item.title}</span>
-          <small>{item.count}</small>
-          <span aria-hidden="true">↗</span>
         </a>
       ))}
     </nav>
@@ -522,13 +505,17 @@ export const BlogHome: QuartzComponent = (props) => {
                   </button>
                 )}
               </div>
-              {["featured", "recent"].includes(section.id) && (
+              {["featured", "recent", "memories"].includes(section.id) && (
                 <a
                   class="internal"
                   data-no-popover="true"
                   href={href(
                     props,
-                    section.id === "featured" ? "notes/index" : `collections/${section.id}`,
+                    section.id === "memories"
+                      ? "memory/index"
+                      : section.id === "featured"
+                        ? "notes/index"
+                        : `collections/${section.id}`,
                   )}
                 >
                   全部 <span aria-hidden="true">↗</span>
@@ -566,10 +553,19 @@ export const BlogHome: QuartzComponent = (props) => {
               </div>
             ) : section.id === "topics" ? (
               <TopicChips props={props} />
-            ) : section.id === "collections" ? (
-              <CollectionChips props={props} />
-            ) : section.id === "tags" ? (
-              <TagChips props={props} tags={data(props).tags.slice(0, 12)} />
+            ) : section.id === "memories" ? (
+              <div
+                id="home-memory-previews"
+                class="home-memory-previews"
+                data-memory-base={`${root(props)}/`}
+                data-memory-route={href(props, "memory/index")}
+                data-count="4"
+                aria-live="polite"
+              >
+                <p class="home-memory-message" role="status">
+                  正在加载…
+                </p>
+              </div>
             ) : (
               <Heatmap props={props} />
             )}
@@ -780,18 +776,11 @@ function ListingPage({ props, listing }: { props: QuartzComponentProps; listing:
       </ol>
       <div class="article-timeline" id="article-timeline" hidden aria-label="文章时间线" />
 
-      <nav class="pagination" id="listing-pagination" aria-label="文章分页">
-        <button type="button" id="listing-previous" disabled>
-          上一页
-        </button>
-        <span id="listing-pages" />
-        <span id="listing-page-state" role="status">
-          1 / {Math.max(1, Math.ceil(listing.total / ARTICLES_PER_PAGE))}
-        </span>
-        <button type="button" id="listing-next" disabled={listing.total <= ARTICLES_PER_PAGE}>
-          下一页
-        </button>
-      </nav>
+      <Pagination
+        prefix="listing"
+        label="文章分页"
+        totalPages={Math.max(1, Math.ceil(listing.total / ARTICLES_PER_PAGE))}
+      />
       <p class="empty-list" id="listing-empty" hidden={listing.rows.length > 0}>
         暂无文章
       </p>
@@ -1036,44 +1025,7 @@ export const BlogFrame: PageFrame = {
             </aside>
           )}
         </div>
-        {article && (
-          <nav class="reading-scroll-controls" aria-label="阅读位置">
-            <button
-              type="button"
-              data-scroll="top"
-              aria-label="到顶"
-              title="到顶"
-              data-tooltip="到顶"
-            >
-              <svg
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                stroke-width="1.6"
-                aria-hidden="true"
-              >
-                <path d="M5 4h14M6 13l6-6 6 6M12 7v13" />
-              </svg>
-            </button>
-            <button
-              type="button"
-              data-scroll="bottom"
-              aria-label="到底"
-              title="到底"
-              data-tooltip="到底"
-            >
-              <svg
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                stroke-width="1.6"
-                aria-hidden="true"
-              >
-                <path d="M5 20h14M6 11l6 6 6-6M12 17V4" />
-              </svg>
-            </button>
-          </nav>
-        )}
+        <PageScrollControls />
         {footer.map((Component) => (
           <Component {...componentData} />
         ))}
