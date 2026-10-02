@@ -1,6 +1,7 @@
 import fs from "node:fs/promises"
 import path from "node:path"
 import YAML from "yaml"
+import { pageSecurityPolicy } from "./lib/content-security.mjs"
 
 const config = YAML.parse(await fs.readFile("quartz.config.yaml", "utf8")).configuration
 const settings = JSON.parse(await fs.readFile("library/site.json", "utf8"))
@@ -42,3 +43,32 @@ await fs.writeFile(
 )
 await fs.writeFile("public/robots.txt", `User-agent: *\nAllow: /\nSitemap: ${base}/sitemap.xml\n`)
 console.log(`RSS: ${articles.length} articles`)
+
+// GitHub Pages cannot set response headers. Its static fallback receives the same
+// script restrictions in an early meta policy, before any bootstrap executes.
+const [authConfig, runtimeConfig] = await Promise.all([
+  fs.readFile("admin/auth-config.json", "utf8").then(JSON.parse),
+  fs.readFile("runtime/config.json", "utf8").then(JSON.parse),
+])
+const policy = await pageSecurityPolicy({
+  basePath: new URL(base).pathname.replace(/\/$/, ""),
+  connectOrigins: [authConfig.brokerOrigin, runtimeConfig.enabled ? runtimeConfig.apiBase : ""],
+  meta: true,
+})
+async function securePages(directory) {
+  for (const entry of await fs.readdir(directory, { withFileTypes: true })) {
+    const file = path.join(directory, entry.name)
+    if (entry.isDirectory()) await securePages(file)
+    else if (entry.name.endsWith(".html")) {
+      let html = await fs.readFile(file, "utf8")
+      if (!/http-equiv=["']Content-Security-Policy["']/i.test(html)) {
+        html = html.replace(
+          /<head>/i,
+          `<head><meta http-equiv="Content-Security-Policy" content="${escape(policy)}">`,
+        )
+        await fs.writeFile(file, html)
+      }
+    }
+  }
+}
+await securePages("public")

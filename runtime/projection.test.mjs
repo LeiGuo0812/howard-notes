@@ -26,6 +26,23 @@ const input = (articles, notes, extra = {}) => ({
   ...extra,
 })
 
+test("live article and About rendering sanitize executable content while preserving source bytes", async () => {
+  const source =
+    '\uFEFF# 安全标题\r\n\r\n原始正文 <script>stealToken()</script><img src="https://images.example/a.png" onerror="stealToken()">\r\n\r\n<a href="javascript:stealToken()">链接文字</a>'
+  const projected = await prepareProjection({
+    ...input([article("safe")], { "notes/safe.md": source }),
+    settings: {
+      ...settings,
+      about: { ...settings.about, body: "<p>关于本站</p><script>stealToken()</script>" },
+    },
+  })
+  assert.equal(projected.documents[0].source, source)
+  assert.doesNotMatch(projected.documents[0].html, /<script|onerror|javascript:|stealToken/i)
+  assert.doesNotMatch(projected.aboutHtml, /<script|stealToken/)
+  assert.match(projected.documents[0].html, /原始正文|链接文字/)
+  assert.match(projected.documents[0].html, /id="安全标题"/)
+})
+
 test("live projection preserves original Git bytes and Quartz callouts, GFM, code, math, mermaid, headings and links", async () => {
   const source =
     "\uFEFF---\r\nprivateMetadata: never-rendered\r\n---\r\n" +

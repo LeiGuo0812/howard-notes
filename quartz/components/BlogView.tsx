@@ -799,11 +799,12 @@ export const BlogFooter: QuartzComponent = (props) => (
   </footer>
 )
 type MaintenanceAction =
-  "new" | "drafts" | "articles" | "trash" | "settings" | "reconnect" | "logout" | "edit"
+  "new" | "drafts" | "private" | "articles" | "trash" | "settings" | "reconnect" | "logout" | "edit"
 function MaintenanceIcon({ action }: { action: MaintenanceAction }) {
   const paths: Record<MaintenanceAction, string> = {
     new: "M12 5v14M5 12h14",
     drafts: "M5 3h10l4 4v14H5ZM14 3v5h5M8 12h8M8 16h5",
+    private: "M5 10h14v11H5ZM8 10V7a4 4 0 0 1 8 0v3M12 14v3",
     articles: "M8 5h12M8 12h12M8 19h12M3 5h.01M3 12h.01M3 19h.01",
     settings: "M4 5h16v14H4ZM4 10h16M10 10v9",
     trash: "M3 6h18M9 6V3h6v3M5 6l1 15h12l1-15M10 10v7M14 10v7",
@@ -845,6 +846,7 @@ function MaintenanceTools() {
       <div class="maintenance-primary-tools">
         <MaintenanceButton action="new" label="新建文章" />
         <MaintenanceButton action="drafts" label="草稿箱" />
+        <MaintenanceButton action="private" label="私密文库" />
         <MaintenanceButton action="articles" label="文章管理" />
         <MaintenanceButton action="trash" label="回收站" />
         <MaintenanceButton action="settings" label="页面设置" />

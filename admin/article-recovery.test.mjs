@@ -114,6 +114,26 @@ test("unmodified and edited source retain original BOM and newline convention", 
   assert.equal(editorSourceText("正文\n", "修改\n"), "修改\n")
 })
 
+test("private attachments survive recovery without altering the original conflict baseline", () => {
+  const { storage, recovery } = fixture()
+  const attachment = {
+    fileId: "image-test",
+    source: "https://notes.test/api/content/personal/files/image-test",
+    name: "test.png",
+    token: "must-not-persist",
+  }
+  writeArticleRecovery(storage, { ...recovery, attachments: [attachment] })
+  const loaded = readArticleRecovery(storage, "a")
+  assert.equal(loaded.attachments[0].fileId, "image-test")
+  assert.equal(loaded.attachments[0].token, undefined)
+  assert.equal(loaded.openedSha, "original")
+  assert.deepEqual(loaded.article, recovery.article)
+  assert.equal(
+    recoveredBaseline(loaded, article, "original").attachments[0].source,
+    attachment.source,
+  )
+})
+
 test("invalid and oversized recovery data cannot be restored", () => {
   const { storage, values, recovery } = fixture()
   writeArticleRecovery(storage, recovery)

@@ -17,6 +17,21 @@ const png = Buffer.from(
 const file = (name = "图片.png", bytes = png) => new File([bytes], name, { type: "image/png" })
 const headSha = "a".repeat(40),
   commitSha = "b".repeat(40)
+
+test("private binary preparation keeps the original bytes without Git/base64 expansion", async () => {
+  const source = file("[图片].png")
+  const prepared = await prepareImage(source, { binaryOnly: true })
+  const githubPrepared = await prepareImage(source)
+  assert.deepEqual(Buffer.from(prepared.bytes), png)
+  assert.equal(prepared.sha256, githubPrepared.file.split(".")[0])
+  assert.equal(prepared.alt, "图片.png")
+  assert.equal(prepared.base64, undefined)
+  assert.equal(prepared.blobSha, undefined)
+  await assert.rejects(
+    prepareImage(file("x.svg", Buffer.from("<svg/>")), { binaryOnly: true }),
+    /PNG/,
+  )
+})
 function fixture({
   entries = [],
   status,

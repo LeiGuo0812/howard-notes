@@ -1,9 +1,15 @@
 import { sessionResponse } from "./session.mjs"
 import { memoriesResponse, cleanupMemories } from "./memories.mjs"
+import { personalNotesResponse, cleanupPersonalNotes } from "./personal-notes.mjs"
+import { backupsResponse, runScheduledBackup } from "./backups.mjs"
+import { publicationJobsResponse, runPendingPublications } from "./publication-jobs.mjs"
+import { applyPageSecurity } from "../scripts/lib/content-security.mjs"
+import { createOwnerVerificationCache } from "./owner-verification.mjs"
 import { validateCatalog } from "../scripts/lib/catalog.mjs"
 import { validateSite, topicList } from "../scripts/lib/site-settings.mjs"
 
 const encoder = new TextEncoder()
+const ownerVerification = new WeakMap()
 const MAX_ROW_BYTES = 1_900_000
 const MAX_BODY_BYTES = 2_500_000
 const SYNC_TTL = 30 * 60 * 1000
@@ -62,18 +68,36 @@ async function github(fetcher, env, token, path) {
 }
 async function authorize(request, env, fetcher) {
   const token = /^Bearer ([^\s]+)$/.exec(request.headers.get("Authorization") || "")?.[1]
-  if (!token) throw new HttpError("请先登录。", 401)
+  if (!token || token.length > 256) throw new HttpError("请先登录。", 401)
   const origin = request.headers.get("Origin")
   if (origin && origin !== new URL(request.url).origin && origin !== env.FALLBACK_ORIGIN)
     throw new HttpError("请求来源不正确。", 403)
   const automation = equalSecret(request.headers.get("X-Howard-Sync-Key"), env.SYNC_SECRET)
   if (!automation) {
-    const [user, repo] = await Promise.all([
-      github(fetcher, env, token, "/user"),
-      github(fetcher, env, token, `/repos/${env.REPOSITORY}`),
-    ])
-    if (String(user.id) !== env.OWNER_ID || !repo.permissions?.push)
-      throw new HttpError("此账号没有维护权限。", 403)
+    const verify = async () => {
+      const [user, repo] = await Promise.all([
+        github(fetcher, env, token, "/user"),
+        github(fetcher, env, token, `/repos/${env.REPOSITORY}`),
+      ])
+      if (String(user.id) !== env.OWNER_ID || !repo.permissions?.push)
+        throw new HttpError("此账号没有维护权限。", 403)
+    }
+    const ttl = Math.min(60, Math.max(0, Number(env.OWNER_AUTH_CACHE_SECONDS) || 0)) * 1000
+    if (!ttl) await verify()
+    else {
+      if (!ownerVerification.has(fetcher))
+        ownerVerification.set(fetcher, createOwnerVerificationCache())
+      const digest = [
+        ...new Uint8Array(await crypto.subtle.digest("SHA-256", encoder.encode(token))),
+      ]
+        .map((value) => value.toString(16).padStart(2, "0"))
+        .join("")
+      await ownerVerification.get(fetcher)(
+        `${env.OWNER_ID}:${env.REPOSITORY}:${digest}`,
+        verify,
+        ttl,
+      )
+    }
   }
   return token
 }
@@ -613,7 +637,7 @@ export async function handle(request, env, ctx = {}, fetcher = fetch) {
       status: 204,
       headers: {
         ...cors,
-        "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+        "Access-Control-Allow-Methods": "GET, HEAD, POST, PUT, OPTIONS",
         "Access-Control-Allow-Headers": "Authorization, Content-Type, X-Howard-Sync-Key",
         "Access-Control-Max-Age": "600",
       },
@@ -631,7 +655,31 @@ export async function handle(request, env, ctx = {}, fetcher = fetch) {
     const isApi = url.pathname.startsWith(apiPrefix)
     const route = isApi ? url.pathname.slice(apiPrefix.length) : url.pathname.slice(prefix.length)
     let response
-    if (isApi && (route === "memories" || route.startsWith("memories/"))) {
+    if (isApi && (route === "personal/jobs" || route.startsWith("personal/jobs/"))) {
+      response = await publicationJobsResponse(
+        request,
+        env,
+        db,
+        route,
+        (value) => authorize(value, env, fetcher),
+        ctx,
+        fetcher,
+      )
+    } else if (isApi && (route === "personal" || route.startsWith("personal/"))) {
+      response = await personalNotesResponse(request, env, db, route, (value) =>
+        authorize(value, env, fetcher),
+      )
+    } else if (isApi && (route === "backups" || route.startsWith("backups/"))) {
+      response = await backupsResponse(
+        request,
+        env,
+        db,
+        route,
+        (value) => authorize(value, env, fetcher),
+        {},
+        ctx,
+      )
+    } else if (isApi && (route === "memories" || route.startsWith("memories/"))) {
       response = await memoriesResponse(request, env, db, route, (value) =>
         authorize(value, env, fetcher),
       )
@@ -756,6 +804,10 @@ export async function handle(request, env, ctx = {}, fetcher = fetch) {
         response = await env.ASSETS.fetch(new Request(assetURL, request))
       }
     }
+    response = await applyPageSecurity(response, {
+      basePath: prefix.replace(/\/$/, ""),
+      connectOrigins: [env.FALLBACK_ORIGIN, env.AUTH_ORIGIN, env.CONTENT_ORIGIN].filter(Boolean),
+    })
     if (request.method === "HEAD") response = new Response(null, response)
     if (isApi) for (const [key, value] of Object.entries(cors)) response.headers.set(key, value)
     return response
@@ -768,7 +820,7 @@ export async function handle(request, env, ctx = {}, fetcher = fetch) {
         error:
           error instanceof HttpError
             ? error.message
-            : "内容服务暂时不可用；已保存的 GitHub 内容不会丢失。",
+            : "内容服务暂时不可用；请保留当前编辑并稍后重试。",
       },
       error instanceof HttpError ? error.status : 503,
       cors,
@@ -777,8 +829,15 @@ export async function handle(request, env, ctx = {}, fetcher = fetch) {
 }
 export default {
   fetch: handle,
-  async scheduled(_event, env) {
+  async scheduled(event, env) {
     const db = dbSession(env)
+    // Markdown compilation remains in the existing GitHub Actions publisher;
+    // this small durable queue only performs Git writes and confirms the result.
+    await runPendingPublications(env, db)
+    if (event?.cron && event.cron !== "47 * * * *") {
+      await runScheduledBackup(env, { db, maxQueries: 8, maxPages: 1 })
+      return
+    }
     const current = await state(db)
     const sync = await db.prepare("SELECT * FROM sync_session WHERE id = 1").first()
     if (sync && sync.expires < Date.now()) {
@@ -798,5 +857,7 @@ export default {
     }
     await cleanup(db, current.revision)
     await cleanupMemories(db)
+    await cleanupPersonalNotes(db)
+    await runScheduledBackup(env, { db, maxQueries: 8, maxPages: 1 })
   },
 }

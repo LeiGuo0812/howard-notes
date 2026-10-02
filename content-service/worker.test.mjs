@@ -17,6 +17,8 @@ function fixture() {
   const sqlite = new DatabaseSync(":memory:")
   sqlite.exec(fs.readFileSync(new URL("schema.sql", import.meta.url), "utf8"))
   sqlite.exec(fs.readFileSync(new URL("memories-schema.sql", import.meta.url), "utf8"))
+  sqlite.exec(fs.readFileSync(new URL("personal-notes-schema.sql", import.meta.url), "utf8"))
+  sqlite.exec(fs.readFileSync(new URL("publication-jobs-schema.sql", import.meta.url), "utf8"))
   const sqlQueries = []
   const DB = {
     prepare(sql) {

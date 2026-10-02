@@ -37,6 +37,20 @@ function record(value) {
     raw: value.raw,
     savedForm: value.savedForm,
     form,
+    attachments: Array.isArray(value.attachments)
+      ? structuredClone(value.attachments)
+          .filter(
+            (item) => item && typeof item.fileId === "string" && typeof item.source === "string",
+          )
+          .map(({ fileId, source, name, mimeType, sha256, publicUrl }) => ({
+            fileId,
+            source,
+            ...(name ? { name } : {}),
+            ...(mimeType ? { mimeType } : {}),
+            ...(sha256 ? { sha256 } : {}),
+            ...(publicUrl ? { publicUrl } : {}),
+          }))
+      : [],
     savedAt: typeof value.savedAt === "string" ? value.savedAt : new Date().toISOString(),
   }
 }
@@ -82,6 +96,7 @@ export function recoveredBaseline(recovery, latestArticle, latestSha) {
     raw: recovery.raw,
     savedForm: recovery.savedForm,
     form: { ...recovery.form },
+    attachments: structuredClone(recovery.attachments || []),
     stale:
       recovery.openedSha !== (latestSha ?? null) || !equal(recovery.article, latestArticle ?? null),
   }

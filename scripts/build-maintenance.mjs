@@ -40,6 +40,7 @@ export async function buildMaintenance(template, workerEntry) {
     await Promise.all([
       fs.readFile("styles/frosted-glass.css", "utf8"),
       fs.readFile("admin/admin.css", "utf8"),
+      fs.readFile("admin/backup-manager.css", "utf8"),
     ])
   )
     .join("\n")

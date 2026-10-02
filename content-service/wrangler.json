@@ -5,7 +5,11 @@
   "compatibility_date": "2026-09-30",
   "workers_dev": true,
   "observability": { "enabled": false },
-  "triggers": { "crons": ["47 * * * *"] },
+  "triggers": { "crons": ["* * * * *", "47 * * * *"] },
+  "r2_buckets": [
+    { "binding": "BACKUP_BUCKET", "bucket_name": "howard-notes-backups" },
+    { "binding": "PERSONAL_FILES_BUCKET", "bucket_name": "howard-notes-private-files" }
+  ],
   "d1_databases": [
     {
       "binding": "DB",
@@ -25,6 +29,7 @@
       "/howard-notes/tags/*",
       "/howard-notes/collections/*",
       "/howard-notes/memory/*",
+      "/howard-notes/admin/*",
       "/howard-notes/about",
       "/howard-notes/about.html",
       "/howard-notes/404",
@@ -44,8 +49,11 @@
   "vars": {
     "SITE_PREFIX": "/howard-notes/",
     "OWNER_ID": "50766698",
+    "OWNER_AUTH_CACHE_SECONDS": "60",
     "REPOSITORY": "LeiGuo0812/howard-notes",
     "BRANCH": "main",
-    "FALLBACK_ORIGIN": "https://leiguo0812.github.io"
+    "FALLBACK_ORIGIN": "https://leiguo0812.github.io",
+    "AUTH_ORIGIN": "https://howard-notes-login.howard-notes-login.workers.dev",
+    "CONTENT_ORIGIN": "https://howard-notes.howard-notes-login.workers.dev"
   }
 }

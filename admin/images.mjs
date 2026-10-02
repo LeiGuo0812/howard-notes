@@ -14,11 +14,15 @@ function extension(bytes) {
   throw new Error("请选择 PNG、JPEG、WebP、GIF 或 AVIF 图片。")
 }
 
-export async function prepareImage(file) {
+export async function prepareImage(file, { binaryOnly = false } = {}) {
   if (!file.size || file.size > MAX_IMAGE_BYTES) throw new Error("图片需非空且不超过 10 MiB。")
   const bytes = new Uint8Array(await file.arrayBuffer()),
     ext = extension(bytes)
   const digest = hex(await crypto.subtle.digest("SHA-256", bytes))
+  const alt = (file.name || "粘贴图片").replace(/[\\\[\]\r\n]/g, "").slice(0, 200)
+  // Private uploads use the original binary. Avoid a second read, SHA-1
+  // calculation and base64 expansion on the browser's interaction thread.
+  if (binaryOnly) return { bytes, sha256: digest, alt, extension: ext }
   const prefix = new TextEncoder().encode(`blob ${bytes.length}\0`)
   const object = new Uint8Array(prefix.length + bytes.length)
   object.set(prefix)
@@ -31,7 +35,7 @@ export async function prepareImage(file) {
     file: `${digest}.${ext}`,
     blobSha,
     base64: btoa(binary),
-    alt: (file.name || "粘贴图片").replace(/[\\\[\]\r\n]/g, "").slice(0, 200),
+    alt,
   }
 }
 

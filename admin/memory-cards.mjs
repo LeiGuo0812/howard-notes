@@ -6,6 +6,8 @@ import { requestOwnerAccess } from "./owner-access.mjs"
 import { createMemoryTagInput } from "./tag-input.mjs"
 import { mountPagination } from "../scripts/lib/pagination.mjs"
 import { githubMemoryAttachmentUrl } from "../scripts/lib/memory-attachment-storage.mjs"
+import { createDurableDraftController } from "./durable-drafts.mjs"
+import { memoryRecoveryRecord, validatedMemoryRecovery } from "./memory-recovery.mjs"
 
 const PAGE_SIZE = 20
 const validSorts = new Set(["created-desc", "created-asc", "modified-desc", "modified-asc"])
@@ -62,6 +64,12 @@ export function mountMemories(hub, { siteBase }) {
     count = get("#memory-count"),
     activeFilter = get("#memory-active-filter")
   const query = new URLSearchParams(location.search)
+  const recoveryLauncher = createElement("button", "memory-recovery-launch", "恢复稿")
+  recoveryLauncher.type = "button"
+  recoveryLauncher.dataset.memoryAction = "recoveries"
+  recoveryLauncher.title = "查看云端未保存的记忆卡"
+  recoveryLauncher.hidden = true
+  get(".memory-heading").insertBefore(recoveryLauncher, get(".memory-new"))
   let requestedCard = location.hash.startsWith("#memory-card-") ? location.hash.slice(1) : null
   let state = {
     q: query.get("q") || "",
@@ -84,6 +92,9 @@ export function mountMemories(hub, { siteBase }) {
     editorWindow,
     forcePublic = false,
     authEpoch = 0
+  let cloudController,
+    cloudRequest = 0
+  const cloudRecords = new Map()
   const records = new Map(),
     listeners = []
   let pageCount = 1
@@ -259,10 +270,73 @@ export function mountMemories(hub, { siteBase }) {
     }
     return result
   }
+  const privateRequest = async (path, method = "GET", body) => {
+    const epoch = authEpoch
+    if (!owner || forcePublic || !apiBase) {
+      const error = new Error("请重新登录后操作。")
+      error.status = 401
+      throw error
+    }
+    const access = await requestOwnerAccess()
+    if (!owner || forcePublic || access?.loggedOut || epoch !== authEpoch) {
+      const error = new Error("请重新登录后操作。")
+      error.status = 401
+      throw error
+    }
+    const encoded = body === undefined ? null : JSON.stringify(body)
+    const response = await fetch(`${apiBase.replace(/\/memories$/, "")}/personal/${path}`, {
+      method,
+      cache: "no-store",
+      credentials: "same-origin",
+      ...(encoded == null
+        ? {}
+        : { body: encoded, keepalive: new TextEncoder().encode(encoded).length < 60000 }),
+      headers: {
+        ...(access?.token ? { Authorization: `Bearer ${access.token}` } : {}),
+        ...(encoded == null ? {} : { "Content-Type": "application/json" }),
+      },
+    })
+    const result = await response.json().catch(() => ({}))
+    if (!response.ok) {
+      const error = new Error(result.error || "恢复稿保存未完成，请重试。")
+      error.status = response.status
+      throw error
+    }
+    return result
+  }
+  const draftController = () =>
+    (cloudController ||= createDurableDraftController({
+      request: privateRequest,
+      onState: (value) => {
+        if (alive && owner) editor?.recoveryState(value)
+      },
+    }))
+  const updateRecoveryLauncher = () => {
+    recoveryLauncher.hidden = !owner || cloudRecords.size === 0
+    recoveryLauncher.textContent = `恢复稿 ${cloudRecords.size}`
+  }
+  const loadCloudRecoveries = async () => {
+    if (!owner || !alive) return
+    const serial = ++cloudRequest,
+      epoch = authEpoch
+    try {
+      const result = await privateRequest("drafts?all=1")
+      if (!alive || !owner || serial !== cloudRequest || epoch !== authEpoch) return
+      cloudRecords.clear()
+      for (const draft of result.drafts || [])
+        if (draft.kind === "memory" || /^(?:new-)?memory-/.test(draft.editorId))
+          cloudRecords.set(draft.editorId, draft)
+      updateRecoveryLauncher()
+    } catch (error) {
+      if (alive && owner && serial === cloudRequest && epoch === authEpoch && error.status !== 401)
+        recoveryLauncher.title = "恢复稿暂时无法读取，点击重试"
+    }
+  }
   const updateControls = () => {
     for (const control of hub.querySelectorAll("[data-memory-view]"))
       control.setAttribute("aria-pressed", String(control.dataset.memoryView === state.view))
-    get(".memory-new").hidden = !owner
+    get('[data-memory-action="new"]').hidden = !owner
+    updateRecoveryLauncher()
     get(".memory-status-controls").hidden = !owner
     list.hidden = state.view !== "cards"
     timeline.hidden = state.view !== "timeline"
@@ -325,6 +399,11 @@ export function mountMemories(hub, { siteBase }) {
     )
   const purgePrivateState = () => {
     authEpoch++
+    cloudRequest++
+    cloudController?.dispose()
+    cloudController = null
+    cloudRecords.clear()
+    updateRecoveryLauncher()
     editor?.destroy()
     editor = null
     editorWindow = null
@@ -619,6 +698,7 @@ export function mountMemories(hub, { siteBase }) {
         return load()
       }
       owner = result.owner === true
+      if (owner) void loadCloudRecoveries()
       if (!owner && state.status !== "NORMAL") {
         state.status = "NORMAL"
         statusControl.value = "NORMAL"
@@ -728,12 +808,80 @@ export function mountMemories(hub, { siteBase }) {
     })
     const save = host.querySelector(".memory-editor-save"),
       remove = host.querySelector(".memory-editor-delete")
+    const recoveryStatus = createElement("button", "memory-recovery-state", "云恢复稿")
+    recoveryStatus.type = "button"
+    recoveryStatus.title = "未保存内容自动保存为私密云恢复稿；点击重试或比较"
+    heading.insertBefore(recoveryStatus, heading.lastElementChild)
+    const recoveryOffer = createElement("button", "memory-recovery-offer", "恢复未保存修改")
+    recoveryOffer.type = "button"
+    recoveryOffer.hidden = true
+    recoveryOffer.title = "恢复这张记忆卡在另一设备未保存的编辑"
+    host.querySelector(".memory-editor-toolbar").append(recoveryOffer)
     let current,
       lastAttachments = [],
       lastContent = "",
       locked = false,
-      previewFrame
+      previewFrame,
+      draftId,
+      newRequestId,
+      recoveryTimer,
+      recoveryDirty = false,
+      availableRecovery,
+      editorSerial = 0
+    const recoveryRecord = () =>
+      memoryRecoveryRecord(
+        current,
+        {
+          content: textarea.value,
+          visibility: visibility.value,
+          tags: tagControl.getTags(),
+          pendingTag: host.querySelector("#memory-editor-tags").value,
+        },
+        { original: lastContent, newRequestId },
+      )
+    const saveRecovery = () => {
+      clearTimeout(recoveryTimer)
+      if (!recoveryDirty || !draftId || !owner || forcePublic) return Promise.resolve(null)
+      const id = draftId,
+        value = recoveryRecord(),
+        epoch = authEpoch
+      const stamp = JSON.stringify(value)
+      return draftController()
+        .save(id, value)
+        .then((saved) => {
+          if (alive && owner && epoch === authEpoch) {
+            cloudRecords.set(id, {
+              editorId: id,
+              kind: "memory",
+              id: value.memoryId,
+              title: value.content.replace(/^\uFEFF/, "").slice(0, 30) || "记忆卡恢复稿",
+            })
+            updateRecoveryLauncher()
+            if (draftId === id && JSON.stringify(recoveryRecord()) === stamp) recoveryDirty = false
+          }
+          return saved
+        })
+    }
+    const dirty = () => {
+      if (!draftId || locked) return
+      recoveryDirty = true
+      recoveryStatus.textContent = "未暂存"
+      clearTimeout(recoveryTimer)
+      recoveryTimer = setTimeout(() => void saveRecovery().catch(() => {}), 1000)
+    }
+    const clearRecovery = (id) => {
+      if (!id) return
+      void draftController()
+        .remove(id)
+        .then(() => {
+          if (!alive || !owner) return
+          cloudRecords.delete(id)
+          updateRecoveryLauncher()
+        })
+        .catch(() => {})
+    }
     const hide = () => {
+      void saveRecovery().catch(() => {})
       editorWindow.detach()
       host.hidden = true
     }
@@ -745,12 +893,22 @@ export function mountMemories(hub, { siteBase }) {
         previewFrame = 0
       })
     }
-    const show = (memory) => {
+    const show = (memory, recovery = null, id = null) => {
       if (locked) {
         notify("上一条记忆卡正在保存，可以继续浏览。")
         return
       }
+      void saveRecovery().catch(() => {})
+      clearTimeout(recoveryTimer)
+      const serial = ++editorSerial,
+        epoch = authEpoch
       current = memory || null
+      draftId = id || (memory ? `memory-${memory.id}` : `new-memory-${crypto.randomUUID()}`)
+      newRequestId = recovery?.newRequestId || crypto.randomUUID()
+      availableRecovery = null
+      recoveryDirty = false
+      recoveryOffer.hidden = true
+      recoveryStatus.textContent = recovery ? "已恢复云稿" : "云恢复稿"
       lastAttachments = memory?.attachments || []
       lastContent = memory?.content || ""
       caption.textContent = memory ? "编辑记忆卡" : "新建记忆卡"
@@ -759,6 +917,13 @@ export function mountMemories(hub, { siteBase }) {
       tagControl.setTags(memory?.tags || [])
       remove.hidden = !memory
       save.textContent = memory ? "保存" : "发布"
+      save.hidden = false
+      if (recovery) {
+        textarea.value = recovery.content
+        visibility.value = recovery.visibility
+        tagControl.setTags(recovery.tags)
+        host.querySelector("#memory-editor-tags").value = recovery.pendingTag || ""
+      }
       host.querySelector('[data-editor-view="edit"]').click()
       if (!matchMedia("(max-width: 800px)").matches)
         host.querySelector('[data-editor-view="split"]').click()
@@ -766,6 +931,39 @@ export function mountMemories(hub, { siteBase }) {
       renderPreview()
       editorWindow.center()
       textarea.focus({ preventScroll: true })
+      if (!recovery)
+        void draftController()
+          .load(draftId)
+          .then((draft) => {
+            if (!alive || !owner || serial !== editorSerial || epoch !== authEpoch) return
+            const found = draft?.status === "ACTIVE" ? validatedMemoryRecovery(draft.record) : null
+            if (found) {
+              availableRecovery = found
+              recoveryOffer.hidden = false
+            }
+          })
+          .catch(() => {})
+    }
+    const showRecoveries = () => {
+      show(null)
+      if (previewFrame) cancelAnimationFrame(previewFrame)
+      previewFrame = 0
+      caption.textContent = "云端恢复稿"
+      save.hidden = true
+      remove.hidden = true
+      host.querySelector('[data-editor-view="preview"]').click()
+      preview.replaceChildren()
+      for (const draft of cloudRecords.values()) {
+        const button = createElement(
+          "button",
+          "memory-recovery-item",
+          draft.title || "记忆卡恢复稿",
+        )
+        button.type = "button"
+        button.dataset.memoryRecoveryId = draft.editorId
+        button.title = "恢复未保存内容，原记忆卡保持不变"
+        preview.append(button, createElement("br"))
+      }
     }
     const submit = () => {
       if (locked) return
@@ -790,12 +988,13 @@ export function mountMemories(hub, { siteBase }) {
             })(),
           ]),
         ],
-        ...(current ? { version: current.version } : { requestId: crypto.randomUUID() }),
+        ...(current ? { version: current.version } : { requestId: newRequestId }),
       }
       // Closing and progress are synchronous; the network never blocks dragging,
       // scrolling, navigation or any unrelated control.
       locked = true
       const epoch = authEpoch
+      const savedDraftId = draftId
       hide()
       notify(current ? "正在保存记忆卡…" : "正在发布记忆卡…")
       const retry = () => {
@@ -811,6 +1010,9 @@ export function mountMemories(hub, { siteBase }) {
           if (!alive || !owner || epoch !== authEpoch) return
           current = result.memory || current
           lastContent = body.content
+          recoveryDirty = false
+          clearTimeout(recoveryTimer)
+          clearRecovery(savedDraftId)
           notify("记忆卡已保存。", "done")
           void load({ quiet: true })
         } catch (error) {
@@ -822,6 +1024,8 @@ export function mountMemories(hub, { siteBase }) {
                 .then(({ memory: latest }) => {
                   if (!latest || !alive || !owner || epoch !== authEpoch) return
                   current = latest
+                  recoveryDirty = true
+                  dirty()
                   const other = createElement("details", "memory-conflict")
                   const summary = createElement(
                     "summary",
@@ -846,7 +1050,18 @@ export function mountMemories(hub, { siteBase }) {
       }
       void run()
     }
-    on(textarea, "input", renderPreview)
+    on(textarea, "input", () => {
+      renderPreview()
+      dirty()
+    })
+    on(visibility, "change", dirty)
+    on(host.querySelector(".memory-editor-tag-input"), "input", dirty)
+    on(host.querySelector(".memory-editor-tag-input"), "keydown", () => queueMicrotask(dirty))
+    on(host.querySelector(".memory-editor-tag-input"), "click", () => queueMicrotask(dirty))
+    on(document, "visibilitychange", () => {
+      if (document.visibilityState === "hidden") void saveRecovery().catch(() => {})
+    })
+    on(window, "pagehide", () => void saveRecovery().catch(() => {}))
     on(textarea, "keydown", (event) => {
       if ((event.ctrlKey || event.metaKey) && event.key === "Enter") {
         event.preventDefault()
@@ -879,6 +1094,7 @@ export function mountMemories(hub, { siteBase }) {
           textarea.focus()
           textarea.setSelectionRange(next.start, next.end)
           renderPreview()
+          dirty()
         } catch (error) {
           notify(error.message, "error")
         }
@@ -890,6 +1106,61 @@ export function mountMemories(hub, { siteBase }) {
           button.setAttribute("aria-pressed", String(button === view))
       }
       if (event.target.closest('[data-editor-window="close"]')) hide()
+      if (event.target.closest(".memory-recovery-offer") && availableRecovery)
+        show(availableRecovery.baseline, availableRecovery, draftId)
+      const picked = event.target.closest("[data-memory-recovery-id]")
+      if (picked) {
+        const epoch = authEpoch,
+          serial = editorSerial,
+          id = picked.dataset.memoryRecoveryId
+        void draftController()
+          .load(id)
+          .then((draft) => {
+            if (!alive || !owner || epoch !== authEpoch || serial !== editorSerial) return
+            const recovery =
+              draft?.status === "ACTIVE" ? validatedMemoryRecovery(draft.record) : null
+            if (recovery) show(recovery.baseline, recovery, id)
+          })
+          .catch((error) => {
+            if (alive && owner && epoch === authEpoch) notify(error.message, "error")
+          })
+      }
+      if (event.target.closest(".memory-recovery-state") && draftId) {
+        const id = draftId,
+          epoch = authEpoch,
+          serial = editorSerial
+        void draftController()
+          .load(id)
+          .then((draft) => {
+            if (!alive || !owner || epoch !== authEpoch || serial !== editorSerial) return
+            const other = createElement("details", "memory-conflict")
+            other.open = true
+            other.append(
+              createElement("summary", "", "云端恢复稿与当前编辑"),
+              createElement("pre", "", draft?.record?.content || "暂无云端恢复稿"),
+            )
+            const keep = createElement("button", "", "比较后保存当前编辑")
+            keep.type = "button"
+            on(keep, "click", () => {
+              if (!alive || !owner || epoch !== authEpoch || serial !== editorSerial) return
+              void draftController()
+                .acceptRemoteVersion(id, draft?.version || 0, draft?.status || "ACTIVE")
+                .then(() => {
+                  recoveryDirty = true
+                  return saveRecovery()
+                })
+                .catch((error) => {
+                  if (alive && owner && epoch === authEpoch) notify(error.message, "error")
+                })
+            })
+            other.append(keep)
+            preview.prepend(other)
+            host.querySelector('[data-editor-view="split"]').click()
+          })
+          .catch((error) => {
+            if (alive && owner && epoch === authEpoch) notify(error.message, "error")
+          })
+      }
       if (event.target.closest(".memory-editor-save")) submit()
       if (event.target.closest(".memory-editor-delete") && current) {
         hide()
@@ -906,8 +1177,24 @@ export function mountMemories(hub, { siteBase }) {
     })
     return {
       show,
+      showRecoveries,
       hide,
+      flush: saveRecovery,
+      recoveryState(value) {
+        if (value.editorId !== draftId) return
+        recoveryStatus.textContent =
+          {
+            loading: "云恢复稿",
+            saving: "暂存中…",
+            saved: "已云暂存",
+            deleted: "已保存",
+            conflict: "恢复稿有冲突",
+            error: "暂存失败",
+          }[value.state] || "云恢复稿"
+      },
       destroy() {
+        editorSerial++
+        clearTimeout(recoveryTimer)
         if (previewFrame) cancelAnimationFrame(previewFrame)
         for (const remove of editorListeners) remove()
         tagControl.destroy()
@@ -963,6 +1250,11 @@ export function mountMemories(hub, { siteBase }) {
       return
     }
     if (!owner) return
+    if (action.dataset.memoryAction === "recoveries") {
+      editor ||= createEditor()
+      editor.showRecoveries()
+      return
+    }
     const memory = records.get(action.dataset.memoryId)
     if (action.dataset.memoryAction === "new" || action.dataset.memoryAction === "edit") {
       editor ||= createEditor()
@@ -1063,6 +1355,10 @@ export function mountMemories(hub, { siteBase }) {
   })()
   return {
     destroy() {
+      const pendingRecovery = editor?.flush()
+      if (pendingRecovery)
+        void pendingRecovery.catch(() => {}).finally(() => cloudController?.dispose())
+      else cloudController?.dispose()
       alive = false
       request++
       pendingFetch?.abort()
@@ -1075,6 +1371,7 @@ export function mountMemories(hub, { siteBase }) {
       releaseResources()
       records.clear()
       progress.remove()
+      recoveryLauncher.remove()
       list.replaceChildren()
       timeline.replaceChildren()
     },

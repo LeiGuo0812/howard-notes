@@ -170,7 +170,7 @@ function fixture(t, { loadGate, renderGate, fail = false } = {}) {
     return { default: mermaid }
   }
   const source = runtime.replace(
-    /import\(\s*"https:\/\/cdnjs\.cloudflare\.com\/ajax\/libs\/mermaid\/11\.4\.0\/mermaid\.esm\.min\.mjs"\s*\)/,
+    /import\(\s*"https:\/\/cdn\.jsdelivr\.net\/npm\/mermaid@11\.17\.2\/dist\/mermaid\.esm\.min\.mjs"\s*\)/,
     "window.__testLoad()",
   )
   assert.notEqual(source, runtime, "test loader failed to replace the production CDN import")
@@ -343,6 +343,32 @@ test("theme changes serialize rendering, keep raw sources, and only install the 
   assert.ok(note.code.innerHTML.includes(f.calls[1].id))
   assert.equal(f.surfaces().length, 0)
   assert.equal(f.failures.length, 0)
+})
+
+test("diagram directives cannot weaken security or inject HTML labels and configuration CSS", async (t) => {
+  const f = fixture(t)
+  f.note("graph LR; A-->B")
+  f.event("nav")
+  await flush()
+  const config = f.configurations[0]
+  assert.equal(config.securityLevel, "strict")
+  assert.equal(config.htmlLabels, false)
+  assert.equal(config.flowchart.htmlLabels, false)
+  for (const key of [
+    "secure",
+    "securityLevel",
+    "htmlLabels",
+    "flowchart",
+    "themeCSS",
+    "themeVariables",
+    "dompurifyConfig",
+    "fontFamily",
+  ])
+    assert.ok(config.secure.includes(key), key)
+  assert.equal(config.maxTextSize, 50000)
+  assert.equal(config.maxEdges, 300)
+  assert.match(runtime, /mermaid@11\.17\.2/)
+  assert.doesNotMatch(runtime, /mermaid\/11\.4\.0/)
 })
 
 test("duplicate nav/render notifications and repeated expansion do not duplicate renders or controls", async (t) => {

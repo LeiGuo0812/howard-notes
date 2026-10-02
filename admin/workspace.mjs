@@ -1,13 +1,16 @@
 import { listLocalTrash, trashLocalRecovery, removeLocalTrash } from "./local-trash.mjs"
 import { rememberSession, clearSession } from "./session.mjs"
-import { GitHubLibrary } from "./github.mjs"
+import { PersonalLibrary } from "./personal-library.mjs"
+import { createDurableDraftController } from "./durable-drafts.mjs"
 import { validateCatalog } from "../scripts/lib/catalog.mjs"
 import { topicList } from "../scripts/lib/site-settings.mjs"
 import { formatSelection, TextHistory } from "./formatting.mjs"
 import { createPreview } from "./preview.mjs"
 import { createSettings } from "./settings.mjs"
-import { GitHubImageHost, prepareImage } from "./images.mjs"
-import { imageHostSettings } from "../scripts/lib/image-host.mjs"
+import { createBackupManager } from "./backup-manager.mjs"
+import { createArticleHistory } from "./article-history.mjs"
+import { publicLibrarySnapshot } from "./public-library.mjs"
+import { prepareImage } from "./images.mjs"
 import { createRuntimePublisher, publicChange } from "./runtime-publish.mjs"
 import {
   RECOVERY_FIELDS,
@@ -37,7 +40,12 @@ export function createWorkspace(root, options = {}) {
     disposed = false,
     visible = true,
     recoveryError = false,
-    recoveryTimer
+    recoveryTimer,
+    cloudTimer,
+    cloudDrafts,
+    backups,
+    jobTimer
+  const cloudKnown = new Set()
   let client,
     snapshot,
     current = null,
@@ -76,7 +84,12 @@ export function createWorkspace(root, options = {}) {
   retryPublication.type = "button"
   retryPublication.textContent = "重试同步"
   retryPublication.title = "将 GitHub 中的最新内容同步到网站"
-  publication.append(publicationText, retryPublication)
+  const dismissPublication = document.createElement("button")
+  dismissPublication.type = "button"
+  dismissPublication.textContent = "结束跟踪"
+  dismissPublication.title = "结束跟踪冲突任务；私密原文和恢复稿保留"
+  dismissPublication.hidden = true
+  publication.append(publicationText, retryPublication, dismissPublication)
   $("status").before(publication)
   const publisher = createRuntimePublisher({
     siteBase,
@@ -101,26 +114,199 @@ export function createWorkspace(root, options = {}) {
   const retrySynchronization = () =>
     action(
       async () => {
+        for (const job of client?.jobs || [])
+          if (job.status === "awaiting_auth")
+            await client.personalRequest(`jobs/${job.id}/resume`, "POST", {
+              tokenExpiresAt: session?.expiresAt,
+            })
+        monitorJobs()
         const state = await publisher.retry()
         if (state) options.onSaved?.({ ...state, sync: state })
       },
       { editable: true },
     )
   retryPublication.onclick = retrySynchronization
+  const synchronizedJobs = new Set()
+  const completedJobs = new Set()
+  const dismissedJobs = new Set()
+  try {
+    for (const id of JSON.parse(storage?.getItem("howard-notes:dismissed-jobs:v1") || "[]"))
+      if (typeof id === "string") dismissedJobs.add(id)
+  } catch {}
+  dismissPublication.onclick = () => {
+    for (const job of client?.jobs || []) if (job.status === "conflict") dismissedJobs.add(job.id)
+    try {
+      storage?.setItem(
+        "howard-notes:dismissed-jobs:v1",
+        JSON.stringify([...dismissedJobs].slice(-100)),
+      )
+    } catch {}
+    monitorJobs()
+  }
+  function monitorJobs() {
+    clearTimeout(jobTimer)
+    if (!client || disposed) return
+    const connection = client
+    void connection
+      .personalRequest("jobs")
+      .then(async ({ jobs }) => {
+        if (disposed || client !== connection) return
+        client.jobs = jobs
+        const targetOf = (job) => job.publicArticleId || job.checkpoint?.articleId || job.articleId
+        const pending = jobs.filter(
+          (job) =>
+            !["completed", "cancelled"].includes(job.status) &&
+            !dismissedJobs.has(job.id) &&
+            !(
+              job.status === "conflict" &&
+              jobs.some(
+                (newer) =>
+                  newer.status === "completed" &&
+                  targetOf(newer) === targetOf(job) &&
+                  newer.createdAt > job.createdAt,
+              )
+            ),
+        )
+        dismissPublication.hidden = !pending.some((job) => job.status === "conflict")
+        if (pending.length) {
+          publication.hidden = false
+          publicationText.textContent = `${pending.length} 个后台任务${pending.some((job) => job.status === "conflict") ? "需要核对版本" : pending.some((job) => job.status === "awaiting_auth") ? "需要重新登录" : "正在处理，可关闭网页"}。`
+          retryPublication.hidden = !pending.some((job) =>
+            ["retry", "awaiting_auth"].includes(job.status),
+          )
+          options.onProgress?.(publicationText.textContent)
+        } else if (!publisher.pending?.()) {
+          dismissPublication.hidden = true
+          publicationText.textContent = "后台任务已完成。"
+          retryPublication.hidden = true
+          options.onProgress?.(publicationText.textContent)
+        }
+        for (const job of jobs) {
+          if (
+            job.checkpoint?.commit &&
+            !synchronizedJobs.has(job.id) &&
+            !["conflict", "awaiting_auth"].includes(job.status)
+          ) {
+            synchronizedJobs.add(job.id)
+            // This is a speed-up only; the durable server task and GitHub Actions
+            // continue publication when the browser closes at any point.
+            if (job.status !== "completed")
+              void connection
+                .publicSnapshot()
+                .then((publicSnapshot) =>
+                  publisher.publish(
+                    {
+                      kind: "article",
+                      commit: job.checkpoint.commit,
+                      articleId: job.checkpoint.articleId,
+                    },
+                    publicSnapshot,
+                  ),
+                )
+                .catch(() => synchronizedJobs.delete(job.id))
+          }
+          if (job.status === "completed" && !completedJobs.has(job.id)) {
+            completedJobs.add(job.id)
+            snapshot = await connection.snapshot()
+            if (client !== connection || disposed) return
+            const published = snapshot.publicSnapshot.catalog.articles.find(
+              (article) => article.id === job.checkpoint.articleId,
+            )
+            // Advance only our exact acknowledged publication, keeping edits
+            // typed while its server task ran. An unrelated newer Git version
+            // must still trigger the usual conflict/recovery path.
+            if (
+              job.kind === "publish-private" &&
+              current?.id === job.articleId &&
+              openedSha === `pv:${job.privateVersion}` &&
+              published &&
+              snapshot.publicSnapshot.entries.get(`library/${published.file}`)?.sha ===
+                job.checkpoint.sourceSha
+            ) {
+              const baseline = JSON.parse(savedForm)
+              const continuation = {
+                submitted: Object.fromEntries(formKeys.map((key, index) => [key, baseline[index]])),
+                form: readForm(),
+                selection: bodyState(),
+                scrollTop: $("body").scrollTop,
+              }
+              const publishedFiles = new Set(
+                (current.attachments || []).map((file) => file.fileId).filter(Boolean),
+              )
+              images = images.filter((image) => {
+                if (!publishedFiles.has(image.attachment?.fileId)) return true
+                if (image.preview) URL.revokeObjectURL(image.preview)
+                return false
+              })
+              setScope("published")
+              await loadArticle(published.id, false, snapshot, continuation)
+              persistRecovery()
+            }
+            renderList()
+            document.dispatchEvent(
+              new CustomEvent("howard:content-updated", {
+                detail: { commit: job.checkpoint.commit, jobId: job.id },
+              }),
+            )
+            options.onSaved?.({
+              kind:
+                job.kind === "privatize-public"
+                  ? "unpublish"
+                  : job.kind === "sync-public"
+                    ? "settings"
+                    : "article",
+              articleId: job.checkpoint.articleId,
+              commit: job.checkpoint.commit,
+              sync: { status: "synchronized" },
+            })
+          }
+        }
+        if (pending.some((job) => !["conflict", "awaiting_auth"].includes(job.status)))
+          jobTimer = setTimeout(monitorJobs, 4000)
+      })
+      .catch((error) => {
+        if (!disposed && client === connection) {
+          if (error.status === 401) $("reconnect").hidden = false
+          jobTimer = setTimeout(monitorJobs, 15000)
+        }
+      })
+  }
   async function reportSaved(info, result) {
+    if (result?.private) {
+      options.onSaved?.({
+        ...info,
+        scope: "private",
+        draft: !!result.snapshot?.catalog.articles.find((article) => article.id === info.articleId)
+          ?.draft,
+        sync: { status: "private" },
+      })
+      return { status: "private" }
+    }
+    if (result?.job) {
+      const value = { ...info, job: result.job, sync: { status: "pending", jobId: result.job.id } }
+      options.onSaved?.(value)
+      monitorJobs()
+      return value.sync
+    }
     const value = { ...info, commit: result?.sha }
     options.onSaved?.({ ...value, sync: { status: publicChange(value) ? "syncing" : "draft" } })
-    const sync = await publisher.publish(value, result?.snapshot)
+    const sync = await publisher.publish(
+      value,
+      result?.publicSnapshot || result?.snapshot?.publicSnapshot || result?.snapshot,
+    )
     if (publicChange(value)) options.onSaved?.({ ...value, sync })
     return sync
   }
   const settings = createSettings({
     root,
     siteBase,
-    getSnapshot: () => ({ ...snapshot, client }),
+    getSnapshot: () => ({ ...publicLibrarySnapshot(snapshot), client }),
     action: (callback, detail) => action(callback, { label: "正在处理页面设置…", ...detail }),
     message,
-    refresh: async () => (snapshot = await client.snapshot()),
+    refresh: async () => {
+      snapshot = await client.snapshot()
+      return publicLibrarySnapshot(snapshot)
+    },
     onSaved: async (_snapshot, result) => {
       snapshot = _snapshot
       renderList()
@@ -136,11 +322,36 @@ export function createWorkspace(root, options = {}) {
     siteBase,
     articles: snapshot?.catalog.articles || [],
     images,
+    attachments: editorAttachments(),
+    openArticle: requestArticle,
     articleFile:
       current?.draftBaseline?.article.file ||
       current?.file ||
       `notes/网页新建/${$("slug").value}.md`,
   }))
+  const articleVersions = createArticleHistory({
+    root: $("article-history"),
+    getContext: () => ({
+      client,
+      snapshot,
+      current,
+      openedSha,
+      dirty: articleDirty(),
+      siteBase,
+      openArticle: requestArticle,
+    }),
+    run: action,
+    notify: message,
+    async onRestored(result) {
+      const id = recoveryId()
+      clearImages()
+      discardRecovery(id)
+      snapshot = result.snapshot
+      setScope(result.note.article.draft || result.note.article.draftOf ? "draft" : "private")
+      await loadArticle(result.articleId, false, result.snapshot)
+      await reportSaved({ kind: "restore", scope: "private", articleId: result.articleId }, result)
+    },
+  })
   function message(text, error = false, href) {
     const el = $("status")
     el.hidden = false
@@ -200,36 +411,62 @@ export function createWorkspace(root, options = {}) {
     }
   }
   const recoveryId = () => current?.id || $("slug").value
+  function editorAttachments() {
+    return [
+      ...(current?.attachments || []),
+      ...images.filter((image) => image.attachment).map((image) => image.attachment),
+    ].filter(
+      (item, index, all) =>
+        all.findIndex(
+          (other) => (other.fileId || other.source) === (item.fileId || item.source),
+        ) === index,
+    )
+  }
   function discardRecovery(id = recoveryId()) {
     clearTimeout(recoveryTimer)
-    if (!storage || !id) return
+    clearTimeout(cloudTimer)
+    if (!id) return
+    if (cloudDrafts && cloudKnown.has(id)) {
+      cloudKnown.delete(id)
+      void cloudDrafts.remove(`article:${id}`).catch((error) => message(error.message, true))
+    }
+    if (!storage) return
     try {
       clearArticleRecovery(storage, id)
     } catch {}
   }
   function persistRecovery() {
     clearTimeout(recoveryTimer)
-    if (!savedForm || disposed || !storage) return
+    if (!savedForm || disposed) return
+    const value = {
+      id: recoveryId(),
+      article: current,
+      openedSha,
+      raw,
+      savedForm,
+      form: readForm(),
+      attachments: editorAttachments(),
+      kind: "article",
+    }
+    if (!articleDirty()) {
+      discardRecovery()
+      return
+    }
     try {
-      if (!articleDirty()) {
-        discardRecovery()
-        return
-      }
-      writeArticleRecovery(storage, {
-        id: recoveryId(),
-        article: current,
-        openedSha,
-        raw,
-        savedForm,
-        form: Object.fromEntries(
-          formKeys.map((key) => [key, $(key).type === "checkbox" ? $(key).checked : $(key).value]),
-        ),
-      })
+      if (storage) writeArticleRecovery(storage, value)
       recoveryError = false
     } catch (error) {
       if (!recoveryError) message(error.message || "无法在当前浏览器暂存，请下载当前编辑。", true)
       recoveryError = true
     }
+    clearTimeout(cloudTimer)
+    if (cloudDrafts && client)
+      cloudTimer = setTimeout(() => {
+        cloudKnown.add(value.id)
+        void cloudDrafts
+          .save(`article:${value.id}`, value)
+          .catch((error) => message(error.message, true))
+      }, 1000)
   }
   function mayLeaveArticle() {
     if (!articleDirty()) return true
@@ -251,7 +488,11 @@ export function createWorkspace(root, options = {}) {
     const list = snapshot.catalog.articles
       .filter(
         (article) =>
-          (articleScope === "published") === article.published &&
+          (articleScope === "published"
+            ? article.published
+            : articleScope === "private"
+              ? !article.published && !article.draft && !article.draftOf
+              : !article.published && (article.draft || article.draftOf)) &&
           [article.title, label(article.category), ...(article.tags || [])]
             .join(" ")
             .toLocaleLowerCase()
@@ -272,10 +513,39 @@ export function createWorkspace(root, options = {}) {
         meta = document.createElement("span")
       title.textContent = article.title
       const hasDraft = snapshot.catalog.articles.some((item) => item.draftOf === article.id)
-      meta.textContent = `${label(article.category)} · ${article.published ? (hasDraft ? "已发布 · 有草稿" : "已发布") : article.draftOf ? "修改草稿" : "草稿"}`
+      meta.textContent = `${label(article.category)} · ${article.published ? (hasDraft ? "已发布 · 有草稿" : "已发布") : article.draftOf ? "修改草稿" : article.draft ? "草稿" : "私密"}`
       button.append(title, meta)
       button.onclick = () => {
         void requestArticle(article.id)
+      }
+      $("article-list").append(button)
+    }
+    const cloud =
+      articleScope === "draft"
+        ? (snapshot.cloudRecoveries || []).filter(
+            (row) => row.kind === "article" && row.editorId.startsWith("article:"),
+          )
+        : []
+    for (const entry of cloud) {
+      const button = document.createElement("button")
+      button.type = "button"
+      button.className = "article-item cloud-recovery"
+      const title = document.createElement("strong"),
+        meta = document.createElement("span")
+      title.textContent = entry.title || "未命名文章"
+      meta.textContent = "云端恢复稿"
+      button.append(title, meta)
+      button.onclick = () => {
+        if (!mayLeaveArticle()) return
+        action(async () => {
+          const draft = await cloudDrafts.load(entry.editorId)
+          if (!draft || draft.status !== "ACTIVE")
+            throw new Error("恢复稿已在另一端移除，请刷新文库。")
+          const article = snapshot.catalog.articles.find((row) => row.id === draft.record.id)
+          const loaded = article ? await client.read(article, snapshot) : null
+          restoreRecovery(draft.record, article || null, loaded?.sha || null)
+          cloudKnown.add(draft.record.id)
+        })
       }
       $("article-list").append(button)
     }
@@ -300,7 +570,7 @@ export function createWorkspace(root, options = {}) {
       }
       $("article-list").append(button)
     }
-    if (!list.length && !local.length) {
+    if (!list.length && !local.length && !cloud.length) {
       const empty = document.createElement("p")
       empty.className = "small list-empty"
       empty.textContent = query
@@ -329,7 +599,7 @@ export function createWorkspace(root, options = {}) {
         Math.ceil((new Date(record.expiresAt).getTime() - Date.now()) / 86400000),
       )
       meta.className = "small"
-      meta.textContent = `${record.local ? "本地草稿" : record.published ? "已发布文章" : "草稿"} · ${new Date(record.deletedAt).toLocaleDateString("zh-CN")} · 剩余 ${days} 天`
+      meta.textContent = `${record.local ? "本地草稿" : record.cloudDraft ? "云端恢复稿" : record.published ? "已发布文章" : record.private && !record.articles[0].article.draft ? "私密文章" : "草稿"} · ${new Date(record.deletedAt).toLocaleDateString("zh-CN")} · 剩余 ${days} 天`
       info.append(title, meta)
       const controls = document.createElement("div"),
         restore = document.createElement("button"),
@@ -424,7 +694,7 @@ export function createWorkspace(root, options = {}) {
     $("status").hidden = true
   }
   function clearImages() {
-    for (const image of images) URL.revokeObjectURL(image.preview)
+    for (const image of images) if (image.preview) URL.revokeObjectURL(image.preview)
     images = []
     viewer.clear()
   }
@@ -447,22 +717,27 @@ export function createWorkspace(root, options = {}) {
     $("editor-heading").textContent = article
       ? article.published
         ? "编辑文章"
-        : "编辑草稿"
+        : article.draft || article.draftOf
+          ? "编辑草稿"
+          : "私密文章"
       : "新建文章"
     $("cancel-edit").hidden = !article
     $("save-draft").hidden = false
     $("delete-draft").hidden = !!article?.published
-    $("delete-draft").textContent = "删除草稿"
+    $("delete-draft").textContent =
+      article && !article.draft && !article.draftOf ? "删除文章" : "删除草稿"
     $("delete-article").hidden = !article?.published && !article?.draftOf
     $("delete-article").textContent = article?.draftOf ? "删除已发布文章" : "删除文章"
     if (!article) publishedDeletion = null
-    $("unpublish").hidden = !article?.published
+    $("unpublish").hidden = !article?.published && !article?.draftOf
     $("publication-state").textContent = article?.published
       ? "已发布"
       : article?.draftOf
         ? "修改草稿"
         : article
-          ? "草稿"
+          ? article.draft
+            ? "草稿"
+            : "私密"
           : "未发布"
     for (const key of ["title", "description"]) $(key).value = article?.[key] || ""
     renderCategories(article?.category)
@@ -492,24 +767,36 @@ export function createWorkspace(root, options = {}) {
     }
     updateState()
     preview()
+    articleVersions.reset()
     renderList()
     renderImageDestination()
   }
   function renderImageDestination() {
-    const host = imageHostSettings(snapshot.settings)
-    $("image-destination").textContent =
-      host.repository.split("/")[1] + (host.directory ? "/" + host.directory : "")
-    $("insert-image").title = `上传到 ${host.repository}/${host.directory}`
+    $("image-destination").textContent = "私密附件"
+    $("insert-image").title = "上传为私密附件，公开文章时再确认附件公开"
   }
   async function loadArticle(id, restore = true, committed, continuation) {
     if (!committed) message("正在载入…")
     snapshot = committed || (await client.snapshot())
     const draft = snapshot.catalog.articles.find((item) => item.draftOf === id)
     const article = draft || snapshot.catalog.articles.find((item) => item.id === id)
-    const recovery =
+    let recovery =
       restore &&
       storage &&
       (readArticleRecovery(storage, id) || (article && readArticleRecovery(storage, article.id)))
+    const cloudId = article?.id || id
+    if (
+      restore &&
+      !recovery &&
+      cloudDrafts &&
+      snapshot.cloudRecoveries?.some((row) => row.editorId === `article:${cloudId}`)
+    ) {
+      const loaded = await cloudDrafts.load(`article:${cloudId}`)
+      if (loaded?.status === "ACTIVE") {
+        recovery = loaded.record
+        cloudKnown.add(cloudId)
+      }
+    }
     if (!article) {
       if (recovery) {
         restoreRecovery(recovery, null, null)
@@ -556,6 +843,11 @@ export function createWorkspace(root, options = {}) {
     }
     // Never swap a restored edit's baseline for the freshly read remote version.
     current = restored.article
+    images = (restored.attachments || [])
+      .filter(
+        (attachment) => !current?.attachments?.some((item) => item.fileId === attachment.fileId),
+      )
+      .map((attachment) => ({ url: attachment.source, attachment }))
     raw = restored.raw
     savedForm = restored.savedForm
     for (const key of formKeys) {
@@ -573,8 +865,8 @@ export function createWorkspace(root, options = {}) {
     preview()
     message(
       restored.stale
-        ? "已恢复本地修改；远端文章已有更新，请先下载当前编辑再重新载入。"
-        : "已恢复当前浏览器中未保存的文章修改。",
+        ? "已恢复修改；远端文章已有更新，请先下载当前编辑再重新载入。"
+        : "已恢复未保存的文章修改。",
       restored.stale,
     )
   }
@@ -637,6 +929,7 @@ export function createWorkspace(root, options = {}) {
     localRecoveryOnly = false
     raw = ""
     savedForm = ""
+    articleVersions.reset()
     $("editor-form").hidden = true
     $("empty").hidden = false
     $("status").hidden = true
@@ -645,15 +938,17 @@ export function createWorkspace(root, options = {}) {
   }
   function setScope(scope) {
     articleScope = scope
-    $("list-title").textContent = scope === "draft" ? "草稿箱" : "文章"
+    $("list-title").textContent =
+      scope === "draft" ? "草稿箱" : scope === "private" ? "私密文库" : "文章"
     $("tab-articles").setAttribute("aria-current", scope === "published" ? "page" : "false")
     $("tab-drafts").setAttribute("aria-current", scope === "draft" ? "page" : "false")
+    $("tab-private").setAttribute("aria-current", scope === "private" ? "page" : "false")
     $("tab-settings").setAttribute("aria-current", "false")
     $("tab-trash").setAttribute("aria-current", "false")
     renderList()
   }
   function showMode(mode) {
-    const scope = mode === "drafts" ? "draft" : "published"
+    const scope = mode === "drafts" ? "draft" : mode === "private" ? "private" : "published"
     if (mode !== "settings" && scope !== articleScope) {
       if (!mayLeaveArticle()) return false
       closeEditor(true)
@@ -663,8 +958,10 @@ export function createWorkspace(root, options = {}) {
     $("workspace").hidden = mode === "settings" || mode === "trash"
     $("settings-workspace").hidden = mode !== "settings"
     settings.setVisible(visible && mode === "settings")
+    if (mode === "settings" && backups)
+      void backups.load().catch((error) => message(error.message, true))
     if (mode === "trash") {
-      for (const tab of ["tab-articles", "tab-drafts", "tab-settings"])
+      for (const tab of ["tab-articles", "tab-private", "tab-drafts", "tab-settings"])
         $(tab).setAttribute("aria-current", "false")
       renderTrash()
       return action(refreshTrash, { label: "正在读取回收站…" })
@@ -673,6 +970,7 @@ export function createWorkspace(root, options = {}) {
     else {
       $("tab-articles").setAttribute("aria-current", "false")
       $("tab-drafts").setAttribute("aria-current", "false")
+      $("tab-private").setAttribute("aria-current", "false")
     }
     $("tab-settings").setAttribute("aria-current", mode === "settings" ? "page" : "false")
     root.classList.remove("focus-editor")
@@ -683,7 +981,10 @@ export function createWorkspace(root, options = {}) {
     if (!credentials) return
     if (busy || disposed) throw new Error("操作正在进行，请稍后重新登录。")
     lock(true)
-    const connection = new GitHubLibrary(credentials.token)
+    const connection = new PersonalLibrary(credentials.token, undefined, {
+      siteBase,
+      tokenExpiresAt: credentials.expiresAt,
+    })
     try {
       const account = await connection.authenticate()
       if (credentials.login && credentials.login !== account) {
@@ -693,6 +994,36 @@ export function createWorkspace(root, options = {}) {
       if (!client) {
         snapshot = await connection.snapshot()
         client = connection
+        backups = createBackupManager({
+          root: $("backup-manager"),
+          getClient: () => client,
+          notify: (text, error) => {
+            message(text, error)
+            options.onProgress?.(text, {
+              state: error ? "error" : /已(?:完成|下载)/.test(text) ? "done" : "working",
+            })
+          },
+        })
+        cloudDrafts = createDurableDraftController({
+          request: (...args) => client.personalRequest(...args),
+          onState(state) {
+            if (disposed || !state.editorId.endsWith(`:${recoveryId()}`)) return
+            $("save-state").textContent =
+              state.state === "saved"
+                ? "云端已暂存"
+                : state.state === "saving"
+                  ? "正在云端暂存"
+                  : state.state === "conflict"
+                    ? "暂存冲突，请保留当前编辑"
+                    : state.state === "error"
+                      ? "云端未暂存，浏览器副本已保留"
+                      : state.state === "deleted"
+                        ? articleDirty()
+                          ? "未保存"
+                          : "已保存"
+                        : $("save-state").textContent
+          },
+        })
         showMode("articles")
         renderList()
         settings.load(snapshot)
@@ -711,6 +1042,8 @@ export function createWorkspace(root, options = {}) {
       $("admin-tabs").hidden = false
       $("status").hidden = true
       publisher.restore()
+      for (const job of client.jobs || []) if (job.status === "completed") completedJobs.add(job.id)
+      monitorJobs()
     } catch (error) {
       connection.token = ""
       throw error
@@ -724,6 +1057,13 @@ export function createWorkspace(root, options = {}) {
   function logout() {
     void clearSession(siteBase)
     persistRecovery()
+    clearTimeout(cloudTimer)
+    clearTimeout(jobTimer)
+    cloudDrafts?.dispose()
+    cloudDrafts = null
+    backups?.dispose()
+    backups = null
+    cloudKnown.clear()
     if (client) client.token = ""
     client = null
     session = null
@@ -751,6 +1091,7 @@ export function createWorkspace(root, options = {}) {
   }
   $("tab-articles").onclick = () => showMode("articles")
   $("tab-drafts").onclick = () => showMode("drafts")
+  $("tab-private").onclick = () => showMode("private")
   $("tab-settings").onclick = () => showMode("settings")
   $("tab-trash").onclick = () => showMode("trash")
   $("reload-trash").onclick = () => action(refreshTrash, { label: "正在读取回收站…" })
@@ -906,17 +1247,19 @@ export function createWorkspace(root, options = {}) {
     action(async () => {
       message("正在读取图片…")
       const prepared = []
-      for (const file of files) prepared.push(await prepareImage(file))
-      // Read the latest saved destination without changing the opened article's conflict baseline.
-      const latest = await client.snapshot()
-      snapshot.settings = latest.settings
-      const host = new GitHubImageHost(client, imageHostSettings(latest.settings))
-      const uploaded = await host.upload(prepared, (index, total) =>
-        message(`正在上传图片 ${index} / ${total}…`),
+      for (const file of files) prepared.push(await prepareImage(file, { binaryOnly: true }))
+      const uploaded = await client.uploadPrivateImages(
+        files,
+        (index, total) => message(`正在上传图片 ${index} / ${total}…`),
+        prepared,
       )
       for (const [index, image] of uploaded.entries()) {
         if (!images.some((item) => item.url === image.url))
-          images.push({ url: image.url, preview: URL.createObjectURL(files[index]) })
+          images.push({
+            url: image.url,
+            preview: URL.createObjectURL(files[index]),
+            attachment: image.attachment,
+          })
       }
       input.setRangeText(
         "\n" + uploaded.map((image) => `![${image.alt}](${image.url})`).join("\n") + "\n",
@@ -936,7 +1279,8 @@ export function createWorkspace(root, options = {}) {
   $("editor-form").onsubmit = (event) => {
     event.preventDefault()
     if (busy) return
-    const published = event.submitter?.id !== "save-draft"
+    const draft = event.submitter?.id === "save-draft"
+    const published = !draft && event.submitter?.id !== "save-private"
     if (!published) {
       if (!$("title").value.trim()) $("title").value = "未命名文章"
       if (!$("category").value) {
@@ -959,6 +1303,8 @@ export function createWorkspace(root, options = {}) {
         .map((tag) => tag.trim())
         .filter(Boolean),
       published,
+      ...(draft ? { draft: true } : { draft: false }),
+      attachments: editorAttachments(),
       featured: $("featured").checked,
       modified:
         !current || sourceText() !== raw
@@ -976,6 +1322,15 @@ export function createWorkspace(root, options = {}) {
       delete edited.draftOf
       delete edited.draftBaseline
     }
+    const privateAttachments = edited.attachments.some(
+      (attachment) => !attachment.publicUrl && attachment.fileId,
+    )
+    if (
+      published &&
+      privateAttachments &&
+      !confirm("将这些私密附件上传公开图床，任何人可通过链接访问。是否继续公开文章及附件？")
+    )
+      return
     try {
       validateCatalog({ version: 2, articles: [edited] })
     } catch (error) {
@@ -992,7 +1347,7 @@ export function createWorkspace(root, options = {}) {
         message(published ? "正在发布文章…" : "正在保存草稿…")
         let nextId = edited.id
         let result
-        if (!published && submitted.opened?.published) {
+        if (draft && submitted.opened?.published) {
           const id = `draft-${crypto.randomUUID()}`
           const draft = {
             ...edited,
@@ -1000,12 +1355,14 @@ export function createWorkspace(root, options = {}) {
             file: `notes/网页草稿/${id}.md`,
             draftOf: submitted.opened.id,
             draftBaseline: { article: submitted.opened, sha: submitted.openedSha },
+            draft: true,
           }
           result = await client.save({
             opened: null,
             openedSha: null,
             edited: draft,
             text: submitted.text,
+            publishAttachments: privateAttachments,
           })
           nextId = id
         } else if (published && submitted.opened?.draftOf) {
@@ -1014,6 +1371,7 @@ export function createWorkspace(root, options = {}) {
             openedSha: submitted.openedSha,
             edited,
             text: submitted.text,
+            publishAttachments: privateAttachments,
           })
           nextId = result.articleId
         } else {
@@ -1022,6 +1380,7 @@ export function createWorkspace(root, options = {}) {
             openedSha: submitted.openedSha,
             edited,
             text: submitted.text,
+            publishAttachments: privateAttachments,
           })
         }
         const continuation = {
@@ -1030,24 +1389,29 @@ export function createWorkspace(root, options = {}) {
           selection: bodyState(),
           scrollTop: $("body").scrollTop,
         }
-        setScope(published ? "published" : "draft")
+        const editingId = result.privateId || nextId
+        setScope(published || draft ? "draft" : "private")
         $("workspace").hidden = false
         $("settings-workspace").hidden = true
-        await loadArticle(nextId, false, result.snapshot, continuation)
+        await loadArticle(editingId, false, result.snapshot, continuation)
         discardRecovery(submitted.recoveryId)
         persistRecovery()
         const sync = await reportSaved(
-          { kind: published ? "article" : "draft", articleId: nextId },
+          {
+            kind: published ? "article" : "draft",
+            scope: !published ? "private" : "published",
+            articleId: nextId,
+          },
           result,
         )
         const retained = articleDirty() ? "当前后续修改尚未保存。" : ""
         message(
           !published
-            ? `草稿已保存。${retained}`
+            ? `${draft ? "草稿" : "私密原文"}已保存。${retained}`
             : sync.status === "synchronized"
               ? `文章已上线。${retained}`
               : sync.status === "pending"
-                ? `已保存到 GitHub，等待同步。${retained}`
+                ? `原文已保存，正在后台发布，可关闭网页。${retained}`
                 : `已保存，正在部署。${retained}`,
           false,
           sync.status === "static"
@@ -1068,19 +1432,26 @@ export function createWorkspace(root, options = {}) {
     }
   }
   $("unpublish").onclick = () => {
-    if (!current?.published || !mayLeaveArticle() || !confirm("将这篇文章从网站撤下？")) return
+    if (
+      (!current?.published && !current?.draftOf) ||
+      !mayLeaveArticle() ||
+      !confirm(
+        "将这篇文章改为私密？原文会保留在私密文库。已公开的 Git 历史和图片链接无法自动收回。",
+      )
+    )
+      return
     action(
       async () => {
-        const id = current.id
+        const id = current.draftOf || current.id
         const result = await client.save({
           opened: current,
           openedSha,
-          edited: { ...current, published: false },
+          edited: { ...current, published: false, draft: false },
           text: raw,
         })
         discardRecovery()
         savedForm = ""
-        setScope("draft")
+        setScope("private")
         await loadArticle(id, false, result.snapshot)
         const sync = await reportSaved({ kind: "unpublish", articleId: id }, result)
         message(sync.status === "pending" ? "已保存撤下操作，等待同步。" : "文章已撤下。")
@@ -1093,29 +1464,40 @@ export function createWorkspace(root, options = {}) {
     if (
       !confirm(
         localRecoveryOnly
-          ? "仅删除当前浏览器中的这篇草稿？远端文章不受影响。"
-          : "将这篇草稿移入回收站？可在 30 天内恢复。",
+          ? "将未保存的修改移入回收站？远端原文不受影响，可在 30 天内恢复。"
+          : "将这篇文章移入回收站？可在 30 天内恢复。",
       )
     )
       return
     if (!current || localRecoveryOnly) {
-      try {
-        const recovery = {
-          id: recoveryId(),
-          article: current,
-          openedSha,
-          raw,
-          savedForm,
-          form: readForm(),
-        }
-        trashLocalRecovery(storage, recovery)
-        options.onAccepted?.({ kind: "delete", scope: "local" })
-        closeEditor(true)
-        options.onClose?.()
-        options.onCompleted?.({ kind: "delete", scope: "local" })
-      } catch (error) {
-        message(error.message, true)
-      }
+      action(
+        async () => {
+          const id = recoveryId()
+          const recovery = {
+            id,
+            article: current,
+            openedSha,
+            raw,
+            savedForm,
+            form: readForm(),
+            attachments: editorAttachments(),
+            kind: "article",
+          }
+          clearTimeout(cloudTimer)
+          if (cloudDrafts) {
+            await cloudDrafts.save(`article:${id}`, recovery)
+            await cloudDrafts.remove(`article:${id}`)
+            cloudKnown.delete(id)
+            snapshot.cloudRecoveries = (snapshot.cloudRecoveries || []).filter(
+              (row) => row.editorId !== `article:${id}`,
+            )
+          } else trashLocalRecovery(storage, recovery)
+          closeEditor(true)
+          options.onClose?.()
+          await reportSaved({ kind: "delete", scope: "private", articleId: id }, { private: true })
+        },
+        { completion: { kind: "delete", scope: "private" } },
+      )
       return
     }
     action(
@@ -1243,7 +1625,9 @@ export function createWorkspace(root, options = {}) {
     if (current && (current.id === id || current.draftOf === id)) {
       $("workspace").hidden = false
       $("settings-workspace").hidden = true
-      setScope(current.published ? "published" : "draft")
+      setScope(
+        current.published ? "published" : current.draft || current.draftOf ? "draft" : "private",
+      )
       return true
     }
     if (!mayLeaveArticle()) return false
@@ -1251,7 +1635,13 @@ export function createWorkspace(root, options = {}) {
     $("settings-workspace").hidden = true
     $("trash-workspace").hidden = true
     const requested = snapshot.catalog.articles.find((article) => article.id === id)
-    setScope(requested?.published === false ? "draft" : "published")
+    setScope(
+      requested?.published === false
+        ? requested.draft || requested.draftOf
+          ? "draft"
+          : "private"
+        : "published",
+    )
     return action(() => loadArticle(id), { label: "正在载入文章…" })
   }
   listen(document, "visibilitychange", () => {
@@ -1288,11 +1678,16 @@ export function createWorkspace(root, options = {}) {
       persistRecovery()
       disposed = true
       clearTimeout(previewTimer)
+      clearTimeout(cloudTimer)
+      clearTimeout(jobTimer)
+      cloudDrafts?.dispose()
+      backups?.dispose()
       clearTimeout(recoveryTimer)
       previewVersion++
       listeners.abort()
       settings.dispose()
       publisher.dispose()
+      articleVersions.dispose()
       publication.remove()
       clearImages()
       if (client) client.token = ""

@@ -86,6 +86,17 @@ export function renderLibrary(
     } catch {
       return null
     }
+    const mapped = owner.attachments?.find((attachment) =>
+      [attachment.source, ...(attachment.aliases || [])].some(
+        (source) => source === target || source === decoded,
+      ),
+    )
+    if (mapped?.publicUrl) {
+      try {
+        const url = new URL(mapped.publicUrl)
+        if (url.protocol === "https:" && !url.username && !url.password) return url.href
+      } catch {}
+    }
     const candidates = [
       path.posix.normalize(path.posix.join(path.posix.dirname(owner.file), decoded)),
       decoded.replace(/^\//, ""),
@@ -158,7 +169,10 @@ export function renderLibrary(
         }
       }
       if (node.type === "link" || node.type === "image" || node.type === "definition") {
-        if (/^(https?:\/\/|mailto:|#|\/\/)/i.test(node.url)) return
+        const attachment = article.attachments?.find((item) =>
+          [item.source, ...(item.aliases || [])].includes(node.url),
+        )
+        if (!attachment && /^(https?:\/\/|mailto:|#|\/\/)/i.test(node.url)) return
         const [target, anchor] = node.url.split("#")
         const linked = /\.md$/i.test(target) ? resolve(target, article) : null
         const href = linked

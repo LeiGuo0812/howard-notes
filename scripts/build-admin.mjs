@@ -59,6 +59,7 @@ await Promise.all([
   fs.writeFile("public/runtime-config.json", JSON.stringify(runtimeConfig)),
   fs.writeFile("public/admin/index.html", adminHtml),
   fs.copyFile("admin/admin.css", "public/admin/admin.css"),
+  fs.copyFile("admin/backup-manager.css", "public/admin/backup-manager.css"),
   fs.copyFile("styles/frosted-glass.css", "public/admin/frosted-glass.css"),
   fs.copyFile("admin/auth-config.json", "public/admin/auth-config.json"),
   fs.writeFile(

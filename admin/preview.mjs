@@ -32,6 +32,9 @@ function loadMermaid() {
         "themeCSS",
         "themeVariables",
         "theme",
+        "dompurifyConfig",
+        "fontFamily",
+        "fontSize",
       ],
     })
     return mermaid
@@ -101,6 +104,44 @@ export function assetPath(source, articleFile) {
   if (/^assets\/.+\.(png|jpe?g|gif|webp|avif)$/i.test(decoded)) return decoded
   return null
 }
+export function articleForLink(source, { articles = [], siteBase, articleFile } = {}) {
+  if (!source || source.startsWith("#")) return null
+  const base = new URL(siteBase || "../", globalThis.location?.href || "https://notes.invalid/")
+  let value
+  try {
+    value = decodeURIComponent(source.split("#")[0])
+  } catch {
+    return null
+  }
+  if (/^[a-z][a-z0-9+.-]*:|^\/\//i.test(value)) {
+    let url
+    try {
+      url = new URL(value, base)
+    } catch {
+      return null
+    }
+    if (url.origin !== base.origin) return null
+    return (
+      articles.find((article) => url.pathname === new URL(`notes/${article.id}`, base).pathname) ||
+      null
+    )
+  }
+  const segments = (articleFile || "notes/new.md").split("/").slice(0, -1)
+  for (const segment of value.split("/")) {
+    if (segment === "..") segments.pop()
+    else if (segment && segment !== ".") segments.push(segment)
+  }
+  const relative = segments.join("/").replace(/\.md$/i, "")
+  const target = value.replace(/^\//, "").replace(/\.md$/i, "")
+  const matches = articles.filter((article) =>
+    [
+      article.file.replace(/\.md$/i, ""),
+      article.file.replace(/^notes\//, "").replace(/\.md$/i, ""),
+      article.id,
+    ].some((path) => path === relative || path === target),
+  )
+  return matches.length === 1 ? matches[0] : null
+}
 export function createPreview(element, context) {
   let epoch = 0
   const imageCache = new Map()
@@ -150,14 +191,17 @@ export function createPreview(element, context) {
             label = alias || target
           if (token.embed && /\.(png|jpe?g|gif|webp|avif)$/i.test(target))
             return `<img alt="${escape(alias || target)}" src="${escape(target)}">`
-          const matches = context().articles.filter(
-            (article) =>
-              article.title === target ||
-              article.file.replace(/^notes\//, "").replace(/\.md$/, "") === target ||
-              article.file.split("/").pop().replace(/\.md$/, "") === target,
-          )
+          const resolved = articleForLink(target, context())
+          const matches = resolved
+            ? [resolved]
+            : context().articles.filter(
+                (article) =>
+                  article.title === target ||
+                  article.file.replace(/^notes\//, "").replace(/\.md$/, "") === target ||
+                  article.file.split("/").pop().replace(/\.md$/, "") === target,
+              )
           return matches.length === 1
-            ? `<a href="${escape(new URL(`notes/${matches[0].id}${anchor ? "#" + encodeURIComponent(anchor) : ""}`, context().siteBase || new URL("../", location.href)).href)}">${escape(label)}</a>`
+            ? `<a ${matches[0].published === false ? `data-private-article="${escape(matches[0].id)}"` : ""} href="${escape(new URL(`notes/${matches[0].id}${anchor ? "#" + encodeURIComponent(anchor) : ""}`, context().siteBase || new URL("../", location.href)).href)}">${escape(label)}</a>`
             : `<span class="unavailable-note">${escape(label)}</span>`
         },
       },
@@ -199,6 +243,19 @@ export function createPreview(element, context) {
       for (const link of element.querySelectorAll("a")) {
         link.target = "_blank"
         link.rel = "noopener noreferrer"
+        const matched = articleForLink(link.getAttribute("href"), context())
+        if (matched)
+          link.href = new URL(
+            `notes/${matched.id}${new URL(link.href).hash}`,
+            context().siteBase,
+          ).href
+        const privateId =
+          link.dataset.privateArticle || (matched?.published === false ? matched.id : null)
+        if (privateId)
+          link.addEventListener("click", (event) => {
+            event.preventDefault()
+            void context().openArticle?.(privateId)
+          })
       }
       for (const span of element.querySelectorAll(".math-placeholder")) {
         try {
@@ -221,8 +278,37 @@ export function createPreview(element, context) {
         img.loading = "lazy"
         const file = assetPath(src, ctx.articleFile),
           staged = ctx.images.find((item) => item.url === src || (file && item.file === file))
-        if (staged) {
+        if (staged?.preview) {
           img.src = staged.preview
+          return
+        }
+        const attachment = (ctx.attachments || []).find((item) =>
+          [item.source, item.sourcePath, ...(item.aliases || [])].includes(src),
+        )
+        if (attachment?.publicUrl) {
+          if (/^https:\/\//i.test(attachment.publicUrl)) img.src = attachment.publicUrl
+          else img.removeAttribute("src")
+          return
+        }
+        const privateSource =
+          attachment?.fileId && !attachment.publicUrl
+            ? await ctx.client.privateFileUrl(attachment.fileId)
+            : /\/api\/content\/personal\/files\//.test(src)
+              ? src
+              : null
+        if (privateSource) {
+          img.removeAttribute("src")
+          try {
+            if (!imageCache.has(privateSource))
+              imageCache.set(
+                privateSource,
+                ctx.client.readPrivateFile(privateSource).then((blob) => URL.createObjectURL(blob)),
+              )
+            const url = await imageCache.get(privateSource)
+            if (version === epoch && img.isConnected) img.src = url
+          } catch {
+            if (img.isConnected) img.alt = (img.alt || "图片") + "（私密附件加载失败）"
+          }
           return
         }
         if (!file) {

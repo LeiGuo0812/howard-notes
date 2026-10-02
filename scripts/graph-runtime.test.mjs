@@ -77,11 +77,12 @@ function fixture(t) {
   }
   mountDeferredGraph(initialize)
   const scripts = () => document.head.children || []
-  const loaded = (name) => {
+  const loaded = (name, adapterLoaded = true) => {
     const script = scripts().find((script) =>
       script.src.includes(name === "d3" ? "/d3@" : "/pixi.js@"),
     )
     window[name] = {}
+    if (name === "PIXI" && adapterLoaded) window.unsafe_eval_js = {}
     script?.onload?.()
   }
   const shortcut = (key = "g", modifiers = { ctrlKey: true }) => {
@@ -154,6 +155,22 @@ test("graphs fetch no libraries at startup and replay the first explicit click o
   f.shortcut()
   assert.deepEqual(f.counts(), { initializations: 1, opens: 3 })
   assert.equal(f.scripts().length, 2)
+})
+
+test("the official static Pixi adapter loads before graph initialization under a no-eval CSP", async (t) => {
+  const f = fixture(t)
+  f.document.button.click()
+  f.loaded("d3")
+  f.loaded("PIXI", false)
+  await tick()
+  assert.deepEqual(f.counts(), { initializations: 0, opens: 0 })
+  const adapter = f.scripts().find((script) => script.src.endsWith("/dist/packages/unsafe-eval.js"))
+  assert.ok(adapter)
+  assert.match(adapter.src, /pixi\.js@8\.21\.0/)
+  f.window.unsafe_eval_js = {}
+  adapter.onload()
+  await tick()
+  assert.deepEqual(f.counts(), { initializations: 1, opens: 1 })
 })
 
 test("Ctrl/Meta+G loads on demand while ordinary or Shift-modified keys do not", async (t) => {

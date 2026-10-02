@@ -24,11 +24,16 @@
     "export": "node scripts/prepare-content.mjs",
     "sync": "node scripts/sync-notes.mjs",
     "preview": "node scripts/preview.mjs",
-    "test:publish": "node --test scripts/pagination.test.mjs scripts/library.test.mjs scripts/article-thumbnail.test.mjs scripts/site-pages.test.mjs scripts/import-memos.test.mjs scripts/memory-attachment-migration.test.mjs scripts/site-icon.test.mjs scripts/graph-runtime.test.mjs scripts/browser-cache-lifecycle.test.mjs scripts/cloudflare-assets.test.mjs scripts/mermaid-reader.test.mjs scripts/sync.test.mjs scripts/sync.integration.test.mjs admin/home-memory-previews.test.mjs admin/tag-input.test.mjs admin/github.test.mjs admin/images.test.mjs admin/formatting.test.mjs admin/article-recovery.test.mjs admin/local-trash.test.mjs admin/deployment.test.mjs admin/preview.test.mjs admin/site-preview.test.mjs admin/runtime-publish.test.mjs admin/panel-window.test.mjs admin/auth.test.mjs auth-service/worker.test.mjs content-service/worker.test.mjs content-service/session.test.mjs content-service/memories.test.mjs && tsx --test quartz/components/scripts/browsing.test.ts quartz/util/article-links.test.ts quartz/runtime/render.test.ts runtime/projection.test.mjs runtime/cache.test.mjs runtime/syntax.test.ts quartz/components/renderPage.test.ts",
+    "test:publish": "node --test scripts/pagination.test.mjs scripts/library.test.mjs scripts/article-thumbnail.test.mjs scripts/site-pages.test.mjs scripts/import-memos.test.mjs scripts/memory-attachment-migration.test.mjs scripts/site-icon.test.mjs scripts/graph-runtime.test.mjs scripts/browser-cache-lifecycle.test.mjs scripts/cloudflare-assets.test.mjs scripts/mermaid-reader.test.mjs scripts/sync.test.mjs scripts/sync.integration.test.mjs admin/home-memory-previews.test.mjs admin/tag-input.test.mjs admin/github.test.mjs admin/images.test.mjs admin/formatting.test.mjs admin/article-recovery.test.mjs admin/local-trash.test.mjs admin/deployment.test.mjs admin/preview.test.mjs admin/site-preview.test.mjs admin/runtime-publish.test.mjs admin/panel-window.test.mjs admin/auth.test.mjs auth-service/worker.test.mjs content-service/worker.test.mjs content-service/session.test.mjs content-service/memories.test.mjs scripts/private-note-migration.test.mjs scripts/backup-live.test.mjs scripts/content-security.test.mjs admin/personal-library.test.mjs admin/public-library.test.mjs admin/durable-drafts.test.mjs admin/memory-recovery.test.mjs content-service/personal-notes.test.mjs content-service/backups.test.mjs content-service/publication-jobs.test.mjs content-service/public-attachments.test.mjs content-service/owner-verification.test.mjs content-service/owner-verification.integration.test.mjs admin/backup-manager.test.mjs && tsx --test quartz/components/scripts/browsing.test.ts quartz/util/article-links.test.ts quartz/runtime/render.test.ts runtime/projection.test.mjs runtime/cache.test.mjs runtime/syntax.test.ts quartz/components/renderPage.test.ts quartz/util/article-security.test.ts",
     "verify:site": "node scripts/verify-site.mjs",
     "content:sync": "node --use-env-proxy scripts/prepare-content.mjs && node --use-env-proxy scripts/content-sync.mjs",
     "content:seed": "node scripts/content-sync.mjs --seed-sql .local/content-import.sql",
-    "build:cloudflare": "npm run build && node scripts/prepare-cloudflare-assets.mjs"
+    "build:cloudflare": "npm run build && node scripts/prepare-cloudflare-assets.mjs",
+    "notes:import-private": "node --use-env-proxy scripts/import-private-notes.mjs",
+    "notes:export-private": "node --use-env-proxy scripts/export-personal-notes.mjs",
+    "backup:export": "node --use-env-proxy scripts/backup-export.mjs",
+    "backup:verify": "node scripts/backup-verify.mjs",
+    "backup:live-verify": "node --use-env-proxy scripts/backup-live-verify.mjs"
   },
   "engines": {
     "npm": ">=10.9.2",
@@ -103,6 +108,8 @@
     "github-slugger": "^2.0.0",
     "globby": "^16.1.0",
     "hast-util-from-html": "^2.0.0",
+    "hast-util-raw": "9.1.0",
+    "hast-util-sanitize": "5.0.2",
     "hast-util-to-html": "^9.0.5",
     "hast-util-to-jsx-runtime": "^2.3.6",
     "isomorphic-git": "^1.36.3",

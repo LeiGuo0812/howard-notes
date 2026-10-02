@@ -1,8 +1,11 @@
+import { publicLibrarySnapshot } from "./public-library.mjs"
 export function createSitePreview(
   getSettings,
   getSnapshot,
   { root = document, siteBase = new URL("../", location.href) } = {},
 ) {
+  const ownerSnapshot = getSnapshot
+  getSnapshot = () => publicLibrarySnapshot(ownerSnapshot())
   const $ = (id) => root.querySelector(`[data-admin-id="${id}"]`) || root.querySelector(`#${id}`)
   const listeners = new AbortController()
   let disposed = false

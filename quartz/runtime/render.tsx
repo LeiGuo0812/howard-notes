@@ -12,6 +12,8 @@ import type { BlogData } from "../components/BlogView"
 import type { QuartzComponent, QuartzComponentProps } from "../components/types"
 import { simplifySlug, type FullSlug } from "../util/path"
 import { brandIconDataLink } from "../../scripts/lib/site-icon-svg.mjs"
+import { sanitizeArticleHtml } from "../util/article-security"
+import { contentIndexScript } from "../../scripts/lib/content-security.mjs"
 
 export type RuntimeDocument = {
   id: string
@@ -61,8 +63,7 @@ const htmlJsx = (tree: Root | Element) =>
   toJsxRuntime(tree, { Fragment, jsx, jsxs, elementAttributeNameCase: "html" })
 
 /** A stable thenable lets the existing graph read the latest revision after SPA navigation. */
-export const contentIndexScript = (basePath = "/howard-notes") =>
-  `const fetchData={then(resolve,reject){return (window.__howardContentIndex?window.__howardContentIndex():fetch(${JSON.stringify(`${basePath}/static/contentIndex.json`)},{cache:"no-cache"}).then(r=>{if(!r.ok)throw new Error("无法加载笔记索引");return r.json()})).then(resolve,reject)}}`
+export { contentIndexScript } from "../../scripts/lib/content-security.mjs"
 
 /** Extract immutable compiled resources once; neither Node fs nor DOM globals are needed. */
 export function extractShell(
@@ -299,7 +300,9 @@ export function renderPages(projection: RuntimeProjection, shell: RuntimeShell) 
       <article class="popover-hint">
         <div
           class="markdown-preview-view markdown-rendered"
-          dangerouslySetInnerHTML={{ __html: note?.html ?? options.html ?? "" }}
+          dangerouslySetInnerHTML={{
+            __html: sanitizeArticleHtml(note?.html ?? options.html ?? ""),
+          }}
         />
       </article>
     )

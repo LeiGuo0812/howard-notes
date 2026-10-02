@@ -2,7 +2,7 @@ import assert from "node:assert/strict"
 import test from "node:test"
 import { createSitePreview } from "./site-preview.mjs"
 
-function fixture() {
+function fixture({ merged = false } = {}) {
   const previous = {
     window: globalThis.window,
     location: globalThis.location,
@@ -55,7 +55,22 @@ function fixture() {
   let settings = { title: "Original" }
   const preview = createSitePreview(
     () => settings,
-    () => ({ catalog: { articles: [{ id: "note-a", title: "A", published: true }] } }),
+    () => {
+      const publicSnapshot = {
+        catalog: { articles: [{ id: "note-a", title: "A", published: true }] },
+      }
+      return merged
+        ? {
+            catalog: {
+              articles: [
+                { id: "note-a", title: "PRIVATE_SHADOW_TITLE", published: false },
+                { id: "private-note", title: "PRIVATE_SECRET_TITLE", published: true },
+              ],
+            },
+            publicSnapshot,
+          }
+        : publicSnapshot
+    },
     { root, siteBase: "https://notes.example/howard-notes/" },
   )
   const ready = () => {
@@ -101,6 +116,22 @@ test("loading settings never mounts a hidden full-site iframe", () => {
     f.ready()
     assert.equal(f.messages.length, 1)
     assert.equal(f.messages[0].settings.title, "Original")
+  } finally {
+    f.cleanup()
+  }
+})
+
+test("layout preview selectors retain public articles and exclude private owner titles", () => {
+  const f = fixture({ merged: true })
+  try {
+    f.preview.load()
+    assert.deepEqual(
+      f
+        .control("preview-article")
+        .options.map((option) => ({ text: option.text, value: option.value })),
+      [{ text: "A", value: "note-a" }],
+    )
+    assert.doesNotMatch(JSON.stringify(f.control("preview-article").options), /PRIVATE/)
   } finally {
     f.cleanup()
   }

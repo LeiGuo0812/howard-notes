@@ -13,6 +13,11 @@ process.chdir(project)
 const args = new Set(process.argv.slice(2)),
   apply = args.has("--apply"),
   init = args.has("--init")
+const runtime = JSON.parse(await fs.readFile("runtime/config.json", "utf8").catch(() => "{}"))
+if (apply && runtime.maintenanceMode === "web-primary")
+  throw new Error(
+    "当前文库以网页为主维护端，已关闭本地双向写入。请使用只读导出和加密备份；本次未修改笔记或推送仓库。",
+  )
 const git = (...arguments_) =>
   execFileSync("git", arguments_, {
     cwd: project,

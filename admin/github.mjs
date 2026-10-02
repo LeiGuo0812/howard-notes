@@ -64,6 +64,8 @@ export class GitHubLibrary {
   constructor(token, fetcher = (...args) => globalThis.fetch(...args), options = {}) {
     this.token = token
     this.fetcher = fetcher
+    this.repository = options.repository || REPOSITORY
+    this.branch = options.branch || BRANCH
     this.now = options.now || Date.now
     this.trashId = options.trashId || (() => crypto.randomUUID())
     this.trashCache = new Map()
@@ -98,18 +100,18 @@ export class GitHubLibrary {
     return response.status === 204 ? null : response.json()
   }
   repo(endpoint, method, body) {
-    return this.request(`/repos/${REPOSITORY}/${endpoint}`, method, body)
+    return this.request(`/repos/${this.repository}/${endpoint}`, method, body)
   }
   async authenticate() {
     const [user, repository] = await Promise.all([
       this.request("/user"),
-      this.request(`/repos/${REPOSITORY}`),
+      this.request(`/repos/${this.repository}`),
     ])
     if (!repository.permissions?.push) throw new Error("当前账号没有此仓库的写入权限。")
     return user.login
   }
   async snapshot() {
-    const ref = await this.repo(`git/ref/heads/${BRANCH}`)
+    const ref = await this.repo(`git/ref/heads/${this.branch}`)
     const head = await this.repo(`git/commits/${ref.object.sha}`)
     const tree = await this.repo(`git/trees/${head.tree.sha}?recursive=1`)
     if (tree.truncated) throw new Error("仓库目录过大，未能取得完整文件列表。")
@@ -579,10 +581,10 @@ export class GitHubLibrary {
       parents: [latest.commit],
     })
     // Never force-update: a commit arriving after our snapshot prevents this write.
-    await this.repo(`git/refs/heads/${BRANCH}`, "PATCH", { sha: commit.sha, force: false })
+    await this.repo(`git/refs/heads/${this.branch}`, "PATCH", { sha: commit.sha, force: false })
     return {
       sha: commit.sha,
-      url: `https://github.com/${REPOSITORY}/commit/${commit.sha}`,
+      url: `https://github.com/${this.repository}/commit/${commit.sha}`,
       snapshot: { ...saved, commit: commit.sha, tree: tree.sha },
     }
   }

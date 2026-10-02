@@ -63,6 +63,7 @@ export async function createMaintenance({ siteBase, version }) {
   for (const [action, label] of [
     ["new", "新建"],
     ["drafts", "草稿箱"],
+    ["private", "私密文库"],
     ["trash", "回收站"],
     ["articles", "文章管理"],
     ["settings", "页面设置"],
@@ -196,8 +197,9 @@ export async function createMaintenance({ siteBase, version }) {
     onStarted(result) {
       if (!result.completion) showProgress(result.label)
     },
-    onProgress(text) {
-      if (deployment.dataset.state === "working") showProgress(text)
+    onProgress(text, detail) {
+      if (detail?.state) showProgress(text, detail.state, { reopen: false })
+      else if (deployment.dataset.state === "working") showProgress(text)
     },
     onSettled(result) {
       if (!result.completion && !result.failed && deployment.dataset.state === "working")
@@ -222,7 +224,10 @@ export async function createMaintenance({ siteBase, version }) {
     },
     onSaved(result) {
       stopDeployment()
-      if (result?.kind === "delete") {
+      if (
+        result?.kind === "delete" ||
+        (result?.kind === "unpublish" && result.sync?.status === "synchronized")
+      ) {
         for (const id of result.removedIds || [result.articleId]) if (id) removedArticles.add(id)
         if (removedArticles.has(currentRouteId()) || mode === "inline") {
           mode = "panel"
@@ -241,7 +246,7 @@ export async function createMaintenance({ siteBase, version }) {
       }
       const publicOperation =
         ["article", "settings", "unpublish", "delete", "restore"].includes(result?.kind) &&
-        !(result.scope === "draft" || result.scope === "local")
+        !["draft", "local", "private"].includes(result.scope)
       if (publicOperation && result.sync?.status !== "static") {
         const state = result.sync?.status
         if (state === "synchronized") pendingSynchronization = null
@@ -249,14 +254,21 @@ export async function createMaintenance({ siteBase, version }) {
           state === "synchronized"
             ? "已上线。"
             : state === "pending"
-              ? `已保存到 GitHub；线上同步待重试${result.sync.error ? `：${result.sync.error}` : "。"}`
+              ? result.job
+                ? "原文已保存，正在后台处理，可关闭网页。"
+                : `已保存到 GitHub；线上同步待重试${result.sync.error ? `：${result.sync.error}` : "。"}`
               : "已保存到 GitHub，正在同步网站…",
-          state === "synchronized" ? "done" : state === "pending" ? "pending" : "working",
-          { retry: state === "pending", reopen: state !== "synchronized" },
+          state === "synchronized"
+            ? "done"
+            : state === "pending" && !result.job
+              ? "pending"
+              : "working",
+          { retry: state === "pending" && !result.job, reopen: state !== "synchronized" },
         )
       } else if (!publicOperation) {
         const completed = {
-          draft: "已存入草稿箱。",
+          draft:
+            result.scope === "private" && !result.draft ? "私密原文已保存。" : "已存入草稿箱。",
           delete: "已移入回收站，保留 30 天。",
           restore: "已恢复文章。",
           purge: "已清理回收站。",
@@ -333,6 +345,7 @@ export async function createMaintenance({ siteBase, version }) {
       edit: "编辑文章",
       new: "新建文章",
       drafts: "草稿箱",
+      private: "私密文库",
       trash: "回收站",
       articles: "文章管理",
       settings: "页面设置",
@@ -476,6 +489,13 @@ export async function createMaintenance({ siteBase, version }) {
       },
     ],
     [
+      "private",
+      () => {
+        if (workspace.showMode("private") === false) return
+        showPanel("private")
+      },
+    ],
+    [
       "drafts",
       () => {
         if (workspace.showMode("drafts") === false) return
@@ -525,7 +545,7 @@ export async function createMaintenance({ siteBase, version }) {
   })
   container.addEventListener("click", (event) => {
     const control = event.target.closest(
-      "#tab-articles,#tab-drafts,#tab-trash,#tab-settings,#new-article",
+      "#tab-articles,#tab-private,#tab-drafts,#tab-trash,#tab-settings,#new-article",
     )
     if (!control) return
     queueMicrotask(() => {

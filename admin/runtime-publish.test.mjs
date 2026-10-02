@@ -164,6 +164,7 @@ function fixture({
     onSynchronized: (state) => synced.push(state),
   })
   return {
+    client,
     publisher,
     requests,
     values,
@@ -246,6 +247,35 @@ test("failed D1 finish remains pending; retry reads latest Git head and makes no
     f.requests.filter((request) => request.url.endsWith("/sync/begin")).at(-1).body.commit,
     nextCommit,
   )
+})
+
+test("browser publication and retry use only the acknowledged public snapshot of a merged owner library", async () => {
+  const f = fixture({ failFinish: true })
+  let publicReads = 0
+  f.client.publicSnapshot = async () => {
+    publicReads++
+    return f.snapshot()
+  }
+  f.client.snapshot = async () =>
+    assert.fail("private owner catalog must never be projected publicly")
+  const merged = {
+    ...f.snapshot(),
+    catalog: {
+      version: 2,
+      articles: [{ ...article, published: false, title: "PRIVATE_SOURCE_MUST_NOT_SYNC" }],
+    },
+    publicSnapshot: f.snapshot(),
+  }
+  assert.equal((await f.publisher.publish({ kind: "article", commit }, merged)).status, "pending")
+  f.advance()
+  assert.equal((await f.publisher.retry()).status, "synchronized")
+  assert.equal(publicReads, 1)
+  assert.ok(
+    f.prepared.every(
+      (value) => value.catalog.articles.find((row) => row.id === "a").published === true,
+    ),
+  )
+  assert.doesNotMatch(JSON.stringify(f.requests), /PRIVATE_SOURCE_MUST_NOT_SYNC/)
 })
 
 test("temporary service configuration error does not pretend static deployment succeeded", async () => {

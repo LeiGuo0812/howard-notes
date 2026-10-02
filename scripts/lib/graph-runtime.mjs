@@ -3,8 +3,8 @@
 // No third-party implementation is vendored or changed in node_modules.
 export function mountDeferredGraph(initialize) {
   const libraries = [
-    ["d3", "https://cdn.jsdelivr.net/npm/d3@7/dist/d3.min.js"],
-    ["PIXI", "https://cdn.jsdelivr.net/npm/pixi.js@8/dist/pixi.js"],
+    ["d3", "https://cdn.jsdelivr.net/npm/d3@7.9.0/dist/d3.min.js"],
+    ["PIXI", "https://cdn.jsdelivr.net/npm/pixi.js@8.21.0/dist/pixi.js"],
   ]
   const loads = new Map()
   let initialized = false,
@@ -97,6 +97,14 @@ export function mountDeferredGraph(initialize) {
     showNotice("正在加载关系图谱…", "working")
     if (pending) return
     pending = Promise.all(libraries.map(load))
+      // The official Pixi adapter uses static uniform synchronizers instead of
+      // Function constructors. Keep a strict script CSP without disabling graph.
+      .then(() =>
+        load([
+          "unsafe_eval_js",
+          "https://cdn.jsdelivr.net/npm/pixi.js@8.21.0/dist/packages/unsafe-eval.js",
+        ]),
+      )
       .then(() => {
         initialize()
         initialized = true

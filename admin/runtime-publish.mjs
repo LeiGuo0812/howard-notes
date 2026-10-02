@@ -1,4 +1,5 @@
 import { createPublicationWorker } from "./publication-worker-client.mjs"
+import { publicLibrarySnapshot } from "./public-library.mjs"
 const PENDING_KEY = "howard-notes:pending-publication:v1"
 const SHA = /^[a-f0-9]{40}$/i
 const KINDS = new Set(["article", "settings", "unpublish", "delete"])
@@ -198,7 +199,11 @@ export function createRuntimePublisher({
     }
     const client = getClient()
     if (!client?.token) throw new Error("请重新登录后重试同步。")
-    snapshot ||= await client.snapshot()
+    snapshot ||= await (client.publicSnapshot ? client.publicSnapshot() : client.snapshot())
+    // Maintenance may hold a merged owner library. Publication always follows
+    // acknowledged Git originals; a private shadow cannot withdraw public
+    // content before its durable job has actually updated the Git ref.
+    snapshot = publicLibrarySnapshot(snapshot)
     if (!SHA.test(snapshot.commit)) throw new Error("GitHub 版本信息不正确，请重试同步。")
     const api = settings.apiBase
     background?.warm()

@@ -64,13 +64,17 @@
     font-size: 13px;
     color: var(--gray);
   }
-  .memory-new {
+  .memory-new,
+  .memory-recovery-launch {
     margin-left: auto;
     padding: 10px 18px;
     color: var(--secondary);
     background: var(--highlight);
     border-color: color-mix(in srgb, var(--secondary) 24%, transparent);
     font-weight: 600;
+  }
+  .memory-recovery-launch:not([hidden]) + .memory-new {
+    margin-left: 0;
   }
 }
 .memory-layout {
@@ -718,6 +722,24 @@
     justify-content: center;
     padding: 5px;
   }
+  > .memory-recovery-state {
+    flex: 0 0 auto;
+    width: auto;
+    height: 28px;
+    padding: 4px 7px;
+    white-space: nowrap;
+    font-size: 11px;
+    font-weight: 400;
+    color: var(--gray);
+  }
+}
+.memory-editor-preview .memory-recovery-item {
+  max-width: 100%;
+  padding: 10px 12px;
+  margin: 3px 0;
+  text-align: left;
+  overflow-wrap: anywhere;
+  border: 1px solid var(--memory-card-border);
 }
 .memory-editor-toolbar {
   display: flex;
@@ -964,7 +986,8 @@
   .memory-heading {
     gap: 10px;
     margin-bottom: 20px;
-    .memory-new {
+    .memory-new,
+    .memory-recovery-launch {
       padding: 9px 13px;
       font-size: 12px;
     }

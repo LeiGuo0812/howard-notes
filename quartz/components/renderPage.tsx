@@ -16,6 +16,7 @@ import { resolveFrame } from "./frames"
 import type { TreeTransform } from "../plugins/types"
 import type { BuildCtx } from "../util/ctx"
 import { contentIndexScript } from "../runtime/render"
+import { sanitizeArticleTree } from "../util/article-security"
 
 import { renderTranscludes } from "../util/transclusions"
 export { renderTranscludes } from "../util/transclusions"
@@ -137,7 +138,7 @@ export function renderPage(
   }
 
   // set componentData.tree to the edited html that has transclusions rendered
-  componentData.tree = root
+  componentData.tree = sanitizeArticleTree(root)
 
   const {
     head: Head,

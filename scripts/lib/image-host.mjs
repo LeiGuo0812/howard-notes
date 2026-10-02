@@ -53,6 +53,13 @@ export function imageLink(host, commit, file) {
   validateImageHost(host)
   if (!/^[a-f0-9]{40}$/.test(commit) || !/^[a-f0-9]{64}\.(png|jpg|gif|webp|avif)$/.test(file))
     throw new Error("图片链接信息不完整。")
+  return attachmentLink(host, commit, file)
+}
+
+export function attachmentLink(host, commit, file) {
+  validateImageHost(host)
+  if (!/^[a-f0-9]{40}$/.test(commit) || !/^[a-f0-9]{64}\.[a-z0-9]{1,12}$/.test(file))
+    throw new Error("附件链接信息不完整。")
   const path = [host.directory, file].filter(Boolean).join("/")
   return `https://raw.githubusercontent.com/${host.repository}/${commit}/${encodePath(path)}`
 }

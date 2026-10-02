@@ -5,6 +5,41 @@ import path from "node:path"
 import os from "node:os"
 import { execFileSync } from "node:child_process"
 
+test("web-primary rejects local apply before Git/network access or note writes", async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "web-primary-guard-"))
+  try {
+    await fs.mkdir(path.join(root, "scripts"))
+    await fs.mkdir(path.join(root, "runtime"))
+    await fs.mkdir(path.join(root, "bin"))
+    await fs.copyFile("scripts/sync-notes.mjs", path.join(root, "scripts/sync-notes.mjs"))
+    await fs.symlink(path.resolve("scripts/lib"), path.join(root, "scripts/lib"), "dir")
+    await fs.writeFile(path.join(root, "runtime/config.json"), '{"maintenanceMode":"web-primary"}')
+    await fs.writeFile(path.join(root, "original.md"), "原文\r\n")
+    await fs.writeFile(
+      path.join(root, "bin/git"),
+      '#!/bin/sh\ntouch "$GUARD_GIT_MARKER"\nexit 2\n',
+      { mode: 0o700 },
+    )
+    assert.throws(
+      () =>
+        execFileSync(process.execPath, ["scripts/sync-notes.mjs", "--apply"], {
+          cwd: root,
+          stdio: ["ignore", "pipe", "pipe"],
+          env: {
+            ...process.env,
+            PATH: `${path.join(root, "bin")}:${process.env.PATH}`,
+            GUARD_GIT_MARKER: path.join(root, "git-was-called"),
+          },
+        }),
+      /已关闭本地双向写入/,
+    )
+    assert.equal(await fs.readFile(path.join(root, "original.md"), "utf8"), "原文\r\n")
+    await assert.rejects(fs.access(path.join(root, "git-was-called")))
+  } finally {
+    await fs.rm(root, { recursive: true, force: true })
+  }
+})
+
 test("sync initializes exact copies, merges independent edits and preserves files on conflict or build failure", async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "howard-sync-test-"))
   const project = path.join(root, "project"),

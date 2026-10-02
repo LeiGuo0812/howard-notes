@@ -14,6 +14,7 @@
     <!-- brand-icons -->
     <link rel="stylesheet" href="frosted-glass.css" />
     <link rel="stylesheet" href="admin.css" />
+    <link rel="stylesheet" href="backup-manager.css" />
     <link rel="stylesheet" href="katex/katex.min.css" />
     <script src="__ADMIN_SCRIPT__" type="module"></script>
   </head>
@@ -43,8 +44,8 @@
       </section>
       <nav id="admin-tabs" class="admin-tabs" aria-label="管理功能" hidden>
         <button id="tab-articles" aria-current="page">文章</button
-        ><button id="tab-drafts">草稿箱</button><button id="tab-trash">回收站</button
-        ><button id="tab-settings">页面设置</button>
+        ><button id="tab-private">私密文库</button><button id="tab-drafts">草稿箱</button
+        ><button id="tab-trash">回收站</button><button id="tab-settings">页面设置</button>
       </nav>
       <section id="trash-workspace" class="trash-workspace frosted-panel" hidden>
         <div class="list-heading">
@@ -78,9 +79,14 @@
                 <button id="delete-draft" class="danger" type="button">删除草稿</button>
                 <button id="delete-article" class="danger" type="button" hidden>删除文章</button>
                 <button id="save-draft" type="submit" formnovalidate>存草稿</button>
+                <button id="save-private" type="submit">存为私密</button>
                 <button id="save" class="primary" type="submit">发布</button>
               </div>
             </div>
+            <details id="article-history" class="article-history" hidden>
+              <summary>版本历史</summary>
+              <div class="article-history-content"></div>
+            </details>
             <label class="title-label"
               >标题<input id="title" required maxlength="250" placeholder="文章标题"
             /></label>
@@ -98,7 +104,7 @@
                 <label>标签<input id="tags" placeholder="逗号分隔" /></label
                 ><label>摘要<input id="description" maxlength="500" /></label>
               </div>
-              <button id="unpublish" type="button" hidden>从网站撤下</button>
+              <button id="unpublish" type="button" hidden>改为私密</button>
             </details>
             <div class="writing-controls">
               <div class="view-switch" role="group" aria-label="编辑视图">
@@ -436,6 +442,7 @@
             </aside>
           </div>
         </form>
+        <div id="backup-manager"></div>
       </section>
       <div id="status" role="status" aria-live="polite" hidden></div>
     </main>

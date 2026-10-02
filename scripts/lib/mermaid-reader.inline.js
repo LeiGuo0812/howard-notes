@@ -50,7 +50,28 @@ function configuration() {
   const color = (name) => style.getPropertyValue(name)
   return {
     startOnLoad: false,
-    securityLevel: "loose",
+    securityLevel: "strict",
+    htmlLabels: false,
+    flowchart: { htmlLabels: false },
+    maxTextSize: 50000,
+    maxEdges: 300,
+    suppressErrorRendering: true,
+    secure: [
+      "secure",
+      "securityLevel",
+      "startOnLoad",
+      "maxTextSize",
+      "maxEdges",
+      "suppressErrorRendering",
+      "htmlLabels",
+      "flowchart",
+      "themeCSS",
+      "themeVariables",
+      "theme",
+      "dompurifyConfig",
+      "fontFamily",
+      "fontSize",
+    ],
     theme: document.documentElement.getAttribute("saved-theme") === "dark" ? "dark" : "base",
     themeVariables: {
       fontFamily: color("--codeFont"),
@@ -68,7 +89,7 @@ function configuration() {
 
 function loadMermaid() {
   mermaidModule ??=
-    import("https://cdnjs.cloudflare.com/ajax/libs/mermaid/11.4.0/mermaid.esm.min.mjs").catch(
+    import("https://cdn.jsdelivr.net/npm/mermaid@11.17.2/dist/mermaid.esm.min.mjs").catch(
       (error) => {
         mermaidModule = null
         throw error

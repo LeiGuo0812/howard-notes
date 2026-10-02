@@ -14,6 +14,7 @@ import { GitHubImageHost } from "./images.mjs"
 import { brokerOrigin } from "./auth.mjs"
 import { createSitePreview } from "./site-preview.mjs"
 import { readLayoutDraft, writeLayoutDraft, clearLayoutDraft } from "./layout-draft.mjs"
+import { publicLibrarySnapshot } from "./public-library.mjs"
 const node = (tag, text, cls) => {
   const el = document.createElement(tag)
   if (text !== undefined) el.textContent = text
@@ -36,6 +37,10 @@ export function createSettings({
   onSaved,
   refresh,
 }) {
+  const ownerSnapshot = getSnapshot,
+    refreshOwner = refresh
+  getSnapshot = () => publicLibrarySnapshot(ownerSnapshot())
+  refresh = async () => publicLibrarySnapshot(await refreshOwner())
   const $ = (id) => root.querySelector(`[data-admin-id="${id}"]`) || root.querySelector(`#${id}`)
   const listeners = new AbortController()
   const listen = (target, type, handler, options = {}) =>
@@ -300,6 +305,7 @@ export function createSettings({
     ordered("navigation-settings", working.navigation, "navigation")
   }
   function load(snapshot, restoreDraft = true) {
+    snapshot = publicLibrarySnapshot(snapshot)
     openedSha = snapshot.siteSha
     working = normalizeSite(snapshot.settings)
     working.imageHost = { ...imageHostSettings(working) }

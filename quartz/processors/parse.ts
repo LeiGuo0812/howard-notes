@@ -7,6 +7,7 @@ import { Root as HTMLRoot } from "hast"
 import { MarkdownContent, ProcessedContent } from "../plugins/vfile"
 import { PerfTimer } from "../util/perf"
 import { read } from "to-vfile"
+import { VFile } from "vfile"
 import { FilePath, QUARTZ, slugifyFilePath } from "../util/path"
 import path from "path"
 import workerpool, { Promise as WorkerPromise } from "workerpool"
@@ -14,6 +15,7 @@ import { QuartzLogger } from "../util/log"
 import { trace } from "../util/trace"
 import { BuildCtx, WorkerSerializableBuildCtx } from "../util/ctx"
 import { styleText } from "util"
+import { sanitizeSourceTree, sanitizeArticleTree, articleHeadingId } from "../util/article-security"
 
 export type QuartzMdProcessor = Processor<MDRoot, MDRoot, MDRoot>
 export type QuartzHtmlProcessor = Processor<undefined, MDRoot, HTMLRoot>
@@ -39,8 +41,17 @@ export function createHtmlProcessor(ctx: BuildCtx): QuartzHtmlProcessor {
     unified()
       // MD AST -> HTML AST
       .use(remarkRehype, { allowDangerousHtml: true })
+      .use(() => (tree: HTMLRoot) => sanitizeSourceTree(tree))
       // HTML AST -> HTML AST transforms
       .use(transformers.flatMap((plugin) => plugin.htmlPlugins?.(ctx) ?? []))
+      .use(() => (tree: HTMLRoot, file: VFile) => {
+        if (file.data.toc)
+          file.data.toc = file.data.toc.map((entry) => ({
+            ...entry,
+            slug: articleHeadingId(entry.slug),
+          }))
+        return sanitizeArticleTree(tree)
+      })
   )
 }
 

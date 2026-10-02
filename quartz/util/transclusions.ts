@@ -39,7 +39,9 @@ export function renderTranscludes(
       }
 
       const inner = el.children[0] as Element
-      const transcludeTarget = (inner.properties["data-slug"] ?? slug) as FullSlug
+      const transcludeTarget = (inner.properties["data-slug"] ??
+        inner.properties.dataSlug ??
+        slug) as FullSlug
       if (visited.has(transcludeTarget)) {
         console.warn(`Warning: Skipping circular transclusion: ${slug} -> ${transcludeTarget}`)
         el.children = [

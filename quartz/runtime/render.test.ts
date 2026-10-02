@@ -105,6 +105,20 @@ test("new notes and directories render complete public routes without a prior HT
   assert.match(pages.find((page) => page.path === "about")!.html, /关于本站/)
 })
 
+test("HTML insertion sanitizes cached or externally supplied article and About fragments", () => {
+  const projection = fixture()
+  projection.documents[0].html +=
+    '<script>cachedAttack()</script><img src="https://images.example/a.png" onerror="cachedAttack()"><a href="javascript:cachedAttack()">不安全链接</a>'
+  projection.aboutHtml =
+    '<p>关于本站</p><iframe srcdoc="attack"></iframe><script>cachedAttack()</script>'
+  const pages = renderPages(projection, shell)
+  for (const path of ["notes/fresh-note", "about"]) {
+    const html = pages.find((page) => page.path === path)!.html
+    assert.doesNotMatch(html, /cachedAttack|onerror|javascript:|<iframe/)
+  }
+  assert.match(pages.find((page) => page.path === "notes/fresh-note")!.html, /不安全链接/)
+})
+
 test("memory pages are independent empty shells and article tags stay in their sidebar", () => {
   const projection = fixture()
   const pages = renderPages(projection, shell)
