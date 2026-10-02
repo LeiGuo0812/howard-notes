@@ -1,4 +1,5 @@
 import micromorph from "micromorph"
+import { morphWithMeasurements } from "../../../scripts/lib/mermaid-measurement.mjs"
 import { FullSlug, RelativeURL, getFullSlug, normalizeRelativeURLs } from "../../util/path"
 import { fetchCanonical, invalidatePageCache, prefetchPage } from "./util"
 
@@ -108,7 +109,7 @@ async function _navigate(url: URL, isBack: boolean = false) {
   html.body.appendChild(announcer)
 
   document.querySelector(".navigation-progress")?.remove()
-  micromorph(document.body, html.body)
+  morphWithMeasurements(document.body, html.body, micromorph)
 
   // scroll into place and add history
   if (!isBack) {

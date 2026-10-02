@@ -20,7 +20,7 @@ export const MemoryHub: QuartzComponent = (props) => {
       </div>
       <div class="memory-layout">
         <details id="memory-sidebar" class="memory-sidebar" open>
-          <summary title="标签和时间导航">索引</summary>
+          <summary title="按记忆卡标签筛选">标签索引</summary>
           <div class="memory-sidebar-content">
             <div class="memory-status-controls" hidden>
               <label>

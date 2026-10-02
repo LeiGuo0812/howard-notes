@@ -1,5 +1,8 @@
 import { StaticResources } from "../util/resources"
 import { BuildCtx } from "../util/ctx"
+import { adaptMermaidResource } from "../../scripts/lib/mermaid-reader.mjs"
+// @ts-ignore Quartz's build loader imports inline scripts as browser source.
+import mermaidReaderScript from "../../scripts/lib/mermaid-reader.inline.js"
 
 export function getStaticResourcesFromPlugins(ctx: BuildCtx) {
   const staticResources: StaticResources = {
@@ -11,7 +14,9 @@ export function getStaticResourcesFromPlugins(ctx: BuildCtx) {
   for (const transformer of [...ctx.cfg.plugins.transformers, ...ctx.cfg.plugins.emitters]) {
     const res = transformer.externalResources ? transformer.externalResources(ctx) : {}
     if (res?.js) {
-      staticResources.js.push(...res.js)
+      staticResources.js.push(
+        ...res.js.map((resource) => adaptMermaidResource(resource, mermaidReaderScript)),
+      )
     }
     if (res?.css) {
       staticResources.css.push(...res.css)

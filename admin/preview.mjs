@@ -37,6 +37,52 @@ function loadMermaid() {
     return mermaid
   }))
 }
+// A preview reuses only sanitized output for an unchanged diagram at the same
+// position. Position scopes Mermaid IDs; identical diagrams elsewhere in the
+// same document still receive independent IDs. The cache belongs to one editor
+// and is cleared when its article/context changes, never persisted to storage.
+export function createDiagramCache({ maxEntries = 12, maxBytes = 1_000_000 } = {}) {
+  const entries = new Map()
+  let bytes = 0
+  const discard = (key) => {
+    const entry = entries.get(key)
+    if (!entry) return
+    bytes -= entry.bytes
+    entries.delete(key)
+  }
+  return {
+    get(key, render) {
+      const existing = entries.get(key)
+      if (existing) {
+        entries.delete(key)
+        entries.set(key, existing)
+        return existing.promise
+      }
+      const entry = { bytes: 0 }
+      entry.promise = Promise.resolve()
+        .then(render)
+        .then((svg) => {
+          if (entries.get(key) === entry) {
+            entry.bytes = svg.length * 2
+            bytes += entry.bytes
+            while (bytes > maxBytes && entries.size) discard(entries.keys().next().value)
+          }
+          return svg
+        })
+        .catch((error) => {
+          if (entries.get(key) === entry) discard(key)
+          throw error
+        })
+      entries.set(key, entry)
+      while (entries.size > maxEntries) discard(entries.keys().next().value)
+      return entry.promise
+    },
+    clear() {
+      entries.clear()
+      bytes = 0
+    },
+  }
+}
 export function assetPath(source, articleFile) {
   let decoded
   try {
@@ -58,6 +104,7 @@ export function assetPath(source, articleFile) {
 export function createPreview(element, context) {
   let epoch = 0
   const imageCache = new Map()
+  const diagramCache = createDiagramCache()
   const mathToken = (raw, expression, display) => ({
     type: display ? "displayMath" : "inlineMath",
     raw,
@@ -129,6 +176,7 @@ export function createPreview(element, context) {
   return {
     clear() {
       epoch++
+      diagramCache.clear()
       for (const value of imageCache.values())
         Promise.resolve(value)
           .then((url) => URL.revokeObjectURL(url))
@@ -200,18 +248,24 @@ export function createPreview(element, context) {
       if (diagrams.length) {
         try {
           const mermaid = await loadMermaid()
-          for (const code of diagrams) {
+          for (const [index, code] of diagrams.entries()) {
             if (version !== epoch) break
             const host = document.createElement("div")
             host.className = "mermaid-preview"
             const diagramId = `preview-diagram-${++serial}`
             try {
-              const { svg } = await mermaid.render(diagramId, code.textContent)
+              const svg = await diagramCache.get(
+                JSON.stringify([index, code.textContent]),
+                async () => {
+                  const { svg } = await mermaid.render(diagramId, code.textContent)
+                  return DOMPurify.sanitize(svg, {
+                    USE_PROFILES: { svg: true, svgFilters: true },
+                    FORBID_TAGS: ["foreignObject"],
+                  })
+                },
+              )
               if (version !== epoch) break
-              host.innerHTML = DOMPurify.sanitize(svg, {
-                USE_PROFILES: { svg: true, svgFilters: true },
-                FORBID_TAGS: ["foreignObject"],
-              })
+              host.innerHTML = svg
               code.parentElement.replaceWith(host)
             } catch {
               document.getElementById("d" + diagramId)?.remove()

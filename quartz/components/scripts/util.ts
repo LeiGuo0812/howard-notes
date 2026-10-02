@@ -14,9 +14,13 @@ export function registerEscapeHandler(outsideContainer: HTMLElement | null, cb: 
   }
 
   outsideContainer?.addEventListener("click", click)
-  window.addCleanup(() => outsideContainer?.removeEventListener("click", click))
   document.addEventListener("keydown", esc)
-  window.addCleanup(() => document.removeEventListener("keydown", esc))
+  const cleanup = () => {
+    outsideContainer.removeEventListener("click", click)
+    document.removeEventListener("keydown", esc)
+  }
+  window.addCleanup(cleanup)
+  return cleanup
 }
 
 export function removeAllChildren(node: HTMLElement) {
@@ -53,19 +57,19 @@ export async function fetchPage(url: URL): Promise<Response> {
   const key = `${url.origin}${url.pathname}${url.search}`
   const cached = pageCache.get(key)
   if (cached && Date.now() - cached.time < CACHE_TTL) return (await cached.value).clone()
-  const value = fetch(key, { cache: "no-cache" })
+  const value: Promise<Response> = fetch(key, { cache: "no-cache" })
     .then(async (response) => {
       if (!response.ok || !response.headers.get("content-type")?.startsWith("text/html")) {
-        pageCache.delete(key)
+        if (pageCache.get(key)?.value === value) pageCache.delete(key)
         return response
       }
       // Limit retained HTML, especially for notes containing large embedded code.
       const html = await response.text()
-      if (html.length > 350_000) pageCache.delete(key)
+      if (html.length > 350_000 && pageCache.get(key)?.value === value) pageCache.delete(key)
       return new Response(html, { status: response.status, headers: response.headers })
     })
     .catch((error) => {
-      pageCache.delete(key)
+      if (pageCache.get(key)?.value === value) pageCache.delete(key)
       throw error
     })
   pageCache.delete(key)

@@ -226,6 +226,15 @@ function setupNoteBrowser() {
   const search = document.querySelector<HTMLInputElement>("#listing-search")
   if (!list || !order || !search) return
   const rows = [...list.querySelectorAll<HTMLLIElement>(":scope > li")]
+  const rowSearch = new Map(
+    rows.map((row) => [row, (row.dataset.search || "").toLocaleLowerCase()]),
+  )
+  const titleOrder = new Intl.Collator("zh-CN", { numeric: true })
+  const sortedRows = new Map<string, HTMLLIElement[]>()
+  let appliedOrder = "",
+    appliedDateField = "",
+    appliedTag: string | undefined,
+    appliedPages = ""
   const params = new URLSearchParams(location.search)
   const tagIndex = document.querySelector<HTMLElement>("#listing-tags")
   let selectedTag = params.get("tag") || ""
@@ -254,39 +263,53 @@ function setupNoteBrowser() {
       query = search.value.trim().toLocaleLowerCase()
     const field = value.startsWith("created") ? "created" : "modified"
     const compareTitle = (a: HTMLLIElement, b: HTMLLIElement) =>
-      (a.dataset.title || "").localeCompare(b.dataset.title || "", "zh-CN", { numeric: true }) ||
+      titleOrder.compare(a.dataset.title || "", b.dataset.title || "") ||
       (a.dataset.noteId || "").localeCompare(b.dataset.noteId || "")
-    const sorted = [...rows].sort((a, b) => {
-      if (value === "title-asc") return compareTitle(a, b)
-      if (value === "title-desc") return -compareTitle(a, b)
-      return (
-        (value.endsWith("asc") ? 1 : -1) *
-          (a.dataset[field] || "").localeCompare(b.dataset[field] || "") || compareTitle(a, b)
-      )
-    })
+    let sorted = sortedRows.get(value)
+    if (!sorted) {
+      sorted = [...rows].sort((a, b) => {
+        if (value === "title-asc") return compareTitle(a, b)
+        if (value === "title-desc") return -compareTitle(a, b)
+        return (
+          (value.endsWith("asc") ? 1 : -1) *
+            (a.dataset[field] || "").localeCompare(b.dataset[field] || "") || compareTitle(a, b)
+        )
+      })
+      sortedRows.set(value, sorted)
+    }
     const matching = sorted.filter(
       (row) =>
-        (row.dataset.search || "").toLocaleLowerCase().includes(query) &&
+        rowSearch.get(row)!.includes(query) &&
         (!selectedTag || rowTags.get(row)?.has(selectedTag)) &&
         (!activity || row.dataset.created === activity || row.dataset.modified === activity),
     )
-    for (const link of tagIndex?.querySelectorAll<HTMLElement>("[data-listing-tag]") ?? []) {
-      const selected = link.dataset.listingTag === selectedTag
-      if (selected) link.setAttribute("aria-current", "true")
-      else link.removeAttribute("aria-current")
+    if (appliedTag !== selectedTag) {
+      for (const link of tagIndex?.querySelectorAll<HTMLElement>("[data-listing-tag]") ?? []) {
+        const selected = link.dataset.listingTag === selectedTag
+        if (selected) link.setAttribute("aria-current", "true")
+        else link.removeAttribute("aria-current")
+      }
+      appliedTag = selectedTag
     }
     const paginated = paginateItems(matching, currentPage)
     currentPage = paginated.page
     const visible = new Set(paginated.items)
     for (const row of sorted) {
-      row.hidden = !visible.has(row)
-      const time = row.querySelector("time")
-      if (time) {
-        time.dateTime = row.dataset[field] || ""
-        time.textContent = time.dateTime
+      const hidden = !visible.has(row)
+      if (row.hidden !== hidden) row.hidden = hidden
+      if (appliedDateField !== field) {
+        const time = row.querySelector("time")
+        if (time) {
+          time.dateTime = row.dataset[field] || ""
+          time.textContent = time.dateTime
+        }
       }
     }
-    list.append(...sorted)
+    appliedDateField = field
+    if (appliedOrder !== value) {
+      list.append(...sorted)
+      appliedOrder = value
+    }
     list.start = paginated.start + 1
     document.querySelector("#listing-count")!.textContent =
       matching.length === rows.length
@@ -302,25 +325,29 @@ function setupNoteBrowser() {
     document.querySelector("#listing-page-state")!.textContent =
       `${currentPage} / ${paginated.pages}`
     const pages = document.querySelector("#listing-pages")!
-    pages.replaceChildren()
-    const numbers = new Set([1, paginated.pages, currentPage - 1, currentPage, currentPage + 1])
-    let last = 0
-    for (const number of [...numbers]
-      .filter((n) => n > 0 && n <= paginated.pages)
-      .sort((a, b) => a - b)) {
-      if (last && number - last > 1) {
-        const gap = document.createElement("span")
-        gap.textContent = "…"
-        pages.append(gap)
+    const pageSignature = `${currentPage}:${paginated.pages}`
+    if (appliedPages !== pageSignature) {
+      appliedPages = pageSignature
+      pages.replaceChildren()
+      const numbers = new Set([1, paginated.pages, currentPage - 1, currentPage, currentPage + 1])
+      let last = 0
+      for (const number of [...numbers]
+        .filter((n) => n > 0 && n <= paginated.pages)
+        .sort((a, b) => a - b)) {
+        if (last && number - last > 1) {
+          const gap = document.createElement("span")
+          gap.textContent = "…"
+          pages.append(gap)
+        }
+        const button = document.createElement("button")
+        button.type = "button"
+        button.dataset.page = String(number)
+        button.textContent = String(number)
+        button.setAttribute("aria-label", `第 ${number} 页`)
+        if (number === currentPage) button.setAttribute("aria-current", "page")
+        pages.append(button)
+        last = number
       }
-      const button = document.createElement("button")
-      button.type = "button"
-      button.dataset.page = String(number)
-      button.textContent = String(number)
-      button.setAttribute("aria-label", `第 ${number} 页`)
-      if (number === currentPage) button.setAttribute("aria-current", "page")
-      pages.append(button)
-      last = number
     }
     document.querySelector<HTMLElement>("#activity-filter")!.hidden = !activity
     document.querySelector("#activity-filter-date")!.textContent = activity

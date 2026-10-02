@@ -4,11 +4,14 @@ import { fetchCanonical } from "./util"
 
 const p = new DOMParser()
 let activeAnchor: HTMLAnchorElement | null = null
+let disposePopovers: (() => void) | undefined
+let popoverGeneration = 0
 
 async function mouseEnterHandler(
   this: HTMLAnchorElement,
   { clientX, clientY }: { clientX: number; clientY: number },
 ) {
+  const generation = popoverGeneration
   const link = (activeAnchor = this)
   if (link.dataset.noPopover === "true") {
     return
@@ -26,6 +29,7 @@ async function mouseEnterHandler(
 
   function showPopover(popoverElement: HTMLElement) {
     clearActivePopover()
+    activeAnchor = link
     popoverElement.classList.add("active-popover")
     setPosition(popoverElement as HTMLElement)
 
@@ -59,7 +63,7 @@ async function mouseEnterHandler(
     console.error(err)
   })
 
-  if (!response) return
+  if (!response || !link.isConnected || generation !== popoverGeneration) return
   const rawContentType = response.headers.get("Content-Type")
   if (!rawContentType) return
   const [contentType] = rawContentType.split(";")
@@ -94,6 +98,7 @@ async function mouseEnterHandler(
       break
     default:
       const contents = await response.text()
+      if (generation !== popoverGeneration || !link.isConnected) return
       const html = p.parseFromString(contents, "text/html")
       normalizeRelativeURLs(html, targetUrl)
       // prepend all IDs inside popovers to prevent duplicates
@@ -107,10 +112,22 @@ async function mouseEnterHandler(
       elts.forEach((elt) => popoverInner.appendChild(elt))
   }
 
-  if (!!document.getElementById(popoverId)) {
+  if (
+    generation !== popoverGeneration ||
+    !link.isConnected ||
+    !!document.getElementById(popoverId)
+  ) {
     return
   }
 
+  // Bound retained preview DOM just like the shared six-page HTML cache.
+  // Keep the visible preview, including its current scroll position.
+  const retained = [...document.querySelectorAll<HTMLElement>(".popover")]
+  while (retained.length >= 6) {
+    const index = retained.findIndex((node) => !node.classList.contains("active-popover"))
+    if (index < 0) break
+    retained.splice(index, 1)[0].remove()
+  }
   document.body.appendChild(popoverElement)
   if (activeAnchor !== this) {
     return
@@ -126,16 +143,34 @@ function clearActivePopover() {
 }
 
 function setupPopovers() {
-  const links = [...document.querySelectorAll("a.internal")] as HTMLAnchorElement[]
-  for (const link of links) {
-    link.addEventListener("mouseenter", mouseEnterHandler)
-    link.addEventListener("mouseleave", clearActivePopover)
-    window.addCleanup(() => {
-      link.removeEventListener("mouseenter", mouseEnterHandler)
-      link.removeEventListener("mouseleave", clearActivePopover)
-    })
+  disposePopovers?.()
+  const enter = (event: MouseEvent) => {
+    const link = (event.target as Element).closest?.<HTMLAnchorElement>("a.internal")
+    if (!link || (event.relatedTarget instanceof Node && link.contains(event.relatedTarget))) return
+    void mouseEnterHandler.call(link, event)
   }
+  const leave = (event: MouseEvent) => {
+    const link = (event.target as Element).closest?.<HTMLAnchorElement>("a.internal")
+    if (link && !(event.relatedTarget instanceof Node && link.contains(event.relatedTarget)))
+      clearActivePopover()
+  }
+  // Delegation also covers freshly sampled and timeline cards, without a
+  // listener pair and a cleanup closure for every link on every navigation.
+  document.addEventListener("mouseover", enter)
+  document.addEventListener("mouseout", leave)
+  const cleanup = () => {
+    if (disposePopovers !== cleanup) return
+    disposePopovers = undefined
+    popoverGeneration++
+    document.removeEventListener("mouseover", enter)
+    document.removeEventListener("mouseout", leave)
+    clearActivePopover()
+    document.querySelectorAll(".popover").forEach((node) => node.remove())
+  }
+  disposePopovers = cleanup
+  window.addCleanup(cleanup)
 }
 
 document.addEventListener("nav", setupPopovers)
 document.addEventListener("render", setupPopovers)
+document.addEventListener("howard:index-invalidated", setupPopovers)

@@ -243,7 +243,11 @@ export function mountMemories(hub, { siteBase }) {
     get(".memory-status-controls").hidden = !owner
     list.hidden = state.view !== "cards"
     timeline.hidden = state.view !== "timeline"
+    tags.hidden = state.view !== "cards"
     timeNavigation.hidden = state.view !== "timeline"
+    const indexToggle = sidebar.querySelector("summary")
+    indexToggle.textContent = state.view === "timeline" ? "时间索引" : "标签索引"
+    indexToggle.title = state.view === "timeline" ? "按年月跳转" : "按记忆卡标签筛选"
     hub.dataset.memoryView = state.view
     hub.dataset.memoryOwner = String(owner)
     activeFilter.hidden = !state.tag
@@ -601,7 +605,10 @@ export function mountMemories(hub, { siteBase }) {
       records.clear()
       for (const memory of values) records.set(String(memory.id), memory)
       updateControls()
-      renderTags(result.tags)
+      // The timeline uses dates; keep the selected tag in its filter chip
+      // without rebuilding an invisible tag list on every refresh.
+      if (state.view === "cards") renderTags(result.tags)
+      else tags.replaceChildren()
       count.textContent = `${result.total || 0} 张`
       const pages = Math.max(1, Math.ceil((result.total || 0) / PAGE_SIZE))
       pagination.hidden = state.view !== "cards" || pages <= 1
@@ -614,6 +621,7 @@ export function mountMemories(hub, { siteBase }) {
         if (!alive || serial !== request) return
       } else {
         timeline.replaceChildren()
+        timeNavigation.replaceChildren()
         list.replaceChildren(...values.map(renderCard))
       }
       message.hidden = values.length > 0

@@ -546,9 +546,17 @@ export async function handle(request, env, fetcher = (...args) => fetch(...args)
         const token = response.ok ? await response.json() : {}
         if (!token.access_token || token.token_type?.toLowerCase() !== "bearer")
           throw new Error("GitHub 登录未完成，请重试。")
-        const user = await github(fetcher, "/user", token.access_token)
+        // These reads are independent. Retain the original error priority and
+        // wait for both checks before returning any maintenance credentials.
+        const [identity, access] = await Promise.allSettled([
+          github(fetcher, "/user", token.access_token),
+          github(fetcher, `/repos/${env.REPOSITORY}`, token.access_token),
+        ])
+        if (identity.status === "rejected") throw identity.reason
+        const user = identity.value
         if (String(user.id) !== env.OWNER_ID) throw new Error("此后台仅允许博客所有者登录。")
-        const repository = await github(fetcher, `/repos/${env.REPOSITORY}`, token.access_token)
+        if (access.status === "rejected") throw access.reason
+        const repository = access.value
         if (!repository.permissions?.push)
           throw new Error("应用尚无博客写入权限，请先安装到 howard-notes 仓库。")
         if (!Number.isFinite(token.expires_in) || token.expires_in <= 0 || token.expires_in > 28800)

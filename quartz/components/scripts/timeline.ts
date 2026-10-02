@@ -6,6 +6,9 @@ export function setupTimeline({ onViewChange }: { onViewChange: () => void }) {
   const surface = document.querySelector<HTMLElement>("#article-timeline")
   const jump = document.querySelector<HTMLSelectElement>("#timeline-jump")
   const sidebar = document.querySelector<HTMLDetailsElement>("#timeline-sidebar")
+  const sidebarAnchor = sidebar?.closest<HTMLElement>(".listing-sidebar-anchor")
+  const listingControls = document.querySelector<HTMLElement>(".listing-controls")
+  const search = document.querySelector<HTMLElement>("#listing-search")
   const navigation = document.querySelector<HTMLElement>("#timeline-navigation")
   const tagNavigation = document.querySelector<HTMLElement>("#listing-tags")
   const sidebarTabs = sidebar?.querySelector<HTMLElement>(".listing-sidebar-tabs")
@@ -14,6 +17,7 @@ export function setupTimeline({ onViewChange }: { onViewChange: () => void }) {
   ]
   const sidebarSummary = sidebar?.querySelector<HTMLElement>(":scope > summary")
   const header = document.querySelector<HTMLElement>(".blog-header")
+  const pageHeader = document.querySelector<HTMLElement>(".page-header")
   const desktopSidebar = matchMedia("(min-width: 1400px)")
   const controls = [...document.querySelectorAll<HTMLButtonElement>("[data-listing-view]")]
   if (!surface || !jump || !controls.length) return
@@ -134,16 +138,27 @@ export function setupTimeline({ onViewChange }: { onViewChange: () => void }) {
     if (desktopSidebar.matches) sidebarSummary?.setAttribute("tabindex", "-1")
     else sidebarSummary?.removeAttribute("tabindex")
   }
-  const measureHeader = () => {
-    if (!sidebar || !header) return
-    sidebar.style.setProperty(
-      "--timeline-header-bottom",
-      `${Math.ceil(header.getBoundingClientRect().bottom)}px`,
-    )
+  const measureLayout = () => {
+    if (!sidebar || !sidebarAnchor || !header) return
+    const setProperty = (name: string, value: string) => {
+      if (sidebarAnchor.style.getPropertyValue(name) !== value)
+        sidebarAnchor.style.setProperty(name, value)
+    }
+    setProperty("--timeline-header-bottom", `${Math.ceil(header.getBoundingClientRect().bottom)}px`)
+    if (search && listingControls) {
+      const searchBox = search.getBoundingClientRect()
+      setProperty(
+        "--listing-search-offset",
+        `${searchBox.top - listingControls.getBoundingClientRect().top}px`,
+      )
+      // Keep the initial rail inside even a short window. Sticky positioning
+      // only moves it upwards, so this limit stays safe without scroll work.
+      setProperty("--listing-search-start", `${searchBox.top + window.scrollY}px`)
+    }
   }
-  const headerResize =
+  const layoutResize =
     sidebar && header && typeof ResizeObserver !== "undefined"
-      ? new ResizeObserver(measureHeader)
+      ? new ResizeObserver(measureLayout)
       : undefined
   const dismissSidebar = (event: PointerEvent) => {
     if (event.target instanceof Node && !sidebar?.contains(event.target)) closeSidebar()
@@ -293,8 +308,11 @@ export function setupTimeline({ onViewChange }: { onViewChange: () => void }) {
   sidebarTabs?.addEventListener("click", chooseSidebarTab)
   sidebar?.addEventListener("click", chooseSidebarTag, { capture: true })
   desktopSidebar.addEventListener("change", resizeSidebar)
-  headerResize?.observe(header!)
-  window.addEventListener("resize", measureHeader, { passive: true })
+  layoutResize?.observe(header!)
+  if (listingControls) layoutResize?.observe(listingControls)
+  if (search) layoutResize?.observe(search)
+  if (pageHeader) layoutResize?.observe(pageHeader)
+  window.addEventListener("resize", measureLayout, { passive: true })
   document.addEventListener("pointerdown", dismissSidebar, { passive: true })
   document.addEventListener("keydown", escapeSidebar, { capture: true })
   window.addCleanup(() => {
@@ -304,13 +322,13 @@ export function setupTimeline({ onViewChange }: { onViewChange: () => void }) {
     sidebarTabs?.removeEventListener("click", chooseSidebarTab)
     sidebar?.removeEventListener("click", chooseSidebarTag, { capture: true })
     desktopSidebar.removeEventListener("change", resizeSidebar)
-    headerResize?.disconnect()
-    window.removeEventListener("resize", measureHeader)
+    layoutResize?.disconnect()
+    window.removeEventListener("resize", measureLayout)
     document.removeEventListener("pointerdown", dismissSidebar)
     document.removeEventListener("keydown", escapeSidebar, { capture: true })
   })
   resizeSidebar()
-  measureHeader()
+  measureLayout()
   applyView()
   return { isActive: () => view === "timeline", update, setView }
 }

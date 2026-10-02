@@ -481,6 +481,14 @@ const escapeXml = (value) =>
     /[<>&"']/g,
     (ch) => ({ "<": "&lt;", ">": "&gt;", "&": "&amp;", '"': "&quot;", "'": "&apos;" })[ch],
   )
+// Weak comparison is appropriate for GET/HEAD revalidation. This is used only
+// after selecting a resource from the active public revision, never for private
+// memories, sessions or write responses.
+const matchesETag = (request, etag) =>
+  ["GET", "HEAD"].includes(request.method) &&
+  (request.headers.get("If-None-Match") || "")
+    .split(",")
+    .some((value) => value.trim() === "*" || value.trim().replace(/^W\//, "") === etag)
 async function publicRead(request, env, db, path, current) {
   const origin = new URL(request.url).origin
   const base = origin + env.SITE_PREFIX.replace(/\/$/, "")
@@ -529,16 +537,22 @@ async function publicRead(request, env, db, path, current) {
     )
   }
   if (["shell", "contentIndex", "blogData", "settings", "catalog"].includes(path)) {
+    const etag = `"${current.revision}-${path}"`
+    const unmodified = matchesETag(request, etag)
+    const metadataOnly = request.method === "HEAD" || unmodified
     const value = await db
-      .prepare("SELECT body FROM public_payloads WHERE revision = ? AND name = ?")
+      .prepare(
+        `SELECT ${metadataOnly ? "1 AS present" : "body"} FROM public_payloads WHERE revision = ? AND name = ?`,
+      )
       .bind(current.revision, path)
       .first()
     return value
-      ? new Response(value.body, {
+      ? new Response(metadataOnly ? null : value.body, {
+          status: unmodified ? 304 : 200,
           headers: {
             "Content-Type": "application/json; charset=utf-8",
             "Cache-Control": "no-cache",
-            ETag: `"${current.revision}-${path}"`,
+            ETag: etag,
             "X-Content-Type-Options": "nosniff",
           },
         })
@@ -668,8 +682,13 @@ export async function handle(request, env, ctx = {}, fetcher = fetch) {
         }
         if (!validPath(path)) throw new HttpError("页面地址不正确。", 404)
         if (["topics", "tags", "notes", "collections", "memory"].includes(path)) path += "/index"
+        const etag = `"${current.revision}-${encodeURIComponent(path)}"`
+        const unmodified = path !== "404" && matchesETag(request, etag)
+        const metadataOnly = request.method === "HEAD" || unmodified
         const page = await db
-          .prepare("SELECT body FROM public_pages WHERE revision = ? AND path = ?")
+          .prepare(
+            `SELECT ${metadataOnly ? "path" : "body"} FROM public_pages WHERE revision = ? AND path = ?`,
+          )
           .bind(current.revision, path)
           .first()
         const alias = /^((?:notes|topics|tags|collections)\/.+)-p([1-9]\d*)$/.exec(path)
@@ -690,21 +709,25 @@ export async function handle(request, env, ctx = {}, fetcher = fetch) {
         const unavailable = page
           ? null
           : await db
-              .prepare("SELECT body FROM public_pages WHERE revision = ? AND path = '404'")
+              .prepare(
+                `SELECT ${request.method === "HEAD" ? "path" : "body"} FROM public_pages WHERE revision = ? AND path = '404'`,
+              )
               .bind(current.revision)
               .first()
         response = page
           ? new Response(
-              page.body.replace(
-                /data-runtime-revision="[^"]*"/,
-                `data-runtime-revision="${current.revision}"`,
-              ),
+              metadataOnly
+                ? null
+                : page.body.replace(
+                    /data-runtime-revision="[^"]*"/,
+                    `data-runtime-revision="${current.revision}"`,
+                  ),
               {
-                status: path === "404" ? 404 : 200,
+                status: path === "404" ? 404 : unmodified ? 304 : 200,
                 headers: {
                   "Content-Type": "text/html; charset=utf-8",
                   "Cache-Control": "no-cache",
-                  ETag: `"${current.revision}-${encodeURIComponent(path)}"`,
+                  ETag: etag,
                   "X-Howard-Revision": String(current.revision),
                   "X-Howard-Commit": current.commit_sha,
                   "X-Content-Type-Options": "nosniff",
@@ -712,7 +735,7 @@ export async function handle(request, env, ctx = {}, fetcher = fetch) {
               },
             )
           : new Response(
-              unavailable?.body.replace(
+              unavailable?.body?.replace(
                 /data-runtime-revision="[^"]*"/,
                 `data-runtime-revision="${current.revision}"`,
               ) ||

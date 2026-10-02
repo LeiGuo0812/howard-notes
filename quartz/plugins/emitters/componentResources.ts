@@ -22,6 +22,7 @@ import {
 import { Features, transform } from "lightningcss"
 import { transform as transpile } from "esbuild"
 import { write } from "./helpers"
+import { deferGraphRuntime } from "../../../scripts/lib/graph-runtime.mjs"
 
 function hashContent(content: string | Buffer): string {
   return createHash("sha256").update(content).digest("hex").slice(0, 8)
@@ -58,7 +59,8 @@ function getComponentResources(ctx: BuildCtx): ComponentResources {
     const { css, beforeDOMLoaded, afterDOMLoaded } = component
     for (const c of normalizeResource(css)) componentResources.css.add(c)
     for (const b of normalizeResource(beforeDOMLoaded)) componentResources.beforeDOMLoaded.add(b)
-    for (const a of normalizeResource(afterDOMLoaded)) componentResources.afterDOMLoaded.add(a)
+    for (const a of normalizeResource(afterDOMLoaded))
+      componentResources.afterDOMLoaded.add(component.name === "Graph" ? deferGraphRuntime(a) : a)
   }
 
   return {

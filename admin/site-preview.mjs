@@ -10,7 +10,9 @@ export function createSitePreview(
     stage = $("site-preview-stage"),
     panel = $("site-preview-panel")
   let ready = false,
-    timer
+    timer,
+    active = false,
+    pendingOpen = false
   const sizes = { desktop: [1440, 960], tablet: [820, 1000], mobile: [390, 844] }
   const resize = () => {
     const [width, height] = sizes[$("preview-device").value]
@@ -22,7 +24,7 @@ export function createSitePreview(
     stage.style.height = height * scale + "px"
   }
   const update = () => {
-    if (disposed || !ready || !getSettings()) return
+    if (disposed || !active || !ready || !getSettings()) return
     try {
       frame.contentWindow.postMessage(
         { type: "howard-layout-preview", settings: getSettings(), theme: $("preview-theme").value },
@@ -33,6 +35,10 @@ export function createSitePreview(
     }
   }
   const open = () => {
+    if (disposed) return
+    pendingOpen = true
+    if (!active || !stage.isConnected || !stage.getClientRects().length) return
+    pendingOpen = false
     const type = $("preview-page").value
     $("preview-article").hidden = type !== "article"
     const routes = {
@@ -56,10 +62,20 @@ export function createSitePreview(
     frame.src = url.href
     resize()
   }
+  const suspend = () => {
+    clearTimeout(timer)
+    ready = false
+    pendingOpen = true
+    // Removing the browsing context releases the embedded site's graphs,
+    // observers, image surfaces and scripts while leaving layout edits and
+    // preview controls in the parent workspace intact.
+    frame.src = "about:blank"
+  }
   window.addEventListener(
     "message",
     (event) => {
-      if (event.origin !== location.origin || event.source !== frame.contentWindow) return
+      if (!active || event.origin !== location.origin || event.source !== frame.contentWindow)
+        return
       if (event.data?.type === "howard-preview-ready") {
         ready = true
         clearTimeout(timer)
@@ -91,10 +107,21 @@ export function createSitePreview(
     },
     { signal: listeners.signal },
   )
-  const observer = new ResizeObserver(resize)
+  const observer = new ResizeObserver(() => {
+    resize()
+    if (active && pendingOpen) open()
+  })
   observer.observe(stage)
   return {
     update,
+    setActive(value) {
+      if (disposed) return
+      const next = !!value
+      if (active === next) return
+      active = next
+      if (!active) suspend()
+      else if (pendingOpen && getSettings()) open()
+    },
     dispose() {
       disposed = true
       clearTimeout(timer)

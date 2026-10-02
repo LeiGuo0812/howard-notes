@@ -18,18 +18,19 @@ export function mountFrostedSpotlight(root) {
     if (!enabled.matches || event.pointerType !== "mouse") return clear()
     const target = event.target?.closest?.("[data-spotlight]")
     if (!target || !root.contains(target)) return clear()
-    if (active !== target) clear()
+    const entering = active !== target
+    if (entering) clear()
     const rect = target.getBoundingClientRect()
     // Coordinates update immediately, without a position transition or RAF lag.
     target.style.setProperty("--mouse-x", `${event.clientX - rect.left}px`)
     target.style.setProperty("--mouse-y", `${event.clientY - rect.top}px`)
-    if (!target.querySelector(":scope > .frost-rim")) {
+    if (entering && !target.querySelector(":scope > .frost-rim")) {
       const rim = doc.createElement("span")
       rim.className = "frost-rim"
       rim.setAttribute("aria-hidden", "true")
       target.append(rim)
     }
-    target.setAttribute("data-spotlight-active", "")
+    if (entering) target.setAttribute("data-spotlight-active", "")
     active = target
   }
   const out = (event) => {

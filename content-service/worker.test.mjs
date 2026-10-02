@@ -17,8 +17,10 @@ function fixture() {
   const sqlite = new DatabaseSync(":memory:")
   sqlite.exec(fs.readFileSync(new URL("schema.sql", import.meta.url), "utf8"))
   sqlite.exec(fs.readFileSync(new URL("memories-schema.sql", import.meta.url), "utf8"))
+  const sqlQueries = []
   const DB = {
     prepare(sql) {
+      sqlQueries.push(sql)
       const statement = sqlite.prepare(sql)
       let values = []
       return {
@@ -232,6 +234,7 @@ function fixture() {
     publish,
     metadata,
     gitRequests,
+    sqlQueries,
     setGitStatus(path, status) {
       gitStatuses.set(path, status)
     },
@@ -625,6 +628,127 @@ test("stored 404 templates retain HTTP 404 for direct, missing and HEAD routes a
     assert.ok(text.includes(`<loc>${origin}${base}notes/test-note</loc>`))
     assert.ok(!text.includes(`<loc>${origin}${base}404</loc>`))
   }
+})
+
+test("public payload ETags support weak, list and wildcard revalidation without reading the stored body", async () => {
+  const f = fixture()
+  await f.publish()
+  for (const path of ["shell", "contentIndex", "blogData", "settings", "catalog"]) {
+    const first = await f.call(path)
+    assert.equal(first.status, 200)
+    assert.ok((await first.text()).length > 0)
+    const etag = first.headers.get("ETag")
+    for (const condition of [etag, "W/" + etag, '"older", W/' + etag, "*"]) {
+      for (const method of ["GET", "HEAD"]) {
+        f.sqlQueries.length = 0
+        const response = await handle(
+          new Request(origin + base + "api/content/" + path, {
+            method,
+            headers: { "If-None-Match": condition, Origin: f.env.FALLBACK_ORIGIN },
+          }),
+          f.env,
+        )
+        assert.equal(response.status, 304, path + " " + condition + " " + method)
+        assert.equal(await response.text(), "")
+        assert.equal(response.headers.get("ETag"), etag)
+        assert.equal(response.headers.get("Cache-Control"), "no-cache")
+        assert.equal(response.headers.get("X-Content-Type-Options"), "nosniff")
+        assert.equal(response.headers.get("Access-Control-Allow-Origin"), f.env.FALLBACK_ORIGIN)
+        assert.ok(f.sqlQueries.some((sql) => /SELECT 1 AS present FROM public_payloads/.test(sql)))
+        assert.ok(!f.sqlQueries.some((sql) => /SELECT body FROM public_payloads/.test(sql)))
+      }
+    }
+    f.sqlQueries.length = 0
+    const head = await handle(
+      new Request(origin + base + "api/content/" + path, { method: "HEAD" }),
+      f.env,
+    )
+    assert.equal(head.status, 200)
+    assert.equal(await head.text(), "")
+    assert.equal(head.headers.get("ETag"), etag)
+    assert.ok(!f.sqlQueries.some((sql) => /SELECT body FROM public_payloads/.test(sql)))
+  }
+})
+
+test("public article and module page ETags avoid body reads while preserving revision and commit headers", async () => {
+  const f = fixture()
+  await f.publish()
+  for (const path of ["", "notes/", "notes/test-note", "memory/"]) {
+    const first = await handle(new Request(origin + base + path), f.env)
+    assert.equal(first.status, 200)
+    const etag = first.headers.get("ETag")
+    for (const method of ["GET", "HEAD"]) {
+      for (const condition of [etag, "W/" + etag, '"older", W/' + etag, "*"]) {
+        f.sqlQueries.length = 0
+        const response = await handle(
+          new Request(origin + base + path, { method, headers: { "If-None-Match": condition } }),
+          f.env,
+        )
+        assert.equal(response.status, 304, path + " " + method)
+        assert.equal(await response.text(), "")
+        assert.equal(response.headers.get("ETag"), etag)
+        assert.equal(response.headers.get("X-Howard-Revision"), "1")
+        assert.equal(response.headers.get("X-Howard-Commit"), "a".repeat(40))
+        assert.equal(response.headers.get("Cache-Control"), "no-cache")
+        assert.ok(f.sqlQueries.some((sql) => /SELECT path FROM public_pages/.test(sql)))
+        assert.ok(!f.sqlQueries.some((sql) => /SELECT body FROM public_pages/.test(sql)))
+      }
+    }
+    f.sqlQueries.length = 0
+    const head = await handle(new Request(origin + base + path, { method: "HEAD" }), f.env)
+    assert.equal(head.status, 200)
+    assert.equal(await head.text(), "")
+    assert.equal(head.headers.get("ETag"), etag)
+    assert.ok(!f.sqlQueries.some((sql) => /SELECT body FROM public_pages/.test(sql)))
+  }
+})
+
+test("ETags reject stale revisions and never convert missing, 404 or private resources to 304", async () => {
+  const f = fixture()
+  await f.publish()
+  const index = await f.call("contentIndex")
+  const priorTag = index.headers.get("ETag")
+  const page = await handle(new Request(origin + base + "notes/test-note"), f.env)
+  const priorPageTag = page.headers.get("ETag")
+  f.setCommit("b".repeat(40))
+  f.settings.brand.name = "Changed brand"
+  await f.publish()
+  const freshIndex = await f.call("contentIndex", undefined, { "If-None-Match": priorTag })
+  assert.equal(freshIndex.status, 200)
+  assert.notEqual(freshIndex.headers.get("ETag"), priorTag)
+  assert.ok((await freshIndex.text()).length > 0)
+  const freshPage = await handle(
+    new Request(origin + base + "notes/test-note", { headers: { "If-None-Match": priorPageTag } }),
+    f.env,
+  )
+  assert.equal(freshPage.status, 200)
+  assert.notEqual(freshPage.headers.get("ETag"), priorPageTag)
+  assert.equal(freshPage.headers.get("X-Howard-Revision"), "2")
+  for (const path of ["404", "404.html", "notes/missing", "notes/private-note"]) {
+    for (const method of ["GET", "HEAD"]) {
+      for (const condition of ["*", `"2-${encodeURIComponent(path)}"`]) {
+        const response = await handle(
+          new Request(origin + base + path, { method, headers: { "If-None-Match": condition } }),
+          f.env,
+        )
+        assert.equal(response.status, 404, path + " " + method)
+      }
+    }
+  }
+  const empty = fixture()
+  const unavailable = await empty.call("contentIndex", undefined, { "If-None-Match": "*" })
+  assert.equal(unavailable.status, 503)
+  assert.equal(unavailable.headers.get("Cache-Control"), "no-store")
+  const privateResponse = await f.call("memories/missing-private-card", undefined, {
+    "If-None-Match": "*",
+  })
+  assert.equal(privateResponse.status, 404)
+  assert.equal(privateResponse.headers.get("ETag"), null)
+  assert.equal(privateResponse.headers.get("Cache-Control"), "private, no-store")
+  const session = await f.call("session", undefined, { "If-None-Match": "*" })
+  assert.notEqual(session.status, 304)
+  assert.equal(session.headers.get("ETag"), null)
+  assert.equal(session.headers.get("Cache-Control"), "no-store")
 })
 
 test("automation sync keys require a bearer token and trusted origin and cannot bypass canonical Git verification", async () => {

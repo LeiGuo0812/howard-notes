@@ -457,6 +457,9 @@ export function createSettings({
   return {
     load,
     dirty,
+    setVisible(value) {
+      preview.setActive(value)
+    },
     dispose() {
       disposed = true
       listeners.abort()

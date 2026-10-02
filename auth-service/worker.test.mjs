@@ -1096,3 +1096,91 @@ test("owner and repository validation time is not added to the GitHub token life
   assert.equal(delivered.serverTime, serverClock)
   assert.equal(delivered.expiresAt - delivered.serverTime, 28794000)
 })
+
+test("OAuth identity and repository reads start together and neither can release credentials alone", async () => {
+  const { env, sqlite } = await configured()
+  const pending = await startResult(env)
+  const api = upstream()
+  let releaseIdentity,
+    releaseAccess,
+    bothStarted,
+    finished = false,
+    timer
+  const identityGate = new Promise((resolve) => (releaseIdentity = resolve))
+  const accessGate = new Promise((resolve) => (releaseAccess = resolve))
+  const started = new Set()
+  const parallel = new Promise((resolve) => (bothStarted = resolve))
+  const fetcher = async (url, options) => {
+    const response = await api.fetcher(url, options)
+    if (url.endsWith("/user")) {
+      started.add("identity")
+      if (started.size === 2) bothStarted()
+      await identityGate
+    } else if (url.endsWith("/repos/LeiGuo0812/howard-notes")) {
+      started.add("access")
+      if (started.size === 2) bothStarted()
+      await accessGate
+    }
+    return response
+  }
+  const callbackResult = handle(callback(pending), env, fetcher).then((response) => {
+    finished = true
+    return response
+  })
+  try {
+    await Promise.race([
+      parallel,
+      new Promise((_, reject) => {
+        timer = setTimeout(() => reject(new Error("GitHub reads did not start together")), 1000)
+      }),
+    ])
+    clearTimeout(timer)
+    releaseAccess()
+    await new Promise((resolve) => setImmediate(resolve))
+    assert.equal(finished, false)
+    assert.equal(
+      sqlite.prepare("SELECT encrypted FROM login_results WHERE channel = ?").get(resultChannel)
+        .encrypted,
+      null,
+    )
+    releaseIdentity()
+    assert.equal((await callbackResult).status, 200)
+    const credentials = await (await handle(resultRequest(env), env)).json()
+    assert.equal(credentials.login, "LeiGuo0812")
+    assert.equal(credentials.token, "ghu_mock-short-lived-access")
+    assert.equal(api.calls.length, 3)
+  } finally {
+    clearTimeout(timer)
+    releaseIdentity()
+    releaseAccess()
+    await callbackResult
+  }
+})
+
+test("concurrent OAuth checks retain identity-before-repository errors and never release a rejected token", async () => {
+  for (const value of [
+    {
+      userError: "身份接口暂时无法连接。",
+      accessError: "仓库接口暂时无法连接。",
+      expected: /身份接口/,
+    },
+    { user: 1234, accessError: "仓库接口暂时无法连接。", expected: /仅允许博客所有者/ },
+    { accessError: "仓库接口暂时无法连接。", expected: /仓库接口/ },
+    { push: false, expected: /写入权限/ },
+  ]) {
+    const { env } = await configured()
+    const pending = await startResult(env)
+    const api = upstream(value)
+    const fetcher = (url, options) => {
+      if (url.endsWith("/user") && value.userError) throw new Error(value.userError)
+      if (url.endsWith("/repos/LeiGuo0812/howard-notes") && value.accessError)
+        throw new Error(value.accessError)
+      return api.fetcher(url, options)
+    }
+    assert.equal((await handle(callback(pending), env, fetcher)).status, 400)
+    const payload = await (await handle(resultRequest(env), env)).json()
+    assert.match(payload.error, value.expected)
+    assert.equal(payload.token, undefined)
+    assertNoCredentials(JSON.stringify(payload))
+  }
+})

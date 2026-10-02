@@ -316,6 +316,7 @@ export async function createMaintenance({ siteBase, version }) {
   function attach() {
     resetReading()
     if (!account || !visible) {
+      workspace.setVisible(false)
       host.hidden = true
       host.remove()
       return
@@ -340,15 +341,17 @@ export async function createMaintenance({ siteBase, version }) {
     if (inline) {
       slot.hidden = windowState.isFullscreen()
       slot.closest(".center").classList.add("maintenance-editing")
-      if (!windowState.isFullscreen()) slot.append(host)
-      else document.body.append(host)
-    } else document.body.append(host)
+      const parent = windowState.isFullscreen() ? document.body : slot
+      if (host.parentNode !== parent) parent.append(host)
+    } else if (host.parentNode !== document.body) document.body.append(host)
+    workspace.setVisible(true)
     windowState.sync(inline)
     fitMenu()
   }
   function hide() {
     windowState.detach()
     visible = false
+    workspace.setVisible(false)
     resetReading()
     host.hidden = true
     host.remove()
@@ -545,6 +548,7 @@ export async function createMaintenance({ siteBase, version }) {
     beforeNavigation() {
       // micromorph replaces body children. Keep the same ShadowRoot, editor and listeners alive.
       windowState.detach()
+      workspace.setVisible(false)
       host.remove()
       deployment.remove()
       resetReading()

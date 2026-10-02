@@ -5,12 +5,13 @@ let entries: Entry[] | undefined
 let loading: Promise<Entry[]> | undefined
 let generation = 0
 const previewCache = new Map<string, string>()
+const widgetCleanup = new WeakMap<HTMLElement, () => void>()
 
 async function loadEntries() {
   if (entries) return entries
   if (!loading) {
     const version = generation
-    loading = Promise.resolve(fetchData)
+    const pending: Promise<Entry[]> = Promise.resolve(fetchData)
       .then((index) => {
         const loaded = Object.entries(index).map(([slug, data]) => ({
           slug,
@@ -25,8 +26,9 @@ async function loadEntries() {
         return loaded
       })
       .finally(() => {
-        loading = undefined
+        if (loading === pending) loading = undefined
       })
+    loading = pending
   }
   return loading
 }
@@ -65,6 +67,7 @@ function highlighted(value: string, words: string[]) {
 
 function setupSearch() {
   for (const widget of document.querySelectorAll<HTMLElement>(".search")) {
+    widgetCleanup.get(widget)?.()
     const container = widget.querySelector<HTMLElement>(".search-container")!
     const button = widget.querySelector<HTMLButtonElement>(".search-button")!
     const input = widget.querySelector<HTMLInputElement>(".search-bar")!
@@ -113,16 +116,23 @@ function setupSearch() {
     }
     const showPreview = async (anchor: HTMLAnchorElement) => {
       const version = ++previewSequence
+      const indexVersion = generation
       try {
         let html = previewCache.get(anchor.href)
         if (!html) {
           const response = await fetchCanonical(new URL(anchor.href))
           if (!response.ok) return
           html = await response.text()
+          if (indexVersion !== generation) return
           previewCache.set(anchor.href, html)
           while (previewCache.size > 6) previewCache.delete(previewCache.keys().next().value!)
         }
-        if (version !== previewSequence || !container.classList.contains("active")) return
+        if (
+          indexVersion !== generation ||
+          version !== previewSequence ||
+          !container.classList.contains("active")
+        )
+          return
         const doc = new DOMParser().parseFromString(html, "text/html")
         const inner = document.createElement("div")
         inner.className = "preview-inner"
@@ -330,8 +340,11 @@ function setupSearch() {
     suggestions.addEventListener("click", clickTag)
     results.addEventListener("mouseover", overResult)
     results.addEventListener("click", chooseResult)
-    registerEscapeHandler(container, close)
-    window.addCleanup(() => {
+    const cleanupEscape = registerEscapeHandler(container, close)
+    const cleanup = () => {
+      if (widgetCleanup.get(widget) !== cleanup) return
+      widgetCleanup.delete(widget)
+      cleanupEscape?.()
       sequence++
       previewSequence++
       clearTimeout(previewTimer)
@@ -343,7 +356,9 @@ function setupSearch() {
       suggestions.removeEventListener("click", clickTag)
       results.removeEventListener("mouseover", overResult)
       results.removeEventListener("click", chooseResult)
-    })
+    }
+    widgetCleanup.set(widget, cleanup)
+    window.addCleanup(cleanup)
   }
 }
 

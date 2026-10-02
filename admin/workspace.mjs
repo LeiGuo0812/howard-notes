@@ -35,6 +35,7 @@ export function createWorkspace(root, options = {}) {
   }
   let session = null,
     disposed = false,
+    visible = true,
     recoveryError = false,
     recoveryTimer
   let client,
@@ -661,6 +662,7 @@ export function createWorkspace(root, options = {}) {
     $("tab-trash").setAttribute("aria-current", mode === "trash" ? "page" : "false")
     $("workspace").hidden = mode === "settings" || mode === "trash"
     $("settings-workspace").hidden = mode !== "settings"
+    settings.setVisible(visible && mode === "settings")
     if (mode === "trash") {
       for (const tab of ["tab-articles", "tab-drafts", "tab-settings"])
         $(tab).setAttribute("aria-current", "false")
@@ -730,6 +732,7 @@ export function createWorkspace(root, options = {}) {
     $("login-panel").hidden = false
     $("workspace").hidden = true
     $("settings-workspace").hidden = true
+    settings.setVisible(false)
     $("trash-workspace").hidden = true
     $("admin-tabs").hidden = true
     $("logout").hidden = true
@@ -1276,6 +1279,10 @@ export function createWorkspace(root, options = {}) {
       session && client?.token && { account: session.account, token: client.token },
     currentArticle: () => current && structuredClone(current),
     retrySynchronization,
+    setVisible(value) {
+      visible = !!value
+      settings.setVisible(visible && !$("settings-workspace").hidden)
+    },
     dispose() {
       if (disposed) return
       persistRecovery()

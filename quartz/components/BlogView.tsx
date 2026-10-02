@@ -601,6 +601,71 @@ function ListingPage({ props, listing }: { props: QuartzComponentProps; listing:
           {listing.total} 篇
         </span>
       </div>
+      <div class="listing-sidebar-anchor">
+        <details class="timeline-sidebar" id="timeline-sidebar">
+          <summary
+            aria-label="展开文章标签导航"
+            aria-controls="listing-sidebar-panels"
+            title="文章标签"
+          >
+            <svg
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="1.6"
+              aria-hidden="true"
+            >
+              <path d="M5 8h14M4 16h14M10 3 7 21M17 3l-3 18" />
+            </svg>
+            <span data-listing-sidebar-label>标签</span>
+          </summary>
+          <div id="listing-sidebar-panels" class="listing-sidebar-panels">
+            <div class="listing-sidebar-tabs" role="group" aria-label="文章浏览导航">
+              <button
+                type="button"
+                data-listing-sidebar-tab="tags"
+                aria-pressed="true"
+                aria-controls="listing-tags"
+              >
+                标签
+              </button>
+              <button
+                type="button"
+                data-listing-sidebar-tab="time"
+                aria-pressed="false"
+                aria-controls="timeline-navigation"
+                hidden
+              >
+                年月
+              </button>
+            </div>
+            <nav id="listing-tags" aria-label="文章标签">
+              <a
+                class="listing-tag-link"
+                data-listing-tag=""
+                data-router-ignore
+                href={href(props, listing.baseRoute)}
+              >
+                <span>全部文章</span>
+                <small>{listing.rows.length}</small>
+              </a>
+              {tags.map((tag) => (
+                <a
+                  class="listing-tag-link"
+                  data-listing-tag={tag.id}
+                  data-router-ignore
+                  href={href(props, `tags/${tag.id}`)}
+                  title={`#${tag.title} · ${tag.count} 篇文章`}
+                >
+                  <span>#{tag.title}</span>
+                  <small>{tag.count}</small>
+                </a>
+              ))}
+            </nav>
+            <nav id="timeline-navigation" aria-label="时间线年份与月份导航" hidden />
+          </div>
+        </details>
+      </div>
       <div class="listing-controls">
         <label class="listing-search">
           <span class="sr-only">搜索文章</span>
@@ -714,69 +779,7 @@ function ListingPage({ props, listing }: { props: QuartzComponentProps; listing:
         ))}
       </ol>
       <div class="article-timeline" id="article-timeline" hidden aria-label="文章时间线" />
-      <details class="timeline-sidebar" id="timeline-sidebar">
-        <summary
-          aria-label="展开文章标签导航"
-          aria-controls="listing-sidebar-panels"
-          title="文章标签"
-        >
-          <svg
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            stroke-width="1.6"
-            aria-hidden="true"
-          >
-            <path d="M5 8h14M4 16h14M10 3 7 21M17 3l-3 18" />
-          </svg>
-          <span data-listing-sidebar-label>标签</span>
-        </summary>
-        <div id="listing-sidebar-panels" class="listing-sidebar-panels">
-          <div class="listing-sidebar-tabs" role="group" aria-label="文章浏览导航">
-            <button
-              type="button"
-              data-listing-sidebar-tab="tags"
-              aria-pressed="true"
-              aria-controls="listing-tags"
-            >
-              标签
-            </button>
-            <button
-              type="button"
-              data-listing-sidebar-tab="time"
-              aria-pressed="false"
-              aria-controls="timeline-navigation"
-              hidden
-            >
-              年月
-            </button>
-          </div>
-          <nav id="listing-tags" aria-label="文章标签">
-            <a
-              class="listing-tag-link"
-              data-listing-tag=""
-              data-router-ignore
-              href={href(props, listing.baseRoute)}
-            >
-              <span>全部文章</span>
-              <small>{listing.rows.length}</small>
-            </a>
-            {tags.map((tag) => (
-              <a
-                class="listing-tag-link"
-                data-listing-tag={tag.id}
-                data-router-ignore
-                href={href(props, `tags/${tag.id}`)}
-                title={`#${tag.title} · ${tag.count} 篇文章`}
-              >
-                <span>#{tag.title}</span>
-                <small>{tag.count}</small>
-              </a>
-            ))}
-          </nav>
-          <nav id="timeline-navigation" aria-label="时间线年份与月份导航" hidden />
-        </div>
-      </details>
+
       <nav class="pagination" id="listing-pagination" aria-label="文章分页">
         <button type="button" id="listing-previous" disabled>
           上一页
