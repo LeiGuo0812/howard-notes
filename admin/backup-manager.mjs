@@ -68,6 +68,7 @@ export function createBackupManager({ root, getClient, notify = () => {} }) {
     active = false,
     latest,
     previousId,
+    previousCheckedAt,
     statusValue,
     storageValue,
     storagePending = false,
@@ -152,7 +153,10 @@ export function createBackupManager({ root, getClient, notify = () => {} }) {
       if (active && latest && latest.id !== previousId) {
         active = false
         announce("加密备份已完成。")
-      } else if (value.error) {
+      } else if (
+        value.error &&
+        (!active || !previousCheckedAt || value.checkedAt !== previousCheckedAt)
+      ) {
         active = false
         announce("备份未完成，请重试。", true)
       } else if (value.progress) {
@@ -222,6 +226,7 @@ export function createBackupManager({ root, getClient, notify = () => {} }) {
       if (!client || pending || !statusReady) return
       active = true
       previousId = latest?.id ?? null
+      previousCheckedAt = statusValue?.checkedAt
       startAttempts = 0
       announce("正在请求备份，编辑与阅读可继续。")
       try {

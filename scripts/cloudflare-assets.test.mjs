@@ -16,6 +16,7 @@ import {
   generationIdentity,
   assertInitialSiteEmpty,
   initialResumeMode,
+  waitForDeploymentManifest,
 } from "./lib/deployment-assets.mjs"
 
 const site = "https://notes.example/howard-notes/",
@@ -398,4 +399,41 @@ test("interrupted initial deployment resumes only its exact recorded assets and 
     initialResumeMode(manifest, { ...manifest, commit: "other" }, { revision: 0 }),
   )
   assert.throws(() => initialResumeMode(manifest, manifest, { error: "unavailable" }))
+})
+
+test("deployment waits for exact manifest propagation and refuses mismatched or unavailable assets", async () => {
+  const expected = { commit: "new", files: [{ path: "new.js", sha256: sha("new") }] }
+  const old = { ...expected, commit: "old" }
+  const delays = []
+  let reads = 0
+  await waitForDeploymentManifest(
+    expected,
+    async () => (++reads < 3 ? old : expected),
+    async (ms) => delays.push(ms),
+  )
+  assert.equal(reads, 3)
+  assert.deepEqual(delays, [1000, 2000])
+  reads = 0
+  await assert.rejects(
+    waitForDeploymentManifest(
+      expected,
+      async () => {
+        reads++
+        return { ...expected, files: [] }
+      },
+      async () => {},
+    ),
+    /暂不切换/,
+  )
+  assert.equal(reads, 8)
+  await assert.rejects(
+    waitForDeploymentManifest(
+      expected,
+      async () => {
+        throw new Error("network unavailable")
+      },
+      async () => {},
+    ),
+    /network unavailable/,
+  )
 })

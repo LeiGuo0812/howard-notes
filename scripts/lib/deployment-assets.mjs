@@ -319,3 +319,19 @@ export async function captureDeployedAssets({
   }
   return { files: fetched.size, bytes: totalBytes, ...history }
 }
+
+/** Asset routing can briefly expose the previous deployment after upload. Keep
+ * the old D1 shell until the exact new manifest is visible; never accept a
+ * partial match or silently publish after the bounded propagation window. */
+export async function waitForDeploymentManifest(
+  expected,
+  read,
+  pause = (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
+) {
+  const serialized = JSON.stringify(expected)
+  for (let attempt = 0; attempt < 8; attempt++) {
+    if (JSON.stringify(await read()) === serialized) return
+    if (attempt < 7) await pause(Math.min(5000, 1000 * (attempt + 1)))
+  }
+  throw new Error("线上资源清单尚未与准备版本一致，暂不切换文章模板；稍后可使用 --resume 重试。")
+}

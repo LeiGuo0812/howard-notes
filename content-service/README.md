@@ -16,7 +16,7 @@ Worker Static Assets 保存前端和编辑器资源，独立 D1 `howard-notes-co
 
 - `npm run test:publish`、`npx tsc --noEmit`、`npm run build`、`npm run verify:site`。
 - `npm run content:sync`：当前 Git 提交必须已经推送到 main；本地复用 `gh` 的现有登录，不要求在网页粘贴令牌。
-- `npm run deploy:cloudflare`：已提交源码必须与远端 main 一致；统一运行回归、类型、构建及站点检查，再依据线上清单保留旧依赖、应用数据库迁移、部署 Worker/Assets、验证资源并切换 D1 模板。首次新站才使用 `-- --initial`。
+- `npm run deploy:cloudflare`：已提交源码必须与远端 main 一致；统一运行回归、类型、构建及站点检查，再依据线上清单保留旧依赖、应用数据库迁移、部署 Worker/Assets、有限等待资源生效并严格验证清单后切换 D1 模板。首次新站才使用 `-- --initial`。
 - `npm run deploy:cloudflare -- --prepare-only` 只检查并准备，不写云端；中断后 `-- --resume` 重新核验同一源码和资源。普通本机构建不能视为已经上线。专门排错时才单独调用 `content:sync -- --update-shell`。
 - `npm run content:seed` 生成公开投影和本地 SQLite 校验材料。远端初次迁移先配置小型页面模板，然后使用受保护的 `content:sync` 分块绑定参数上传；不要直接导入含大型 HTML 的 SQL，也不要用初始化 SQL 覆盖已有文库。
 - `GET /howard-notes/api/content/status` 查看公开版本、Git 提交和更新时间；Cloudflare D1 Metrics 查看真实读写和容量。

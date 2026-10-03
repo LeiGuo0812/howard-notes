@@ -2,7 +2,12 @@ import fs from "node:fs/promises"
 import path from "node:path"
 import { spawn, execFileSync } from "node:child_process"
 import { createHash } from "node:crypto"
-import { assetReferences, manifestName, initialResumeMode } from "./lib/deployment-assets.mjs"
+import {
+  assetReferences,
+  manifestName,
+  initialResumeMode,
+  waitForDeploymentManifest,
+} from "./lib/deployment-assets.mjs"
 import { verifyDeploymentSchema } from "./lib/deployment-schema.mjs"
 
 const args = new Set(process.argv.slice(2))
@@ -171,9 +176,9 @@ try {
   verifyDeploymentSchema(schema.flatMap((result) => result.results || []))
   await run(wrangler, ["deploy", "--config", "content-service/wrangler.json"])
   await save("deployed")
-  const live = await (await request(new URL(manifestName, site))).json()
-  if (JSON.stringify(live) !== JSON.stringify(manifest))
-    throw new Error("线上资源清单与准备的版本不一致，暂不切换文章模板。")
+  await waitForDeploymentManifest(manifest, async () =>
+    (await request(new URL(manifestName, site))).json(),
+  )
   // Verify entry points before changing D1. Every emitted file was already hash
   // checked locally; Wrangler uploads the complete directory as one asset set.
   const shell = args.has("--initial") ? {} : await (await request(`${api}/shell`)).json()

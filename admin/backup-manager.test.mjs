@@ -134,6 +134,34 @@ test("manual start waits for the first status response to establish its generati
   })
 })
 
+test("a prior status error cannot cancel a new start still waiting for the Cron lease", async (t) => {
+  const old = { id: "old", completedAt: "2026-10-03T00:00:00Z", rows: 3 }
+  const f = managerFixture(t, old)
+  f.setStatus({ latest: old, error: "previous backup failed", checkedAt: "2026-10-03T00:00:00Z" })
+  await f.manager.load()
+  await f.run.click()
+  t.mock.timers.tick(5000)
+  await settle()
+  assert.equal(f.calls.filter((row) => row.path === "run").length, 2)
+  assert.match(f.status.textContent, /等待.*自动重试/)
+})
+
+test("an error recorded after this start stops immediately instead of force-restarting a failed backup", async (t) => {
+  const f = managerFixture(t)
+  f.setStatus({ latest: null, checkedAt: "2026-10-03T00:00:00Z" })
+  await f.manager.load()
+  await f.run.click()
+  f.setStatus({ latest: null, checkedAt: "2026-10-03T00:00:01Z", error: "new failure" })
+  t.mock.timers.tick(5000)
+  await settle()
+  assert.equal(f.calls.filter((row) => row.path === "run").length, 1)
+  assert.equal(f.status.textContent, "备份未完成，请重试。")
+  assert.equal(f.notices.at(-1)[1], true)
+  t.mock.timers.tick(60000)
+  await settle()
+  assert.equal(f.calls.filter((row) => row.path === "run").length, 1)
+})
+
 test("refresh clicks cannot bypass the retry interval or duplicate in-flight status requests", async (t) => {
   const f = managerFixture(t)
   await f.manager.load()
