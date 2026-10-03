@@ -3,8 +3,10 @@ import { createWorkspace } from "./workspace.mjs"
 import { resumeSignIn, signIn } from "./auth.mjs"
 import { mountFrostedSpotlight } from "../scripts/lib/frosted-spotlight.mjs"
 import { mountAdminTheme } from "./theme.mjs"
+import { mountThemeFavicon } from "./brand-favicon.mjs"
 
 mountAdminTheme(document.getElementById("admin-theme"))
+mountThemeFavicon()
 mountFrostedSpotlight(document)
 const root = document.body
 const status = root.querySelector("#status")

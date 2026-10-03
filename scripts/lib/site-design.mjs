@@ -284,6 +284,8 @@ export function applyDesignVariables(target, settings) {
   for (const [key, value] of Object.entries(designVariables(settings)))
     target.style.setProperty(key, value)
   target.setAttribute("data-site-palette", getSitePalette(palette) ? palette : "current")
+  target.setAttribute("data-site-brand-name", settings.brand?.name || "Howard")
+  target.setAttribute("data-site-brand-mark", settings.brand?.mark || "h.")
 }
 export function validateDesign(settings) {
   if (!settings || typeof settings !== "object") throw new Error("页面设置不正确。")

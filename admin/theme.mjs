@@ -8,6 +8,11 @@ export function syncSitePalette(source, target = document.documentElement) {
     if (key.startsWith("--site-palette-")) target.style.removeProperty(key)
   for (const [key, value] of variables) target.style.setProperty(key, value)
   target.setAttribute("data-site-palette", source.getAttribute("data-site-palette") || "current")
+  for (const [attribute, fallback] of [
+    ["data-site-brand-name", "Howard"],
+    ["data-site-brand-mark", "h."],
+  ])
+    target.setAttribute(attribute, source.getAttribute(attribute) || fallback)
 }
 
 export function mountAdminTheme(button) {

@@ -9,11 +9,17 @@ const escapeXml = (value) =>
   )
 
 // Shared by the static raster/ICO generator and live browser-rendered page settings.
-export function brandIconSvg(settings) {
+export function brandIconSvg(settings, options = {}) {
   const mark = settings.brand?.mark || "h."
   const design = siteDesign(settings)
-  const accent = /^#[\da-f]{6}$/i.test(design.accentColor) ? design.accentColor : "#365f8b"
-  const { background, foreground } = brandMarkColors(getSitePalette(design.palette)?.light, accent)
+  const mode = options.mode === "dark" ? "dark" : "light"
+  const accentValue = mode === "dark" ? design.darkAccentColor : design.accentColor
+  const accent = /^#[\da-f]{6}$/i.test(accentValue)
+    ? accentValue
+    : mode === "dark"
+      ? "#93bbdf"
+      : "#365f8b"
+  const { background, foreground } = brandMarkColors(getSitePalette(design.palette)?.[mode], accent)
   // An original serif monogram keeps the default mark crisp without loading a font.
   const glyph =
     mark === "h."
@@ -27,6 +33,6 @@ export function brandIconSvg(settings) {
 
 // Append after static icon links so modern browsers select the current live branding.
 // The static ICO, PNG and Apple links remain available as compatibility fallbacks.
-export function brandIconDataLink(settings) {
-  return `<link rel="icon" href="data:image/svg+xml,${encodeURIComponent(brandIconSvg(settings))}" type="image/svg+xml" sizes="any" />`
+export function brandIconDataLink(settings, options = {}) {
+  return `<link rel="icon" href="data:image/svg+xml,${encodeURIComponent(brandIconSvg(settings, options))}" type="image/svg+xml" sizes="any" />`
 }

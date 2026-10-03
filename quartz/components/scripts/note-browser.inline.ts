@@ -9,6 +9,7 @@ import { setupMaintenance } from "../../../admin/maintenance-loader.mjs"
 import { setupMemories } from "../../../admin/memory-loader.mjs"
 import { setupArticleShare } from "../../../admin/article-share-loader.mjs"
 import { syncSitePalette } from "../../../admin/theme.mjs"
+import { mountThemeFavicon } from "../../../admin/brand-favicon.mjs"
 import "./runtime-content.inline"
 
 function setupIconHints() {
@@ -65,6 +66,7 @@ function setupMaintenanceDock() {
 
 function setupNoteBrowser() {
   syncSitePalette(document.querySelector<HTMLElement>(".site-surface"))
+  window.addCleanup(mountThemeFavicon())
   setupIconHints()
   setupMaintenanceDock()
   setupMaintenance()

@@ -935,6 +935,8 @@ export const BlogFrame: PageFrame = {
       <div
         class={`site-surface accent-${data(props).settings.accent}`}
         data-site-palette={siteDesign(data(props).settings).palette}
+        data-site-brand-name={data(props).settings.brand.name}
+        data-site-brand-mark={data(props).settings.brand.mark}
         data-article-layout={sitePages(data(props).settings).articleLayout}
         style={designStyle(data(props).settings)}
       >

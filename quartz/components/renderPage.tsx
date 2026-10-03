@@ -170,6 +170,8 @@ export function renderPage(
       lang={lang}
       dir={direction}
       data-site-palette={frame.name === "blog" ? siteDesign(settings).palette : undefined}
+      data-site-brand-name={frame.name === "blog" ? settings.brand.name : undefined}
+      data-site-brand-mark={frame.name === "blog" ? settings.brand.mark : undefined}
       style={frame.name === "blog" ? designStyle(settings) : undefined}
     >
       <Head {...componentData} />

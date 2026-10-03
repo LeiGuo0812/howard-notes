@@ -29,7 +29,11 @@ const article = (index, extra = {}) => ({
 })
 
 test("palette selection preserves layout and fonts, supports custom links, and rejects unknown presets", () => {
-  const original = normalizeSite(settings)
+  const savedSettings = structuredClone(settings)
+  const legacySettings = structuredClone(settings)
+  delete legacySettings.design.palette
+  const original = normalizeSite(legacySettings)
+  const originalBefore = structuredClone(original)
   assert.equal(original.design.palette, "current")
   const selected = applySitePalette(original, "minimal-soft")
   assert.equal(selected.design.palette, "minimal-soft")
@@ -59,6 +63,8 @@ test("palette selection preserves layout and fonts, supports custom links, and r
   selected.design.palette = "removed-theme"
   assert.throws(() => validateSite(selected), /样式/)
   assert.throws(() => applySitePalette(original, "removed-theme"), /配色/)
+  assert.deepEqual(original, originalBefore)
+  assert.deepEqual(settings, savedSettings)
 })
 
 test("layout defaults preserve existing configuration; templates and heatmap pinning are independent", () => {

@@ -28,11 +28,10 @@ test("preset icons retain the exact plate color and a legible palette ink in bot
       const icon = brandMarkColors(colors)
       assert.equal(icon.background, colors.mark || colors.signal)
       assert.ok([colors.onSignal, colors.text, "#ffffff", "#000000"].includes(icon.foreground))
-      const svg = brandIconSvg({ ...settings, design: { palette: palette.id } })
-      if (mode === "light") {
-        assert.ok(svg.includes(`fill="${icon.background}"`))
-        assert.ok(svg.includes(`fill="${icon.foreground}"`))
-      }
+      const svg = brandIconSvg({ ...settings, design: { palette: palette.id } }, { mode })
+      assert.ok(svg.includes(`fill="${icon.background}"`))
+      assert.ok(svg.includes(`fill="${icon.foreground}"`))
+      assert.doesNotMatch(svg, /gradient|filter|shadow|opacity|url\(|<defs|stroke=/i)
     }
   }
   assert.deepEqual(brandMarkColors(SITE_PALETTES[0].light), {
@@ -49,36 +48,51 @@ test("preset icons retain the exact plate color and a legible palette ink in bot
   })
 })
 
+test("current theme uses its matching light or dark accent without changing static defaults", () => {
+  assert.equal(brandIconSvg(settings), brandIconSvg(settings, { mode: "light" }))
+  assert.match(brandIconSvg(settings, { mode: "light" }), /fill="#365f8b"/)
+  assert.match(brandIconSvg(settings, { mode: "dark" }), /fill="#93bbdf"/)
+  const custom = { ...settings, design: { accentColor: "#804a5a", darkAccentColor: "#eac2ce" } }
+  assert.match(brandIconSvg(custom, { mode: "light" }), /fill="#804a5a"/)
+  assert.match(brandIconSvg(custom, { mode: "dark" }), /fill="#eac2ce"/)
+  assert.notEqual(
+    brandIconDataLink(custom, { mode: "light" }),
+    brandIconDataLink(custom, { mode: "dark" }),
+  )
+})
+
 test("live SVG favicon URI updates branding and encodes literal custom XML inside one safe link", () => {
   const custom = {
     ...settings,
     brand: { name: 'Howard " onload="alert(1)', mark: "<&>'\"" },
-    design: { accentColor: "#804a5a" },
+    design: { accentColor: "#804a5a", darkAccentColor: "#eac2ce" },
   }
-  const markup = brandIconDataLink(custom)
-  assert.notEqual(markup, brandIconDataLink(settings))
-  const nodes = []
-  visit(fromHtml(markup, { fragment: true }), "element", (node) => nodes.push(node))
-  assert.equal(nodes.length, 1)
-  const link = nodes[0]
-  assert.equal(link.tagName, "link")
-  assert.equal(link.properties.rel[0], "icon")
-  assert.equal(link.properties.type, "image/svg+xml")
-  assert.equal(link.properties.sizes, "any")
-  const svg = decodeURIComponent(link.properties.href.slice("data:image/svg+xml,".length))
-  assert.equal(svg, brandIconSvg(custom))
-  assert.match(svg, /fill="#804a5a"/)
-  const elements = []
-  visit(fromHtml(svg, { fragment: true }), "element", (node) => elements.push(node))
-  assert.equal(
-    elements.find((node) => node.tagName === "text").children[0].value,
-    custom.brand.mark,
-  )
-  assert.equal(
-    elements.find((node) => node.tagName === "svg").properties.ariaLabel,
-    custom.brand.name,
-  )
-  assert.ok(elements.every((node) => !Object.hasOwn(node.properties, "onload")))
+  for (const mode of ["light", "dark"]) {
+    const markup = brandIconDataLink(custom, { mode })
+    assert.notEqual(markup, brandIconDataLink(settings, { mode }))
+    const nodes = []
+    visit(fromHtml(markup, { fragment: true }), "element", (node) => nodes.push(node))
+    assert.equal(nodes.length, 1)
+    const link = nodes[0]
+    assert.equal(link.tagName, "link")
+    assert.equal(link.properties.rel[0], "icon")
+    assert.equal(link.properties.type, "image/svg+xml")
+    assert.equal(link.properties.sizes, "any")
+    const svg = decodeURIComponent(link.properties.href.slice("data:image/svg+xml,".length))
+    assert.equal(svg, brandIconSvg(custom, { mode }))
+    assert.ok(svg.includes(`fill="${mode === "dark" ? "#eac2ce" : "#804a5a"}"`))
+    const elements = []
+    visit(fromHtml(svg, { fragment: true }), "element", (node) => elements.push(node))
+    assert.equal(
+      elements.find((node) => node.tagName === "text").children[0].value,
+      custom.brand.mark,
+    )
+    assert.equal(
+      elements.find((node) => node.tagName === "svg").properties.ariaLabel,
+      custom.brand.name,
+    )
+    assert.ok(elements.every((node) => !Object.hasOwn(node.properties, "onload")))
+  }
 })
 
 test("favicon URLs change with the displayed brand and accent but remain stable for identical settings", () => {

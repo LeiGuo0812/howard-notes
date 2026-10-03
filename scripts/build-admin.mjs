@@ -23,16 +23,17 @@ if (!template.includes(connections))
   throw new Error("The admin connection policy template changed.")
 const loginOrigin = authConfig.brokerOrigin ? ` ${brokerOrigin(authConfig.brokerOrigin)}` : ""
 const contentOrigin = runtimeConfig.enabled ? ` ${new URL(runtimeConfig.apiBase).origin}` : ""
+const escapeAttribute = (value) =>
+  String(value)
+    .replaceAll("&", "&amp;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
 const preparedHtml = template
   .replace("__SITE_PALETTE__", siteDesign(settings).palette)
-  .replace(
-    "__SITE_DESIGN__",
-    designStyle(settings)
-      .replaceAll("&", "&amp;")
-      .replaceAll('"', "&quot;")
-      .replaceAll("<", "&lt;")
-      .replaceAll(">", "&gt;"),
-  )
+  .replace("__SITE_BRAND_NAME__", () => escapeAttribute(settings.brand.name))
+  .replace("__SITE_BRAND_MARK__", () => escapeAttribute(settings.brand.mark))
+  .replace("__SITE_DESIGN__", escapeAttribute(designStyle(settings)))
   .replace("<!-- brand-icons -->", brandIconLinks(settings, ".."))
   .replace(connections, `connect-src 'self' https://api.github.com${loginOrigin}${contentOrigin};`)
 if (process.env.GITHUB_REF === "refs/heads/main" && !authConfig.brokerOrigin)
