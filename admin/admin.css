@@ -1,16 +1,16 @@
 :root {
   color-scheme: light;
-  --paper: #f2f6fa;
-  --surface: #fafdff;
-  --ink: #243447;
-  --muted: #5b6d80;
-  --line: #d5e0eb;
-  --accent: #365f8b;
-  --accent-hover: #2c527c;
-  --primary-ink: #fff;
-  --wash: #e9f1f8;
+  --paper: var(--site-theme-page, #f2f6fa);
+  --surface: var(--site-theme-surface, #fafdff);
+  --ink: var(--site-theme-text, #243447);
+  --muted: var(--site-theme-muted, #5b6d80);
+  --line: var(--site-theme-line, #d5e0eb);
+  --accent: var(--site-theme-accent, #365f8b);
+  --accent-hover: var(--site-theme-accent-hover, #2c527c);
+  --primary-ink: var(--site-theme-on-signal, #fff);
+  --wash: var(--site-theme-code, #e9f1f8);
   --danger: #a43d46;
-  --status-fill: #e7f0f8;
+  --status-fill: var(--site-theme-code, #e7f0f8);
   --status-error-fill: #fff0f1;
   font-family: "Microsoft YaHei", "PingFang SC", system-ui, sans-serif;
   background: var(--paper);
@@ -62,12 +62,12 @@ button:disabled {
   cursor: wait;
 }
 .primary {
-  background: var(--accent);
-  border-color: var(--accent);
+  background: var(--site-theme-signal, var(--accent));
+  border-color: var(--site-theme-signal, var(--accent));
   color: var(--primary-ink);
 }
 .primary:hover {
-  background: var(--accent-hover);
+  background: var(--site-theme-signal-hover, var(--accent-hover));
 }
 .danger {
   color: var(--danger);
@@ -466,33 +466,33 @@ li {
 }
 :root[saved-theme="dark"] {
   color-scheme: dark;
-  --paper: #191f28;
-  --surface: #222c39;
-  --ink: #edf3fb;
-  --muted: #aabbd0;
-  --line: #3c4c60;
-  --accent: #a3c8ed;
-  --accent-hover: #bddaf5;
-  --primary-ink: #1c2b3d;
-  --wash: #2b3a4c;
+  --paper: var(--site-theme-page, #191f28);
+  --surface: var(--site-theme-surface, #222c39);
+  --ink: var(--site-theme-text, #edf3fb);
+  --muted: var(--site-theme-muted, #aabbd0);
+  --line: var(--site-theme-line, #3c4c60);
+  --accent: var(--site-theme-accent, #a3c8ed);
+  --accent-hover: var(--site-theme-accent-hover, #bddaf5);
+  --primary-ink: var(--site-theme-on-signal, #1c2b3d);
+  --wash: var(--site-theme-code, #2b3a4c);
   --danger: #f2a5ad;
-  --status-fill: #2b3a4c;
+  --status-fill: var(--site-theme-code, #2b3a4c);
   --status-error-fill: #432d36;
 }
 @media (prefers-color-scheme: dark) {
   :root:not([saved-theme]) {
     color-scheme: dark;
-    --paper: #191f28;
-    --surface: #222c39;
-    --ink: #edf3fb;
-    --muted: #aabbd0;
-    --line: #3c4c60;
-    --accent: #a3c8ed;
-    --accent-hover: #bddaf5;
-    --primary-ink: #1c2b3d;
-    --wash: #2b3a4c;
+    --paper: var(--site-theme-page, #191f28);
+    --surface: var(--site-theme-surface, #222c39);
+    --ink: var(--site-theme-text, #edf3fb);
+    --muted: var(--site-theme-muted, #aabbd0);
+    --line: var(--site-theme-line, #3c4c60);
+    --accent: var(--site-theme-accent, #a3c8ed);
+    --accent-hover: var(--site-theme-accent-hover, #bddaf5);
+    --primary-ink: var(--site-theme-on-signal, #1c2b3d);
+    --wash: var(--site-theme-code, #2b3a4c);
     --danger: #f2a5ad;
-    --status-fill: #2b3a4c;
+    --status-fill: var(--site-theme-code, #2b3a4c);
     --status-error-fill: #432d36;
   }
 }
@@ -1267,4 +1267,18 @@ body > main > .publication-status {
   display: flex;
   flex-wrap: wrap;
   gap: 0.5rem;
+}
+
+/* Standalone administration shares the saved palette; maintenance keeps its
+   transparent workspace body through the existing ShadowRoot overrides. */
+:root:where([data-site-palette]:not([data-site-palette="current"])) body,
+:root[saved-theme="dark"]:where([data-site-palette]:not([data-site-palette="current"])) body {
+  background: var(--paper);
+}
+:root:where([data-site-palette]:not([data-site-palette="current"])) .theme-control {
+  background: color-mix(in srgb, var(--surface) 28%, transparent);
+}
+:root[saved-theme="dark"]:where([data-site-palette]:not([data-site-palette="current"]))
+  .theme-control {
+  background: color-mix(in srgb, var(--surface) 35%, transparent);
 }

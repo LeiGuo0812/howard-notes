@@ -8,7 +8,10 @@ import {
   applyHomeTemplate,
   sectionLimit,
   orderedSections,
+  applySitePalette,
+  applyDesignVariables,
 } from "../scripts/lib/site-design.mjs"
+import { SITE_PALETTES } from "../scripts/lib/site-palettes.mjs"
 import { imageHostSettings } from "../scripts/lib/image-host.mjs"
 import { GitHubImageHost } from "./images.mjs"
 import { brokerOrigin } from "./auth.mjs"
@@ -56,6 +59,14 @@ export function createSettings({
   } catch {}
   const dirty = () => !!working && JSON.stringify(working) !== baseline
   const preview = createSitePreview(() => working, getSnapshot, { root, siteBase })
+  const paletteSelect = $("site-form").querySelector('[data-setting="design.palette"]')
+  paletteSelect.replaceChildren(
+    ...[{ id: "current", name: "原有配色" }, ...SITE_PALETTES].map((palette) => {
+      const option = node("option", palette.name)
+      option.value = palette.id
+      return option
+    }),
+  )
   for (const [path, fonts] of [
     ["design.chineseFont", CHINESE_FONTS],
     ["design.englishFont", ENGLISH_FONTS],
@@ -111,7 +122,10 @@ export function createSettings({
             : input.hasAttribute("data-number")
               ? Number(input.value)
               : input.value
-        if (path === "pages.homeTemplate") {
+        if (path === "design.palette") {
+          working = applySitePalette(working, value)
+          bindFields()
+        } else if (path === "pages.homeTemplate") {
           working = applyHomeTemplate(working, value)
           bindFields()
           renderRows()
@@ -306,6 +320,12 @@ export function createSettings({
   }
   function load(snapshot, restoreDraft = true) {
     snapshot = publicLibrarySnapshot(snapshot)
+    const themeTarget =
+      root.host ||
+      root.getRootNode?.()?.host ||
+      root.ownerDocument?.documentElement ||
+      root.documentElement
+    if (themeTarget) applyDesignVariables(themeTarget, snapshot.settings)
     openedSha = snapshot.siteSha
     working = normalizeSite(snapshot.settings)
     working.imageHost = { ...imageHostSettings(working) }

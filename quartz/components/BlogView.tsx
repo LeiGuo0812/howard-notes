@@ -16,7 +16,9 @@ import {
   orderedSections,
   sectionLimit,
   sitePages,
+  siteDesign,
 } from "../../scripts/lib/site-design.mjs"
+import { paletteCategory } from "../../scripts/lib/site-palettes.mjs"
 
 type Row = {
   id: string
@@ -56,7 +58,7 @@ type Period = {
   weeks: { month: string; days: Day[] }[]
 }
 export type BlogData = {
-  settings: typeof siteSettings
+  settings: typeof siteSettings & { design: typeof siteSettings.design & { palette?: string } }
   topics: Topic[]
   total: number
   tags: { id: string; title: string; count: number }[]
@@ -186,6 +188,7 @@ function TopicChips({ props }: { props: QuartzComponentProps }) {
         <a
           class="internal topic-chip"
           data-topic-id={topic.id}
+          data-palette-category={paletteCategory(topic.category)}
           hidden={!topic.visible}
           data-no-popover="true"
           id={slug(topic.category)}
@@ -236,6 +239,7 @@ function NotePreview({
     <a
       class={`internal note-preview${compact ? " compact-preview" : ""}${frosted ? " frosted-panel" : ""}`}
       data-spotlight={frosted ? "" : undefined}
+      data-palette-category={paletteCategory(row.categoryKey || row.category)}
       hidden={hidden}
       data-no-popover="true"
       href={href(props, `notes/${row.id}`)}
@@ -250,7 +254,16 @@ function NotePreview({
       {!compact && <small data-category={row.categoryKey || row.category}>{row.category}</small>}
     </a>
   )
-  return frosted ? <div class="frost-environment lucky-preview-surface">{card}</div> : card
+  return frosted ? (
+    <div
+      class="frost-environment lucky-preview-surface"
+      data-palette-category={paletteCategory(row.categoryKey || row.category)}
+    >
+      {card}
+    </div>
+  ) : (
+    card
+  )
 }
 function TopicDirectory({ props }: { props: QuartzComponentProps }) {
   const cards = sitePages(data(props).settings).topicLayout === "cards"
@@ -260,6 +273,7 @@ function TopicDirectory({ props }: { props: QuartzComponentProps }) {
         <section
           class={`topic-section topic-card${cards ? " frosted-panel" : ""}`}
           data-spotlight={cards ? "" : undefined}
+          data-palette-category={paletteCategory(topic.category)}
           data-topic-id={topic.id}
           hidden={!topic.visible}
           aria-labelledby={`topic-${topic.id}`}
@@ -915,6 +929,7 @@ export const BlogFrame: PageFrame = {
     return (
       <div
         class={`site-surface accent-${data(props).settings.accent}`}
+        data-site-palette={siteDesign(data(props).settings).palette}
         data-article-layout={sitePages(data(props).settings).articleLayout}
         style={designStyle(data(props).settings)}
       >

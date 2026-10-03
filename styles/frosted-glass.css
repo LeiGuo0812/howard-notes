@@ -166,3 +166,179 @@
     transition: none;
   }
 }
+
+/* Saved site palettes recolour the existing material stack. All geometry,
+   blur, spotlight coordinates, opacity timings and shadow depths stay above.
+   These selectors also survive the maintenance builder's :root -> :host map. */
+:root:where([data-site-palette]:not([data-site-palette="current"])),
+:root[saved-theme="dark"]:where([data-site-palette]:not([data-site-palette="current"])) {
+  --site-theme-page: var(--site-palette-page-light);
+  --site-theme-surface: var(--site-palette-surface-light);
+  --site-theme-reader: var(--site-palette-reader-light);
+  --site-theme-text: var(--site-palette-text-light);
+  --site-theme-muted: var(--site-palette-muted-light);
+  --site-theme-accent: var(--site-accent-light, var(--site-palette-accent-light));
+  --site-theme-signal: var(--site-palette-signal-light);
+  --site-theme-on-signal: var(--site-palette-on-signal-light);
+  --site-theme-code: var(--site-palette-code-light);
+  --site-theme-mark: var(--site-palette-mark-light, var(--site-theme-signal));
+  --site-theme-display: var(--site-palette-display-light, var(--site-theme-text));
+  --site-theme-line: var(
+    --site-palette-line-light,
+    color-mix(in srgb, var(--site-theme-muted) 24%, transparent)
+  );
+  --site-theme-mark-ink: var(--site-theme-text);
+  --site-theme-accent-hover: color-mix(
+    in srgb,
+    var(--site-theme-accent) 85%,
+    var(--site-theme-text)
+  );
+  --site-theme-signal-hover: color-mix(
+    in srgb,
+    var(--site-theme-signal) 85%,
+    var(--site-theme-text)
+  );
+  --site-theme-category-bg-1: var(--site-palette-category-1-bg-light);
+  --site-theme-category-bg-2: var(--site-palette-category-2-bg-light);
+  --site-theme-category-bg-3: var(--site-palette-category-3-bg-light);
+  --site-theme-category-bg-4: var(--site-palette-category-4-bg-light);
+  --site-theme-category-bg-5: var(--site-palette-category-5-bg-light);
+  --site-theme-category-bg-6: var(--site-palette-category-6-bg-light);
+  --site-theme-category-bg-7: var(--site-palette-category-7-bg-light);
+  --site-theme-category-fg-1: var(--site-palette-category-1-fg-light);
+  --site-theme-category-fg-2: var(--site-palette-category-2-fg-light);
+  --site-theme-category-fg-3: var(--site-palette-category-3-fg-light);
+  --site-theme-category-fg-4: var(--site-palette-category-4-fg-light);
+  --site-theme-category-fg-5: var(--site-palette-category-5-fg-light);
+  --site-theme-category-fg-6: var(--site-palette-category-6-fg-light);
+  --site-theme-category-fg-7: var(--site-palette-category-7-fg-light);
+  --light: var(--site-theme-page);
+  --lightgray: var(--site-theme-line);
+  --gray: var(--site-theme-muted);
+  --darkgray: var(--site-theme-text);
+  --dark: var(--site-theme-display);
+  --secondary: var(--site-theme-accent);
+  --tertiary: color-mix(in srgb, var(--site-theme-accent) 85%, var(--site-theme-text));
+  --highlight: color-mix(in srgb, var(--site-theme-accent) 8%, transparent);
+  --textHighlight: color-mix(in srgb, var(--site-theme-accent) 24%, transparent);
+  --glass-solid: var(--site-theme-surface);
+  --glass-fill: color-mix(in srgb, var(--site-theme-surface) 64%, transparent);
+  --glass-border: color-mix(in srgb, var(--site-theme-surface) 88%, transparent);
+  --glass-edge: color-mix(in srgb, var(--site-theme-line) 26%, transparent);
+  --glass-reflection: color-mix(in srgb, var(--site-theme-surface) 28%, transparent);
+  --glass-tint: color-mix(in srgb, var(--site-theme-surface) 16%, transparent);
+  --glass-card: color-mix(in srgb, var(--site-theme-surface) 78%, transparent);
+  --glass-card-hover: color-mix(in srgb, var(--site-theme-surface) 93%, white);
+  --glass-card-tint: color-mix(in srgb, var(--site-theme-surface) 15%, transparent);
+  --glass-card-violet: color-mix(in srgb, var(--site-theme-surface) 15%, transparent);
+  --glass-recessed: color-mix(in srgb, var(--site-theme-code) 32%, transparent);
+  --glass-reading: var(--site-theme-surface);
+  --glass-reader-surface: var(--site-theme-reader);
+  --glass-reader-page: var(--site-theme-page);
+  --glass-reader-muted: var(--site-theme-muted);
+  --glass-code: var(--site-theme-code);
+  --glass-hover: color-mix(in srgb, var(--site-theme-code) 60%, transparent);
+  --frost-fill: color-mix(in srgb, var(--site-theme-surface) 55%, transparent);
+  --frost-solid: var(--site-theme-surface);
+  --frost-border: color-mix(in srgb, var(--site-theme-surface) 74%, transparent);
+  --frost-shade: color-mix(in srgb, var(--site-theme-text) 7%, transparent);
+  --frost-ambient-cyan: color-mix(in srgb, var(--site-theme-surface) 34%, transparent);
+  --frost-ambient-blue: color-mix(in srgb, var(--site-theme-surface) 33%, transparent);
+  --frost-ambient-violet: color-mix(in srgb, var(--site-theme-surface) 29%, transparent);
+  --site-theme-spotlight: color-mix(in srgb, var(--site-theme-signal) 28%, white);
+  --frost-light-core: color-mix(in srgb, var(--site-theme-spotlight) 22%, transparent);
+  --frost-light-halo: color-mix(in srgb, var(--site-theme-spotlight) 9%, transparent);
+  --frost-light-rim: color-mix(in srgb, var(--site-theme-spotlight) 50%, transparent);
+}
+:root[saved-theme="dark"]:where([data-site-palette]:not([data-site-palette="current"])) {
+  --site-theme-page: var(--site-palette-page-dark);
+  --site-theme-surface: var(--site-palette-surface-dark);
+  --site-theme-reader: var(--site-palette-reader-dark);
+  --site-theme-text: var(--site-palette-text-dark);
+  --site-theme-muted: var(--site-palette-muted-dark);
+  --site-theme-accent: var(--site-accent-dark, var(--site-palette-accent-dark));
+  --site-theme-signal: var(--site-palette-signal-dark);
+  --site-theme-on-signal: var(--site-palette-on-signal-dark);
+  --site-theme-code: var(--site-palette-code-dark);
+  --site-theme-mark: var(--site-palette-mark-dark, var(--site-theme-signal));
+  --site-theme-display: var(--site-palette-display-dark, var(--site-theme-text));
+  --site-theme-line: var(
+    --site-palette-line-dark,
+    color-mix(in srgb, var(--site-theme-muted) 24%, transparent)
+  );
+  --site-theme-mark-ink: var(--site-theme-on-signal);
+  --site-theme-category-bg-1: var(--site-palette-category-1-bg-dark);
+  --site-theme-category-bg-2: var(--site-palette-category-2-bg-dark);
+  --site-theme-category-bg-3: var(--site-palette-category-3-bg-dark);
+  --site-theme-category-bg-4: var(--site-palette-category-4-bg-dark);
+  --site-theme-category-bg-5: var(--site-palette-category-5-bg-dark);
+  --site-theme-category-bg-6: var(--site-palette-category-6-bg-dark);
+  --site-theme-category-bg-7: var(--site-palette-category-7-bg-dark);
+  --site-theme-category-fg-1: var(--site-palette-category-1-fg-dark);
+  --site-theme-category-fg-2: var(--site-palette-category-2-fg-dark);
+  --site-theme-category-fg-3: var(--site-palette-category-3-fg-dark);
+  --site-theme-category-fg-4: var(--site-palette-category-4-fg-dark);
+  --site-theme-category-fg-5: var(--site-palette-category-5-fg-dark);
+  --site-theme-category-fg-6: var(--site-palette-category-6-fg-dark);
+  --site-theme-category-fg-7: var(--site-palette-category-7-fg-dark);
+  --glass-fill: color-mix(in srgb, var(--site-theme-surface) 54%, transparent);
+  --glass-border: color-mix(in srgb, var(--site-theme-text) 25%, transparent);
+  --glass-edge: color-mix(in srgb, var(--site-theme-line) 12%, transparent);
+  --glass-reflection: color-mix(in srgb, var(--site-theme-text) 17%, transparent);
+  --glass-tint: color-mix(in srgb, var(--site-theme-surface) 10%, transparent);
+  --glass-card: color-mix(in srgb, var(--site-theme-surface) 80%, transparent);
+  --glass-card-hover: color-mix(in srgb, var(--site-theme-surface) 93%, var(--site-theme-text));
+  --glass-card-tint: color-mix(in srgb, var(--site-theme-surface) 9%, transparent);
+  --glass-card-violet: color-mix(in srgb, var(--site-theme-surface) 10%, transparent);
+  --glass-recessed: color-mix(in srgb, var(--site-theme-code) 26%, transparent);
+  --glass-hover: color-mix(in srgb, var(--site-theme-text) 13%, transparent);
+  --frost-fill: color-mix(in srgb, var(--site-theme-surface) 62%, transparent);
+  --frost-border: color-mix(in srgb, var(--site-theme-text) 24%, transparent);
+  --frost-shade: rgb(5 13 23 / 15%);
+  --frost-ambient-cyan: color-mix(in srgb, var(--site-theme-surface) 29%, transparent);
+  --frost-ambient-blue: color-mix(in srgb, var(--site-theme-surface) 34%, transparent);
+  --frost-ambient-violet: color-mix(in srgb, var(--site-theme-surface) 28%, transparent);
+  --site-theme-spotlight: color-mix(in srgb, var(--site-theme-signal) 18%, white);
+  --frost-light-core: color-mix(in srgb, var(--site-theme-spotlight) 20%, transparent);
+  --frost-light-halo: color-mix(in srgb, var(--site-theme-spotlight) 13%, transparent);
+  --frost-light-rim: color-mix(in srgb, var(--site-theme-spotlight) 82%, transparent);
+}
+
+/* Pastels belong to separate categories, rather than mixing across a page.
+   The category hook is deterministic, including newly refreshed lucky cards. */
+:root:where([data-site-palette="clean-multicolor"]) [data-palette-category="1"] {
+  --site-category-fill: var(--site-theme-category-bg-1);
+  --site-category-ink: var(--site-theme-category-fg-1);
+}
+:root:where([data-site-palette="clean-multicolor"]) [data-palette-category="2"] {
+  --site-category-fill: var(--site-theme-category-bg-2);
+  --site-category-ink: var(--site-theme-category-fg-2);
+}
+:root:where([data-site-palette="clean-multicolor"]) [data-palette-category="3"] {
+  --site-category-fill: var(--site-theme-category-bg-3);
+  --site-category-ink: var(--site-theme-category-fg-3);
+}
+:root:where([data-site-palette="clean-multicolor"]) [data-palette-category="4"] {
+  --site-category-fill: var(--site-theme-category-bg-4);
+  --site-category-ink: var(--site-theme-category-fg-4);
+}
+:root:where([data-site-palette="clean-multicolor"]) [data-palette-category="5"] {
+  --site-category-fill: var(--site-theme-category-bg-5);
+  --site-category-ink: var(--site-theme-category-fg-5);
+}
+:root:where([data-site-palette="clean-multicolor"]) [data-palette-category="6"] {
+  --site-category-fill: var(--site-theme-category-bg-6);
+  --site-category-ink: var(--site-theme-category-fg-6);
+}
+:root:where([data-site-palette="clean-multicolor"]) [data-palette-category="7"] {
+  --site-category-fill: var(--site-theme-category-bg-7);
+  --site-category-ink: var(--site-theme-category-fg-7);
+}
+:root:where([data-site-palette="clean-multicolor"]) .frosted-panel[data-palette-category] {
+  --frost-solid: var(--site-category-fill);
+  --frost-fill: color-mix(in srgb, var(--site-category-fill) 55%, transparent);
+}
+:root[saved-theme="dark"]:where([data-site-palette="clean-multicolor"])
+  .frosted-panel[data-palette-category] {
+  --frost-fill: color-mix(in srgb, var(--site-category-fill) 62%, transparent);
+}

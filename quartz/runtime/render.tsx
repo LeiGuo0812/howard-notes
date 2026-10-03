@@ -14,6 +14,7 @@ import { simplifySlug, type FullSlug } from "../util/path"
 import { brandIconDataLink } from "../../scripts/lib/site-icon-svg.mjs"
 import { sanitizeArticleHtml } from "../util/article-security"
 import { contentIndexScript } from "../../scripts/lib/content-security.mjs"
+import { designStyle, siteDesign } from "../../scripts/lib/site-design.mjs"
 
 export type RuntimeDocument = {
   id: string
@@ -326,7 +327,7 @@ export function renderPages(projection: RuntimeProjection, shell: RuntimeShell) 
     const head = `${shell.head}${privacyHead}${brandIconDataLink(settings)}<title>${escape(pageTitle)} | ${escape(settings.brand.name)}</title><meta name="description" content="${escape(description)}"><meta property="og:site_name" content="${escape(settings.brand.name)}"><meta property="og:title" content="${escape(pageTitle)}"><meta property="og:description" content="${escape(description)}"><meta property="og:url" content="${escape(canonical)}"><link rel="canonical" href="${escape(canonical)}"><link rel="alternate" type="application/rss+xml" title="${escape(settings.brand.name)}" href="${escape(baseUrl)}/index.xml"><script data-persist="true">${contentIndexScript(basePath)}</script>`
     pages.push({
       path,
-      html: `<!DOCTYPE html>\n<html lang="zh" dir="ltr"><head>${head}</head><body data-slug="${escape(path)}" data-basepath="${escape(basePath)}" data-runtime-revision="${escape(projection.revision ?? "")}"><div id="quartz-root" class="page" data-frame="blog"><div id="quartz-body">${render(body)}</div></div>${shell.postscript}</body></html>`,
+      html: `<!DOCTYPE html>\n<html lang="zh" dir="ltr" data-site-palette="${escape(siteDesign(settings).palette)}" style="${escape(designStyle(settings))}"><head>${head}</head><body data-slug="${escape(path)}" data-basepath="${escape(basePath)}" data-runtime-revision="${escape(projection.revision ?? "")}"><div id="quartz-root" class="page" data-frame="blog"><div id="quartz-body">${render(body)}</div></div>${shell.postscript}</body></html>`,
     })
   }
   const listing = (

@@ -1,5 +1,6 @@
 // @ts-expect-error Shared browser-safe activity helper is implemented in JavaScript.
 import { buildActivity } from "../../../scripts/lib/activity.mjs"
+import { paletteCategory } from "../../../scripts/lib/site-palettes.mjs"
 
 export type HomeNote = [string, string, string, string, string, string, string]
 type HomeData = { noteBase: string; listing: string; asOf: string; notes: HomeNote[] }
@@ -31,6 +32,7 @@ export function homePreview(row: HomeNote, { compact = false, frosted = false } 
   ) as HTMLAnchorElement
   card.href = `${data.noteBase}${id}`
   card.dataset.noPopover = "true"
+  card.dataset.paletteCategory = paletteCategory(categoryKey || category)
   const heading = node("div", "preview-note-heading")
   const time = node("time", "", modified) as HTMLTimeElement
   time.dateTime = modified
@@ -46,6 +48,7 @@ export function homePreview(row: HomeNote, { compact = false, frosted = false } 
   if (!frosted) return card
   card.dataset.spotlight = ""
   const surface = node("div", "frost-environment lucky-preview-surface")
+  surface.dataset.paletteCategory = card.dataset.paletteCategory
   surface.append(card)
   return surface
 }

@@ -13,6 +13,7 @@ import { buildPrivateNotesWorker } from "./build-private-notes-worker.mjs"
 import { buildMermaidViewer } from "./build-mermaid-viewer.mjs"
 import { buildArticleShare } from "./build-article-share.mjs"
 import { runtimeBrowserPlugins } from "../runtime/build.mjs"
+import { designStyle, siteDesign } from "./lib/site-design.mjs"
 const authConfig = JSON.parse(await fs.readFile("admin/auth-config.json", "utf8"))
 const settings = JSON.parse(await fs.readFile("library/site.json", "utf8"))
 const runtimeConfig = JSON.parse(await fs.readFile("runtime/config.json", "utf8"))
@@ -23,6 +24,15 @@ if (!template.includes(connections))
 const loginOrigin = authConfig.brokerOrigin ? ` ${brokerOrigin(authConfig.brokerOrigin)}` : ""
 const contentOrigin = runtimeConfig.enabled ? ` ${new URL(runtimeConfig.apiBase).origin}` : ""
 const preparedHtml = template
+  .replace("__SITE_PALETTE__", siteDesign(settings).palette)
+  .replace(
+    "__SITE_DESIGN__",
+    designStyle(settings)
+      .replaceAll("&", "&amp;")
+      .replaceAll('"', "&quot;")
+      .replaceAll("<", "&lt;")
+      .replaceAll(">", "&gt;"),
+  )
   .replace("<!-- brand-icons -->", brandIconLinks(settings, ".."))
   .replace(connections, `connect-src 'self' https://api.github.com${loginOrigin}${contentOrigin};`)
 if (process.env.GITHUB_REF === "refs/heads/main" && !authConfig.brokerOrigin)

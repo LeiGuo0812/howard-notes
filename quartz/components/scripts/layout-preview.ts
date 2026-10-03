@@ -1,11 +1,12 @@
 import { homeData, homePreview } from "./home-browser"
 import { validateSite } from "../../../scripts/lib/site-settings.mjs"
 import {
-  designVariables,
+  applyDesignVariables,
   orderedSections,
   sectionLimit,
   sitePages,
 } from "../../../scripts/lib/site-design.mjs"
+import { paletteCategory } from "../../../scripts/lib/site-palettes.mjs"
 
 const enabled =
   window.parent !== window && new URLSearchParams(location.search).get("site-preview") === "1"
@@ -22,8 +23,8 @@ function applyPreview() {
   const surface = document.querySelector<HTMLElement>(".site-surface")
   if (!surface) return
   document.documentElement.setAttribute("saved-theme", theme)
-  for (const [key, value] of Object.entries(designVariables(draft)))
-    surface.style.setProperty(key, value)
+  applyDesignVariables(surface, draft)
+  applyDesignVariables(document.documentElement, draft)
   surface.dataset.articleLayout = sitePages(draft).articleLayout
   label(".brand-mark", draft.brand.mark)
   label(".brand-name", draft.brand.name)
@@ -98,6 +99,7 @@ function applyPreview() {
       chip.append(document.createElement("span"), document.createElement("small"))
       chip.querySelector("small")!.textContent = "0"
     }
+    if (chip) chip.dataset.paletteCategory = paletteCategory(topic.category)
     if (chip && chips) {
       chip.hidden = !topic.visible
       chip.querySelector("span")!.textContent = topic.title

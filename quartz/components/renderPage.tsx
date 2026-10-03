@@ -17,6 +17,8 @@ import type { TreeTransform } from "../plugins/types"
 import type { BuildCtx } from "../util/ctx"
 import { contentIndexScript } from "../runtime/render"
 import { sanitizeArticleTree } from "../util/article-security"
+import siteSettings from "../../library/site.json"
+import { designStyle, siteDesign } from "../../scripts/lib/site-design.mjs"
 
 import { renderTranscludes } from "../util/transclusions"
 export { renderTranscludes } from "../util/transclusions"
@@ -162,8 +164,14 @@ export function renderPage(
     componentData.ctx.argv.serve || !cfg.baseUrl
       ? ""
       : new URL(`https://${cfg.baseUrl}`).pathname.replace(/\/$/, "")
+  const settings = componentData.runtimeData?.settings ?? siteSettings
   const doc = (
-    <html lang={lang} dir={direction}>
+    <html
+      lang={lang}
+      dir={direction}
+      data-site-palette={frame.name === "blog" ? siteDesign(settings).palette : undefined}
+      style={frame.name === "blog" ? designStyle(settings) : undefined}
+    >
       <Head {...componentData} />
       <body data-slug={slug} data-basepath={basePath}>
         {frame.css && <style dangerouslySetInnerHTML={{ __html: frame.css }} />}

@@ -14,6 +14,7 @@ import {
   designStyle,
   CHINESE_FONTS,
   ENGLISH_FONTS,
+  applySitePalette,
 } from "./lib/site-design.mjs"
 const settings = JSON.parse(await fs.readFile("library/site.json", "utf8"))
 const article = (index, extra = {}) => ({
@@ -25,6 +26,39 @@ const article = (index, extra = {}) => ({
   published: true,
   featured: index === 0,
   ...extra,
+})
+
+test("palette selection preserves layout and fonts, supports custom links, and rejects unknown presets", () => {
+  const original = normalizeSite(settings)
+  assert.equal(original.design.palette, "current")
+  const selected = applySitePalette(original, "minimal-soft")
+  assert.equal(selected.design.palette, "minimal-soft")
+  assert.equal(selected.design.accentColor, "#875035")
+  assert.equal(selected.design.darkAccentColor, "#f3bf9f")
+  assert.equal(designVariables(selected)["--site-palette-reader-light"], "#f7f8f8")
+  assert.deepEqual(selected.home, original.home)
+  assert.deepEqual(selected.pages, original.pages)
+  for (const key of [
+    "chineseFont",
+    "englishFont",
+    "fontSize",
+    "lineHeight",
+    "contentWidth",
+    "cardGap",
+    "radius",
+  ])
+    assert.equal(selected.design[key], original.design[key])
+  const restored = normalizeSite(JSON.parse(JSON.stringify(selected)))
+  assert.equal(restored.design.palette, "minimal-soft")
+  assert.doesNotThrow(() => validateSite(restored))
+  restored.design.accentColor = "#884466"
+  assert.equal(designVariables(restored)["--site-accent-light"], "#884466")
+  const legacy = applySitePalette(restored, "current")
+  assert.ok(!Object.keys(designVariables(legacy)).some((key) => key.startsWith("--site-palette-")))
+  assert.equal(original.design.palette, "current")
+  selected.design.palette = "removed-theme"
+  assert.throws(() => validateSite(selected), /样式/)
+  assert.throws(() => applySitePalette(original, "removed-theme"), /配色/)
 })
 
 test("layout defaults preserve existing configuration; templates and heatmap pinning are independent", () => {

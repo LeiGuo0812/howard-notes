@@ -8,6 +8,7 @@ import { mountFrostedSpotlight } from "../../../scripts/lib/frosted-spotlight.mj
 import { setupMaintenance } from "../../../admin/maintenance-loader.mjs"
 import { setupMemories } from "../../../admin/memory-loader.mjs"
 import { setupArticleShare } from "../../../admin/article-share-loader.mjs"
+import { syncSitePalette } from "../../../admin/theme.mjs"
 import "./runtime-content.inline"
 
 function setupIconHints() {
@@ -63,6 +64,7 @@ function setupMaintenanceDock() {
 }
 
 function setupNoteBrowser() {
+  syncSitePalette(document.querySelector<HTMLElement>(".site-surface"))
   setupIconHints()
   setupMaintenanceDock()
   setupMaintenance()

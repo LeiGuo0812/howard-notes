@@ -37,6 +37,24 @@ export async function buildMaintenance(
     ])
   )
     .join("\n")
+    // A ShadowRoot host is featureless: attribute selectors must live inside
+    // :host(...), rather than follow :host as a separate :where compound.
+    .replaceAll(
+      ':root[saved-theme="dark"]:where([data-site-palette]:not([data-site-palette="current"]))',
+      ':host([saved-theme="dark"]:where([data-site-palette]:not([data-site-palette="current"])))',
+    )
+    .replaceAll(
+      ':root:where([data-site-palette]:not([data-site-palette="current"]))',
+      ':host(:where([data-site-palette]:not([data-site-palette="current"])))',
+    )
+    .replaceAll(
+      ':root[saved-theme="dark"]:where([data-site-palette="clean-multicolor"])',
+      ':host([saved-theme="dark"]:where([data-site-palette="clean-multicolor"]))',
+    )
+    .replaceAll(
+      ':root:where([data-site-palette="clean-multicolor"])',
+      ':host(:where([data-site-palette="clean-multicolor"]))',
+    )
     .replaceAll(':root[saved-theme="dark"]', ':host([saved-theme="dark"])')
     .replaceAll(":root:not([saved-theme])", ":host(:not([saved-theme]))")
     .replaceAll(":root", ":host")

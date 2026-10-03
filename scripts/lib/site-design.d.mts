@@ -1,4 +1,5 @@
 export interface DesignSettings {
+  palette: string
   font: "sans" | "serif" | "system"
   chineseFont: string
   englishFont: string
@@ -43,4 +44,9 @@ export function applyHomeTemplate<T extends { home: { sections: unknown[] } }>(
 ): T & { design: DesignSettings; pages: PageSettings }
 export function designVariables(settings: unknown): Record<string, string>
 export function designStyle(settings: unknown): string
+export function applySitePalette<T extends { home: { sections: unknown[] } }>(
+  settings: T,
+  paletteId: string,
+): T & { design: DesignSettings; pages: PageSettings }
+export function applyDesignVariables(target: HTMLElement, settings: unknown): void
 export function validateDesign(settings: unknown): void

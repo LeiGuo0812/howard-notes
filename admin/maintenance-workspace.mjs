@@ -5,6 +5,7 @@ import { mountFrostedSpotlight } from "../scripts/lib/frosted-spotlight.mjs"
 import { trackDeployment } from "./deployment.mjs"
 import { createPanelWindow } from "./panel-window.mjs"
 import { setupPrivateNotes } from "./private-notes.mjs"
+import { syncSitePalette } from "./theme.mjs"
 
 const INTENT_KEY = "howard-maintenance-return"
 
@@ -299,14 +300,16 @@ export async function createMaintenanceWorkspace({ siteBase, version, onSession 
     onChange: attach,
   })
   mountFrostedSpotlight(container)
-  const theme = () =>
+  const theme = () => {
+    syncSitePalette(document.documentElement, host)
     host.setAttribute(
       "saved-theme",
       document.documentElement.getAttribute("saved-theme") || "light",
     )
+  }
   new MutationObserver(theme).observe(document.documentElement, {
     attributes: true,
-    attributeFilter: ["saved-theme"],
+    attributeFilter: ["saved-theme", "data-site-palette", "style"],
   })
   theme()
   function updateControls() {

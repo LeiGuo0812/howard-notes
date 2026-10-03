@@ -1,4 +1,15 @@
 // The editor and the public site share the same saved theme preference.
+export function syncSitePalette(source, target = document.documentElement) {
+  if (!source || source === target) return
+  const variables = Array.from(source.style)
+    .filter((key) => key.startsWith("--site-"))
+    .map((key) => [key, source.style.getPropertyValue(key)])
+  for (const key of Array.from(target.style))
+    if (key.startsWith("--site-palette-")) target.style.removeProperty(key)
+  for (const [key, value] of variables) target.style.setProperty(key, value)
+  target.setAttribute("data-site-palette", source.getAttribute("data-site-palette") || "current")
+}
+
 export function mountAdminTheme(button) {
   const system = window.matchMedia("(prefers-color-scheme: dark)")
   const preference = () => {

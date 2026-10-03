@@ -1,4 +1,7 @@
+import { getSitePalette, paletteVariables } from "./site-palettes.mjs"
+
 export const DEFAULT_DESIGN = Object.freeze({
+  palette: "current",
   font: "sans",
   chineseFont: "sans",
   englishFont: "system",
@@ -147,10 +150,11 @@ const legacyFonts = {
 const familyList = (families) => families.map((family) => JSON.stringify(family)).join(", ")
 export function siteDesign(settings) {
   const colors = ACCENT_COLORS[settings.accent] || ACCENT_COLORS.blue
+  const palette = getSitePalette(settings.design?.palette)
   const design = {
     ...DEFAULT_DESIGN,
-    accentColor: colors[0],
-    darkAccentColor: colors[1],
+    accentColor: palette?.light.accent || colors[0],
+    darkAccentColor: palette?.dark.accent || colors[1],
     ...settings.design,
   }
   const legacy = Object.hasOwn(legacyFonts, design.font)
@@ -162,6 +166,16 @@ export function siteDesign(settings) {
 }
 export function sitePages(settings) {
   return { ...DEFAULT_PAGES, ...settings.pages }
+}
+export function applySitePalette(settings, paletteId) {
+  const palette = getSitePalette(paletteId)
+  if (paletteId !== "current" && !palette) throw new Error("配色方案不正确。")
+  const result = normalizeSite(settings)
+  const colors = ACCENT_COLORS[result.accent] || ACCENT_COLORS.blue
+  result.design.palette = paletteId
+  result.design.accentColor = palette?.light.accent || colors[0]
+  result.design.darkAccentColor = palette?.dark.accent || colors[1]
+  return result
 }
 export function normalizeSite(settings) {
   const result = structuredClone(settings)
@@ -235,6 +249,7 @@ export function designVariables(settings) {
   // Chinese family. Keep explicit Latin families first and the generic last.
   const families = [...new Set([...english.families, ...chinese.families])]
   return {
+    ...paletteVariables(d),
     "--site-accent-light": d.accentColor,
     "--site-accent-dark": d.darkAccentColor,
     "--site-font": `${familyList(families)}, ${chinese.generic}`,
@@ -252,6 +267,16 @@ export function designStyle(settings) {
     .map(([key, value]) => `${key}:${value}`)
     .join(";")
 }
+export function applyDesignVariables(target, settings) {
+  const palette = siteDesign(settings).palette
+  // Switching away from multicolor must remove its category colors, rather
+  // than leave old inline variables behind in a live preview or workspace.
+  for (const property of Array.from(target.style))
+    if (property.startsWith("--site-palette-")) target.style.removeProperty(property)
+  for (const [key, value] of Object.entries(designVariables(settings)))
+    target.style.setProperty(key, value)
+  target.setAttribute("data-site-palette", getSitePalette(palette) ? palette : "current")
+}
 export function validateDesign(settings) {
   if (!settings || typeof settings !== "object") throw new Error("页面设置不正确。")
   const d = siteDesign(settings),
@@ -263,6 +288,7 @@ export function validateDesign(settings) {
     value <= max &&
     (!integer || Number.isInteger(value))
   if (
+    (d.palette !== "current" && !getSitePalette(d.palette)) ||
     !Object.hasOwn(legacyFonts, d.font) ||
     !Object.hasOwn(chineseFonts, d.chineseFont) ||
     !Object.hasOwn(englishFonts, d.englishFont) ||
