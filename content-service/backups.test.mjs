@@ -1019,3 +1019,55 @@ test("public health probes the database and reveals no internal failure details"
     database: false,
   })
 })
+
+test("manual start retry carries a baseline and cannot create another snapshot after completion", async () => {
+  const f = fixture()
+  const first = await completeBackup(f, { force: true, expectedLatestId: null })
+  assert.equal(first.status, "complete")
+  const retry = await runScheduledBackup(f.env, { now, force: true, expectedLatestId: null })
+  assert.equal(retry.status, "current")
+  assert.equal(retry.latest.id, first.latest.id)
+  const second = await completeBackup(f, { force: true, expectedLatestId: first.latest.id })
+  assert.equal(second.status, "complete")
+  assert.notEqual(second.latest.id, first.latest.id)
+  const delayed = await runScheduledBackup(f.env, {
+    now,
+    force: true,
+    expectedLatestId: first.latest.id,
+  })
+  assert.equal(delayed.status, "current")
+  assert.equal(delayed.latest.id, second.latest.id)
+  assert.equal(
+    [...f.env.BACKUP_BUCKET.objects.keys()].filter(
+      (key) => key.startsWith("snapshots/") && key.endsWith("/manifest.hnbackup"),
+    ).length,
+    2,
+  )
+})
+
+test("manual baseline is validated and propagated through the owner endpoint", async () => {
+  const f = fixture()
+  const done = await completeBackup(f)
+  for (const [expectedLatestId, status] of [
+    [null, 200],
+    [42, 400],
+    ["../invalid", 400],
+  ]) {
+    const response = await backupsResponse(
+      new Request("https://notes.example/api/content/backups/run", {
+        method: "POST",
+        body: JSON.stringify({ action: "start", expectedLatestId }),
+      }),
+      f.env,
+      f.DB,
+      "backups/run",
+      async () => {},
+    )
+    assert.equal(response.status, status)
+    if (status === 200) {
+      const value = await response.json()
+      assert.equal(value.status, "current")
+      assert.equal(value.latest.id, done.latest.id)
+    }
+  }
+})

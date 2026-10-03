@@ -150,3 +150,5 @@ node scripts/backup-archive-verify.mjs \
 Workers Free 还有 CPU 时间限制，不能仅凭查询数在预算内就认定大文库一定能在单次调用完成。上线后应验证实际 CPU 与成功副本；默认已采用分步调用，可信 Node 自动化设备也可主动续跑。单条超大原文、大量历史或超大完整下载仍可能触及 CPU、内存及子请求限制；发生此类错误应改为离站只读导出/恢复路径或进一步拆分，不无界重试。不得在未经授权时更改账号付费方案。[Workers 限制](https://developers.cloudflare.com/workers/platform/limits/)、[D1 限制](https://developers.cloudflare.com/d1/platform/limits/)
 
 新增规范表时，同时更新 `BACKUP_TABLES`、写入触发器和恢复测试。新增字段无需修改每条插入代码，manifest 会保存实际列与 schema。新增包含凭据的运维表必须明确排除，不得因“全库备份”把短期发布令牌变成长存储数据。
+
+手动“立即备份”与 Cron 可能争用同一执行锁。网页在尚无新检查点时每五秒有限重试启动，最多十二次；等待期间仍可阅读和编辑，超过上限明确提示稍后重试。启动意图携带点击前的最新快照 ID，服务端在持锁状态核对，迟到或重复请求不会在已完成后又创建一份新快照。建立检查点后继续按原任务推进，关页后由 Cron 接手。

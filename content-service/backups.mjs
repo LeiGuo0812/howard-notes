@@ -260,6 +260,15 @@ async function performScheduledBackup(env, options) {
   const deadline = Date.now() + Math.max(250, Math.min(15_000, options.maxMilliseconds ?? 8_000))
   const previous = await readJson(env.BACKUP_BUCKET, STATUS)
   let job = await readEncrypted(env.BACKUP_BUCKET, PROGRESS, env.BACKUP_SECRET)
+  // A retried manual intent may arrive after another invocation completed it.
+  // Compare under the same lease, before force can create a second snapshot.
+  if (
+    !job &&
+    options.force &&
+    options.expectedLatestId !== undefined &&
+    (previous?.latest?.id ?? null) !== options.expectedLatestId
+  )
+    return { status: "current", latest: previous?.latest || null }
   if (
     !job &&
     !options.force &&
@@ -882,7 +891,11 @@ export async function backupsResponse(
         !body ||
         typeof body !== "object" ||
         Array.isArray(body) ||
-        ![undefined, "start", "continue"].includes(body.action)
+        ![undefined, "start", "continue"].includes(body.action) ||
+        (body.expectedLatestId !== undefined &&
+          body.expectedLatestId !== null &&
+          (typeof body.expectedLatestId !== "string" ||
+            !/^[A-Za-z0-9_-]{1,100}$/.test(body.expectedLatestId)))
       )
         return json({ error: "备份操作不正确。" }, 400, extraHeaders)
       // force bypasses today's completed snapshot only when no pending job
@@ -890,6 +903,7 @@ export async function backupsResponse(
       const task = runScheduledBackup(env, {
         db,
         force: body.action !== "continue",
+        expectedLatestId: body.expectedLatestId,
         maxQueries: 8,
         maxPages: 1,
       })

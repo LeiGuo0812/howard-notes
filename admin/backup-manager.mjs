@@ -70,7 +70,11 @@ export function createBackupManager({ root, getClient, notify = () => {} }) {
     previousId,
     statusValue,
     storageValue,
-    storagePending = false
+    storagePending = false,
+    statusPending = false,
+    statusReady = false,
+    startAttempts = 0,
+    lastStartAt = 0
   const controller = new AbortController()
   const node = (tag, text, className) => {
     const value = document.createElement(tag)
@@ -87,6 +91,7 @@ export function createBackupManager({ root, getClient, notify = () => {} }) {
     download = node("button", "下载加密备份"),
     refresh = node("button", "刷新状态")
   for (const button of [run, download, refresh]) button.type = "button"
+  run.disabled = true
   download.disabled = true
   controls.append(run, download, refresh)
   const metrics = node("dl", "", "backup-metrics")
@@ -132,16 +137,22 @@ export function createBackupManager({ root, getClient, notify = () => {} }) {
   }
   async function load() {
     const client = getClient()
-    if (!client || pending || disposed) return
+    if (!client || pending || disposed || statusPending) return
+    statusPending = true
     try {
       const value = await backupRequest(client, "status")
       if (!connected(client)) return
       latest = value.latest
+      statusReady = true
+      run.disabled = pending
       statusValue = value
       renderMetrics()
       if (!storageValue) void loadStorage()
       download.disabled = !latest || downloading
-      if (value.error) {
+      if (active && latest && latest.id !== previousId) {
+        active = false
+        announce("加密备份已完成。")
+      } else if (value.error) {
         active = false
         announce("备份未完成，请重试。", true)
       } else if (value.progress) {
@@ -151,12 +162,21 @@ export function createBackupManager({ root, getClient, notify = () => {} }) {
           notify(status.textContent)
           await continueBackup(client)
         }
+      } else if (active) {
+        if (startAttempts >= 12) {
+          active = false
+          announce("备份暂时无法启动，请稍后点击“立即备份”重试；已有备份仍可下载。", true)
+        } else {
+          announce("正在等待备份任务启动，系统会自动重试；编辑与阅读可继续。")
+          // A Cron lease can acknowledge start without starting any work.
+          // Retrying the same expected latest ID cannot force another backup
+          // if the first accepted request already completed in the meantime.
+          if (Date.now() - lastStartAt >= 5000) {
+            await continueBackup(client, "start")
+          }
+        }
       } else if (latest) {
         status.textContent = `${value.health?.stale ? "备份已过期，请检查。" : ""}最近备份：${new Date(latest.completedAt).toLocaleString()} · ${latest.rows} 条记录`
-        if (active && latest.id !== previousId) {
-          active = false
-          notify("加密备份已完成。")
-        }
       } else status.textContent = "暂无完整备份。"
       schedule()
     } catch (error) {
@@ -164,6 +184,8 @@ export function createBackupManager({ root, getClient, notify = () => {} }) {
         active = false
         announce(error.message, true)
       }
+    } finally {
+      statusPending = false
     }
   }
   refresh.addEventListener(
@@ -180,20 +202,28 @@ export function createBackupManager({ root, getClient, notify = () => {} }) {
     pending = true
     run.disabled = true
     try {
-      await backupRequest(client, "run", "POST", { action })
+      if (action === "start") {
+        lastStartAt = Date.now()
+        startAttempts++
+      }
+      await backupRequest(client, "run", "POST", {
+        action,
+        ...(action === "start" ? { expectedLatestId: previousId } : {}),
+      })
     } finally {
       pending = false
-      if (connected(client)) run.disabled = false
+      if (connected(client)) run.disabled = !statusReady
     }
   }
   run.addEventListener(
     "click",
     async () => {
       const client = getClient()
-      if (!client || pending) return
+      if (!client || pending || !statusReady) return
       active = true
-      previousId = latest?.id
-      announce("备份已开始，编辑与阅读可继续。")
+      previousId = latest?.id ?? null
+      startAttempts = 0
+      announce("正在请求备份，编辑与阅读可继续。")
       try {
         await continueBackup(client, "start")
         if (connected(client)) schedule()

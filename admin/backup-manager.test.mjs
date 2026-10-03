@@ -1,6 +1,163 @@
 import { test } from "node:test"
 import assert from "node:assert/strict"
-import { backupRequest, backupMetrics } from "./backup-manager.mjs"
+import { backupRequest, backupMetrics, createBackupManager } from "./backup-manager.mjs"
+
+function managerFixture(t, latest = null) {
+  t.mock.timers.enable({ apis: ["setTimeout", "Date"], now: 1 })
+  class Element {
+    children = []
+    handlers = new Map()
+    classList = { add() {} }
+    setAttribute() {}
+    append(...children) {
+      this.children.push(...children)
+    }
+    replaceChildren(...children) {
+      this.children = children
+    }
+    addEventListener(type, listener) {
+      this.handlers.set(type, listener)
+    }
+    click() {
+      return this.handlers.get("click")?.()
+    }
+  }
+  const previousDocument = globalThis.document
+  globalThis.document = { createElement: () => new Element() }
+  const root = new Element(),
+    calls = [],
+    notices = []
+  let statusValue = { latest },
+    statusGate
+  const client = {
+    token: "fixture",
+    siteBase: "https://notes.example/site/",
+    endpoint: async () => "https://notes.example/site/api/content",
+    fetcher: async (url, options) => {
+      const path = url.split("/").at(-1)
+      calls.push({ path, body: options.body ? JSON.parse(options.body) : null })
+      if (path === "status") {
+        if (statusGate) await statusGate
+        return Response.json(statusValue)
+      }
+      return Response.json(path === "run" ? { accepted: true } : {})
+    },
+  }
+  const manager = createBackupManager({
+    root,
+    getClient: () => client,
+    notify: (...value) => notices.push(value),
+  })
+  t.after(() => {
+    manager.dispose()
+    globalThis.document = previousDocument
+  })
+  return {
+    manager,
+    calls,
+    notices,
+    run: root.children[2].children[0],
+    status: root.children[1],
+    setStatus: (value) => {
+      statusValue = value
+    },
+    blockStatus: (value) => {
+      statusGate = value
+    },
+  }
+}
+const settle = () => new Promise((resolve) => setImmediate(resolve))
+
+test("a Cron-busy manual start retries the same generation then continues progress and stops on completion", async (t) => {
+  const old = { id: "old", completedAt: "2026-10-03T00:00:00Z", rows: 10 }
+  const f = managerFixture(t, old)
+  await f.manager.load()
+  await f.run.click()
+  assert.deepEqual(
+    f.calls.filter((row) => row.path === "run").map((row) => row.body),
+    [{ action: "start", expectedLatestId: "old" }],
+  )
+  t.mock.timers.tick(5000)
+  await settle()
+  assert.match(f.status.textContent, /等待.*自动重试/)
+  assert.deepEqual(f.calls.filter((row) => row.path === "run").at(-1).body, {
+    action: "start",
+    expectedLatestId: "old",
+  })
+  f.setStatus({ latest: old, progress: { copiedTables: 2, totalTables: 10, rows: 20 } })
+  t.mock.timers.tick(5000)
+  await settle()
+  assert.deepEqual(f.calls.filter((row) => row.path === "run").at(-1).body, { action: "continue" })
+  f.setStatus({ latest: { ...old, id: "new" } })
+  t.mock.timers.tick(5000)
+  await settle()
+  assert.equal(f.status.textContent, "加密备份已完成。")
+  const count = f.calls.length
+  t.mock.timers.tick(60000)
+  await settle()
+  assert.equal(f.calls.length, count)
+})
+
+test("an empty backup history still retries but stops after twelve total starts and allows an explicit retry", async (t) => {
+  const f = managerFixture(t)
+  await f.manager.load()
+  await f.run.click()
+  for (let i = 0; i < 11; i++) {
+    t.mock.timers.tick(5000)
+    await settle()
+  }
+  const runs = f.calls.filter((row) => row.path === "run")
+  assert.equal(runs.length, 12, "one initial request plus eleven bounded retries")
+  assert.ok(runs.every((row) => row.body.expectedLatestId === null && row.body.action === "start"))
+  t.mock.timers.tick(5000)
+  await settle()
+  assert.match(f.status.textContent, /无法启动.*重试/)
+  assert.equal(f.notices.at(-1)[1], true)
+  t.mock.timers.tick(60000)
+  await settle()
+  assert.equal(f.calls.filter((row) => row.path === "run").length, 12)
+  await f.run.click()
+  assert.equal(f.calls.filter((row) => row.path === "run").length, 13)
+})
+
+test("manual start waits for the first status response to establish its generation baseline", async (t) => {
+  const f = managerFixture(t, { id: "existing", completedAt: "2026-10-03T00:00:00Z", rows: 3 })
+  assert.equal(f.run.disabled, true)
+  await f.run.click()
+  assert.equal(f.calls.filter((row) => row.path === "run").length, 0)
+  await f.manager.load()
+  assert.equal(f.run.disabled, false)
+  await f.run.click()
+  assert.deepEqual(f.calls.filter((row) => row.path === "run").at(-1).body, {
+    action: "start",
+    expectedLatestId: "existing",
+  })
+})
+
+test("refresh clicks cannot bypass the retry interval or duplicate in-flight status requests", async (t) => {
+  const f = managerFixture(t)
+  await f.manager.load()
+  await f.run.click()
+  await f.manager.load()
+  await f.manager.load()
+  assert.equal(f.calls.filter((row) => row.path === "run").length, 1)
+  let release
+  f.blockStatus(
+    new Promise((resolve) => {
+      release = resolve
+    }),
+  )
+  const pending = f.manager.load()
+  await settle()
+  const before = f.calls.filter((row) => row.path === "status").length
+  await f.manager.load()
+  assert.equal(f.calls.filter((row) => row.path === "status").length, before)
+  release()
+  await pending
+  t.mock.timers.tick(5000)
+  await settle()
+  assert.equal(f.calls.filter((row) => row.path === "run").length, 2)
+})
 
 test("backup metrics distinguish stale backups, queued jobs and retained unlinked files", () => {
   const rows = backupMetrics(
