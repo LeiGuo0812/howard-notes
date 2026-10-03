@@ -1271,9 +1271,15 @@ body > main > .publication-status {
 
 /* Standalone administration shares the saved palette; maintenance keeps its
    transparent workspace body through the existing ShadowRoot overrides. */
-:root:where([data-site-palette]:not([data-site-palette="current"])) body,
-:root[saved-theme="dark"]:where([data-site-palette]:not([data-site-palette="current"])) body {
-  background: var(--paper);
+:root:where([data-site-palette]:not([data-site-palette="current"])) body:not(.workspace-body),
+:root[saved-theme="dark"]:where([data-site-palette]:not([data-site-palette="current"]))
+  body:not(.workspace-body) {
+  background:
+    radial-gradient(ellipse 700px 580px at 0 16%, var(--glass-edge-cyan), transparent 72%),
+    radial-gradient(ellipse 600px 600px at 100% 22%, var(--glass-edge-violet), transparent 73%),
+    radial-gradient(ellipse 500px 360px at 32% 0, var(--glass-edge-blue), transparent 76%),
+    var(--paper);
+  background-repeat: no-repeat;
 }
 :root:where([data-site-palette]:not([data-site-palette="current"])) .theme-control {
   background: color-mix(in srgb, var(--surface) 28%, transparent);

@@ -1844,10 +1844,6 @@ a.article-row.internal {
 // Approved preview recipes own component colours, rather than just the root
 // variables. Geometry, blur, shadows and interaction timing stay unchanged.
 :root:where([data-site-palette]:not([data-site-palette="current"])) {
-  body,
-  body:has(.blog-layout.is-article) {
-    background: var(--site-theme-page);
-  }
   .home-heading h1 {
     color: var(--site-theme-home-title);
   }
@@ -2010,15 +2006,11 @@ a.article-row.internal {
   }
   .topic-card-grid .topic-section.topic-card[data-palette-category] {
     --frost-solid: var(--site-category-fill);
-    --frost-fill: var(--site-category-fill);
-    --glass-card-tint: transparent;
-    --glass-card-violet: transparent;
+    --frost-fill: color-mix(in srgb, var(--site-category-fill) 55%, transparent);
   }
 }
 :root[saved-theme="dark"]:where([data-site-palette="clean-multicolor"]) {
   .topic-card-grid .topic-section.topic-card[data-palette-category] {
-    --frost-fill: var(--site-category-fill);
-    --glass-card-tint: transparent;
-    --glass-card-violet: transparent;
+    --frost-fill: color-mix(in srgb, var(--site-category-fill) 62%, transparent);
   }
 }

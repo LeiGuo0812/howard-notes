@@ -9,6 +9,10 @@
 .home-memory-surface {
   min-width: 0;
   isolation: isolate;
+  transition: transform var(--glass-transition);
+  &:hover {
+    transform: translateY(-2px);
+  }
 }
 a.home-memory-card.internal {
   display: flex;
@@ -20,12 +24,7 @@ a.home-memory-card.internal {
   padding: 20px;
   color: var(--dark);
   text-decoration: none;
-  transition:
-    transform var(--glass-transition),
-    box-shadow var(--glass-transition);
-  &:hover {
-    transform: translateY(-2px);
-  }
+  transition: box-shadow var(--glass-transition);
 }
 .home-memory-card-heading {
   display: flex;
