@@ -370,7 +370,7 @@ export function mountPrivateNotes(
       }
       client = nextClient
       const [result, publicResponse] = await Promise.all([
-        client.personalRequest("articles?all=1"),
+        client.personalList("articles", { isCurrent: () => current(ticket, serial) }),
         fetcher(new URL(`${client.apiBase}/catalog`), {
           cache: "no-store",
           credentials: "omit",

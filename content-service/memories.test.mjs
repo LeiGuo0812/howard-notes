@@ -228,7 +228,7 @@ test("visitors cannot discover private, protected, archived or trashed cards thr
   for (const item of result.ids.slice(1))
     assert.equal((await f.call("memories/" + item.id)).status, 404)
 })
-test("memory browsing keeps 20 cards per page, full timeline, literal search, independent tags and ordering", async () => {
+test("memory browsing keeps 20 cards per page, bounded timeline, literal search, independent tags and ordering", async () => {
   const f = fixture()
   await f.importCards(
     Array.from({ length: 45 }, (_, i) =>
@@ -255,6 +255,85 @@ test("memory browsing keeps 20 cards per page, full timeline, literal search, in
     { name: "first", count: 22 },
   ])
   assert.equal((await f.call("memories?sort=created%3BDROP+TABLE")).status, 400)
+})
+test("timeline paginates past 5000 cards and month navigation aggregates only visible matches", async () => {
+  const f = fixture()
+  const insert = f.sqlite.prepare(
+    "INSERT INTO memory_cards(id,visibility,status,created_at,modified_at,body) VALUES(?,?,?,?,?,?)",
+  )
+  for (let i = 0; i < 5001; i++) {
+    const value = card(i, {
+      content: `timeline ${i}`,
+      created: "2024-01-10T00:00:00Z",
+      tags: ["public"],
+      visibility: "PUBLIC",
+    })
+    insert.run(
+      `public-${String(i).padStart(5, "0")}`,
+      "PUBLIC",
+      "NORMAL",
+      Date.parse(value.created),
+      Date.parse(value.modified),
+      JSON.stringify(value),
+    )
+  }
+  const hidden = card("private", {
+    created: "2023-07-01T00:00:00Z",
+    visibility: "PRIVATE",
+    tags: ["private-only"],
+  })
+  insert.run(
+    "private",
+    "PRIVATE",
+    "NORMAL",
+    Date.parse(hidden.created),
+    Date.parse(hidden.modified),
+    JSON.stringify(hidden),
+  )
+  const edge = card("edge", { created: "2024-01-31T16:00:00Z", tags: ["public"] })
+  insert.run(
+    "edge",
+    "PUBLIC",
+    "NORMAL",
+    Date.parse(edge.created),
+    Date.parse(edge.modified),
+    JSON.stringify(edge),
+  )
+  const first = await (await f.call("memories?view=timeline&sort=created-asc")).json()
+  assert.equal(first.pageSize, 100)
+  assert.equal(first.memories.length, 100)
+  assert.equal(first.total, 5002)
+  assert.deepEqual(first.months, [
+    { month: "2024-01", count: 5001 },
+    { month: "2024-02", count: 1 },
+  ])
+  const last = await (await f.call("memories?view=timeline&sort=created-asc&page=51")).json()
+  assert.deepEqual(
+    last.memories.map((row) => row.id),
+    ["public-05000", "edge"],
+  )
+  const february = await (await f.call("memories?view=timeline&month=2024-02")).json()
+  assert.deepEqual(
+    february.memories.map((row) => row.id),
+    ["edge"],
+  )
+  assert.equal(february.total, 1)
+  assert.equal(february.months.length, 2, "month navigation retains the other date ranges")
+  const privateMonth = await (await f.call("memories?view=timeline&month=2023-07")).json()
+  assert.equal(privateMonth.total, 0)
+  assert.equal(JSON.stringify(privateMonth).includes("private-only"), false)
+  const owner = await (
+    await f.owner("memories?view=timeline&tag=private-only&month=2023-07")
+  ).json()
+  assert.deepEqual(owner.months, [{ month: "2023-07", count: 1 }])
+  assert.equal(owner.memories[0].id, "private")
+  const modifiedMonths = await (
+    await f.call("memories?view=timeline&sort=modified-desc&month=2025-08")
+  ).json()
+  assert.deepEqual(modifiedMonths.months, [{ month: "2025-08", count: 5002 }])
+  assert.equal(modifiedMonths.total, 5002)
+  assert.equal((await f.call("memories?view=timeline&month=2024-13")).status, 400)
+  f.sqlite.close()
 })
 test("existing encrypted HttpOnly login enables memory creation and editing without exposing the token", async () => {
   const f = fixture()

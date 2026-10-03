@@ -1,3 +1,4 @@
+import { homeData, homePreview } from "./home-browser"
 import { validateSite } from "../../../scripts/lib/site-settings.mjs"
 import {
   designVariables,
@@ -62,28 +63,19 @@ function applyPreview() {
         )
       }
       if (section.id === "recent") {
-        const pool = document.querySelector<HTMLTemplateElement>("#random-note-pool")
+        const pool = homeData()
         const previews = module.querySelector(".home-note-previews")
         if (pool && previews) {
-          const notes = [
-            ...pool.content.querySelectorAll<HTMLAnchorElement>(".note-preview"),
-          ].slice(0, sectionLimit(section))
           previews.replaceChildren(
-            ...notes.map((note) => {
-              const card = note.cloneNode(true) as HTMLElement
-              card.classList.add("compact-preview")
-              card.querySelector("small")?.remove()
-              return card
-            }),
+            ...pool.notes
+              .slice(0, sectionLimit(section))
+              .map((note) => homePreview(note, { compact: true })),
           )
         }
       }
     }
     const recommendations = home.querySelector<HTMLElement>("#random-notes")
-    const poolSize =
-      document
-        .querySelector<HTMLTemplateElement>("#random-note-pool")
-        ?.content.querySelectorAll(".note-preview").length || 0
+    const poolSize = homeData()?.notes.length || 0
     if (
       recommendations &&
       recommendations.children.length !== Math.min(Number(recommendations.dataset.count), poolSize)

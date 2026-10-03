@@ -695,8 +695,18 @@ export async function handle(request, env, ctx = {}, fetcher = fetch) {
   }
   try {
     const db = dbSession(env)
-    if (url.pathname === "/health")
-      return json({ status: "ready", service: "howard-notes-content" })
+    if (url.pathname === "/health") {
+      try {
+        const probe = await db.prepare("SELECT 1 AS ready").first()
+        if (probe?.ready !== 1) throw new Error("Database probe failed.")
+        return json({ status: "ready", service: "howard-notes-content", database: true })
+      } catch {
+        return json(
+          { status: "unavailable", service: "howard-notes-content", database: false },
+          503,
+        )
+      }
+    }
     if (url.pathname === "/" || url.pathname === prefix.slice(0, -1))
       return new Response(null, {
         status: 302,
@@ -864,7 +874,14 @@ export async function handle(request, env, ctx = {}, fetcher = fetch) {
     return response
   } catch (error) {
     if (!(error instanceof HttpError)) {
-      console.error("content-service", url.pathname, error?.name, error?.message, error?.stack)
+      console.error(
+        JSON.stringify({
+          event: "content-service",
+          status: "failed",
+          category: "request",
+          errorType: "internal",
+        }),
+      )
     }
     return json(
       {
@@ -878,37 +895,81 @@ export async function handle(request, env, ctx = {}, fetcher = fetch) {
     )
   }
 }
+export async function runScheduledTasks(event, env, operations = {}) {
+  // Separate sessions/tasks stop GitHub latency or one failed job from preventing
+  // encrypted backup progress. Each task still enforces its own bounded budget.
+  const tasks = [
+    ["publication", () => (operations.publication || runPendingPublications)(env, dbSession(env))],
+    [
+      "backup",
+      () =>
+        (operations.backup || runScheduledBackup)(env, {
+          db: dbSession(env),
+          maxQueries: 12,
+          maxPages: 6,
+          maxFileChunks: 4,
+          maxMilliseconds: 8000,
+        }),
+    ],
+  ]
+  if (!event?.cron || event.cron === "47 * * * *")
+    tasks.push(["cleanup", () => (operations.cleanup || scheduledCleanup)(env)])
+  const results = await Promise.allSettled(
+    tasks.map(async ([task, run]) => {
+      const started = Date.now()
+      try {
+        const result = await run()
+        console.log(
+          JSON.stringify({
+            event: "scheduled-task",
+            task,
+            status: result?.status || "complete",
+            durationMs: Date.now() - started,
+          }),
+        )
+        return result
+      } catch {
+        // Never include database rows, bodies, GitHub responses or credentials.
+        console.error(
+          JSON.stringify({
+            event: "scheduled-task",
+            task,
+            status: "failed",
+            durationMs: Date.now() - started,
+          }),
+        )
+        throw new Error(`Scheduled ${task} needs retry.`)
+      }
+    }),
+  )
+  if (results.some((result) => result.status === "rejected"))
+    throw new Error("One or more scheduled tasks need retry.")
+  return results.map((result) => result.value)
+}
+async function scheduledCleanup(env) {
+  const db = dbSession(env)
+  const current = await state(db)
+  const sync = await db.prepare("SELECT * FROM sync_session WHERE id = 1").first()
+  if (sync && sync.expires < Date.now()) {
+    const cutoff = Date.now()
+    await db.batch([
+      ...["public_documents", "public_pages", "public_payloads"].map((table) =>
+        db
+          .prepare(
+            `DELETE FROM ${table} WHERE revision > (SELECT revision FROM content_state WHERE id = 1) AND EXISTS (SELECT 1 FROM sync_session WHERE sync_id = ? AND expires < ?)`,
+          )
+          .bind(sync.sync_id, cutoff),
+      ),
+      db
+        .prepare("DELETE FROM sync_session WHERE sync_id = ? AND expires < ?")
+        .bind(sync.sync_id, cutoff),
+    ])
+  }
+  await cleanup(db, current.revision)
+  await cleanupMemories(db)
+  await cleanupPersonalNotes(db)
+}
 export default {
   fetch: handle,
-  async scheduled(event, env) {
-    const db = dbSession(env)
-    // Markdown compilation remains in the existing GitHub Actions publisher;
-    // this small durable queue only performs Git writes and confirms the result.
-    await runPendingPublications(env, db)
-    if (event?.cron && event.cron !== "47 * * * *") {
-      await runScheduledBackup(env, { db, maxQueries: 8, maxPages: 1 })
-      return
-    }
-    const current = await state(db)
-    const sync = await db.prepare("SELECT * FROM sync_session WHERE id = 1").first()
-    if (sync && sync.expires < Date.now()) {
-      const cutoff = Date.now()
-      await db.batch([
-        ...["public_documents", "public_pages", "public_payloads"].map((table) =>
-          db
-            .prepare(
-              `DELETE FROM ${table} WHERE revision > (SELECT revision FROM content_state WHERE id = 1) AND EXISTS (SELECT 1 FROM sync_session WHERE sync_id = ? AND expires < ?)`,
-            )
-            .bind(sync.sync_id, cutoff),
-        ),
-        db
-          .prepare("DELETE FROM sync_session WHERE sync_id = ? AND expires < ?")
-          .bind(sync.sync_id, cutoff),
-      ])
-    }
-    await cleanup(db, current.revision)
-    await cleanupMemories(db)
-    await cleanupPersonalNotes(db)
-    await runScheduledBackup(env, { db, maxQueries: 8, maxPages: 1 })
-  },
+  scheduled: runScheduledTasks,
 }

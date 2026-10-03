@@ -30,6 +30,7 @@ import {
   sourceArchive,
   command,
   runOffsiteBackup,
+  stageHandoffMaterials,
 } from "./lib/offsite-backup.mjs"
 
 const sha = (value) => createHash("sha256").update(value).digest("hex")
@@ -553,12 +554,11 @@ function fakeGitHub(
     }
     throw new Error("Unexpected mock operation")
   }
-  return {
-    runner,
-    calls,
-    release: () => release,
-    store: new GitHubBackupStore("owner/backup", dir, runner),
-  }
+  const store = new GitHubBackupStore("owner/backup", dir, runner)
+  // These fixtures exercise release integrity; lease races have their own real
+  // conditional-ref simulator in offsite-lease.test.mjs.
+  store.assertLease = async () => true
+  return { runner, calls, release: () => release, store }
 }
 test("GitHub draft publishes only after every roundtrip SHA and final receipt verification", async (t) => {
   const dir = await temporary(t),
@@ -753,6 +753,7 @@ test("retention preserves malformed owned releases and all source archives", asy
   }
   const store = new GitHubBackupStore("owner/backup", dir),
     deletions = []
+  store.assertLease = async () => true
   store.listReleases = async () => [valid, corrupt, archive, unknown, latestValid]
   store.jsonAsset = async (release, name) => {
     const data = release.id === 5 ? latestFixture : fixture
@@ -960,4 +961,159 @@ test("full mirror bundle retains non-default branch history and verifies with Gi
     await command("git", ["-C", restored, "show", "refs/heads/dev:dev.txt"]),
     "Non-default history",
   )
+})
+
+function collectionFixture(directory, { blocked = false, concurrent = false } = {}) {
+  const store = new GitHubBackupStore("owner/backup", directory)
+  store.assertLease = async () => true
+  const tag = (kind, value) =>
+    kind === "archive"
+      ? `hn-offsite-archive-howard-notes-${sha(value).slice(0, 32)}`
+      : `hn-offsite-snapshot-2026-10-04-${sha(value).slice(0, 24)}`
+  const make = (kind, value, id, days = 60) => ({
+    id,
+    tag_name: tag(kind, value),
+    draft: false,
+    published_at: new Date(now - days * 86400000).toISOString(),
+    assets: [{ size: 100 }],
+    body: JSON.stringify({
+      format: FORMAT,
+      kind,
+      tag: tag(kind, value),
+      identity: sha(value),
+      state: "verified",
+      completedAt: new Date(now).toISOString(),
+      unreferencedSince:
+        kind === "archive" ? new Date(now - days * 86400000).toISOString() : undefined,
+    }),
+  })
+  const snapshot = make("snapshot", "current", 1),
+    required = make("archive", "required", 2),
+    old = make("archive", "old", 3),
+    young = make("archive", "young", 4, 2)
+  const unknown = { ...make("snapshot", "broken", 5), body: "incomplete" }
+  let releases = [snapshot, required, old, young, ...(blocked ? [unknown] : [])],
+    lists = 0
+  const deleted = []
+  store.listReleases = async () => {
+    lists++
+    return releases
+  }
+  store.complete = async (release) => ({
+    manifest: {
+      archives: [
+        { tag: required.tag_name },
+        ...(concurrent && lists > 1 ? [{ tag: old.tag_name }] : []),
+      ],
+    },
+  })
+  store.api = async (endpoint, options) => {
+    if (options?.method === "DELETE") {
+      deleted.push(endpoint)
+      releases = releases.filter((item) => !endpoint.endsWith(`/releases/${item.id}`))
+    }
+  }
+  return { store, old, required, young, deleted }
+}
+test("archive retention previews only unreferenced, verified archives beyond grace", async (t) => {
+  const f = collectionFixture(await temporary(t))
+  const result = await f.store.prune(now, { dryRun: true, archiveCleanup: "apply" })
+  assert.deepEqual(result.archiveCandidates, [{ tag: f.old.tag_name, bytes: 100 }])
+  assert.equal(result.archiveCandidateBytes, 100)
+  assert.equal(result.removedArchives, 0)
+  assert.deepEqual(f.deleted, [])
+})
+test("archive apply preserves dependencies, young archives and newly referenced archives", async (t) => {
+  for (const concurrent of [false, true]) {
+    const f = collectionFixture(await temporary(t), { concurrent })
+    const result = await f.store.prune(now, { archiveCleanup: "apply" })
+    assert.equal(result.removedArchives, concurrent ? 0 : 1)
+    assert.equal(
+      f.deleted.some(
+        (endpoint) => endpoint.endsWith("/releases/2") || endpoint.endsWith("/releases/4"),
+      ),
+      false,
+    )
+  }
+})
+test("incomplete owned snapshots block all archive garbage collection", async (t) => {
+  const f = collectionFixture(await temporary(t), { blocked: true })
+  const result = await f.store.prune(now, { archiveCleanup: "apply" })
+  assert.equal(result.archiveBlocked, true)
+  assert.deepEqual(result.archiveCandidates, [])
+  assert.deepEqual(f.deleted, [])
+})
+test("maintenance handoff contains actual configuration and restorable private commit history without release tags or git credentials", async (t) => {
+  const dir = await temporary(t),
+    repo = path.join(dir, "private"),
+    staging = path.join(dir, "stage")
+  await fs.mkdir(staging)
+  await command("git", ["init", "--initial-branch=main", repo])
+  await command("git", ["-C", repo, "config", "user.name", "Fixture"])
+  await command("git", ["-C", repo, "config", "user.email", "fixture@example.invalid"])
+  await command("git", [
+    "-C",
+    repo,
+    "config",
+    "http.extraHeader",
+    "synthetic-secret-not-for-bundle",
+  ])
+  await fs.mkdir(path.join(repo, "handoff"))
+  await fs.mkdir(path.join(repo, ".github/workflows"), { recursive: true })
+  await fs.writeFile(path.join(repo, "handoff/README.md"), "current handoff")
+  await fs.writeFile(path.join(repo, "backup.config.json"), JSON.stringify(config))
+  await fs.writeFile(path.join(repo, ".github/workflows/backup.yml"), "name: actual backup")
+  await command("git", ["-C", repo, "add", "."])
+  await command("git", ["-C", repo, "commit", "-m", "Maintenance history fixture"])
+  await command("git", ["-C", repo, "tag", "hn-offsite-snapshot-test"])
+  await command("git", ["-C", repo, "branch", "hn-offsite-lock"])
+  await fs.writeFile(path.join(repo, "handoff/local-only.txt"), "synthetic untracked text")
+  const staged = await stageHandoffMaterials(path.join(repo, "handoff"), repo, staging)
+  assert.equal(
+    await fs.readFile(path.join(staged, "maintenance/backup.yml"), "utf8"),
+    "name: actual backup",
+  )
+  const bundle = path.join(staged, "maintenance/maintenance.gitbundle")
+  const refs = await command("git", ["bundle", "list-heads", bundle])
+  assert.equal(refs.includes("refs/heads/main"), true)
+  assert.equal(refs.includes("hn-offsite"), false)
+  await assert.rejects(fs.access(path.join(staged, "local-only.txt")), { code: "ENOENT" })
+  const restored = path.join(dir, "restored")
+  await command("git", ["clone", bundle, restored])
+  assert.equal(
+    (await command("git", ["-C", restored, "log", "-1", "--format=%s"])).trim(),
+    "Maintenance history fixture",
+  )
+  assert.equal(
+    (await fs.readFile(path.join(restored, ".git/config"), "utf8")).includes("synthetic-secret"),
+    false,
+  )
+  await fs.writeFile(path.join(repo, "handoff/README.md"), "uncommitted")
+  await assert.rejects(stageHandoffMaterials(path.join(repo, "handoff"), repo, staging), {
+    code: "CHANGED",
+  })
+})
+
+test("an old archive starts a fresh quarantine when its last retained reference disappears", async (t) => {
+  const f = collectionFixture(await temporary(t))
+  const listing = await f.store.listReleases()
+  const old = listing.find((entry) => entry.tag_name === f.old.tag_name)
+  const metadata = JSON.parse(old.body)
+  delete metadata.unreferencedSince
+  old.body = JSON.stringify(metadata)
+  const result = await f.store.prune(now, { archiveCleanup: "apply" })
+  assert.equal(result.removedArchives, 0)
+  assert.deepEqual(result.archiveQuarantineCandidates, [{ tag: f.old.tag_name, bytes: 100 }])
+  assert.deepEqual(f.deleted, [])
+})
+
+test("reusing a quarantined archive clears its old timer before a snapshot can be interrupted", async (t) => {
+  const f = collectionFixture(await temporary(t))
+  let metadata
+  f.store.api = async (_endpoint, options) => {
+    if (options.method === "PATCH") metadata = JSON.parse(options.body.body)
+  }
+  await f.store.pinArchive(f.old)
+  assert.equal(metadata.unreferencedSince, undefined)
+  assert.equal(metadata.identity, JSON.parse(f.old.body).identity)
 })

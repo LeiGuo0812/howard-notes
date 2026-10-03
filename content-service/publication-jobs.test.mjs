@@ -442,6 +442,79 @@ test("execution lease prevents duplicated Git writes by another worker instance"
   assert.equal(f.state.requests.length, 0)
 })
 
+test("a stalled GitHub request releases its lease and preserves the original for retry", async () => {
+  const f = fixture()
+  await f.note()
+  const job = await f.queue()
+  const stalled = (_url, options) =>
+    new Promise((_resolve, reject) => {
+      options.signal.addEventListener("abort", () => reject(options.signal.reason), { once: true })
+    })
+  const result = await runPublicationJob(f.env, f.DB, job.id, stalled, { timeoutMs: 10 })
+  assert.equal(result.status, "retry")
+  assert.equal(f.sqlite.prepare("SELECT lease_until FROM publication_jobs").get().lease_until, 0)
+  assert.equal(f.sqlite.prepare("SELECT raw FROM personal_articles").get().raw, raw)
+  assert.equal(f.state.writes, 0)
+  await runPublicationJob(f.env, f.DB, job.id, f.fetcher)
+  assert.equal(f.state.writes, 1)
+})
+
+test("a waiting projection does not starve another due publication", async () => {
+  const f = fixture()
+  const first = await f.queue("sync-public", { commit: "1".repeat(40) })
+  const second = await f.queue("sync-public", { commit: "2".repeat(40) })
+  f.sqlite
+    .prepare("UPDATE publication_jobs SET created_at=?, next_run_at=?, updated_at=? WHERE id=?")
+    .run(1, 5, 1, first.id)
+  f.sqlite
+    .prepare("UPDATE publication_jobs SET created_at=?, next_run_at=?, updated_at=? WHERE id=?")
+    .run(2, 1, 2, second.id)
+  await runPendingPublications(f.env, f.DB, f.fetcher)
+  assert.equal(
+    f.sqlite.prepare("SELECT attempts FROM publication_jobs WHERE id=?").get(second.id).attempts,
+    1,
+  )
+  assert.equal(
+    f.sqlite.prepare("SELECT attempts FROM publication_jobs WHERE id=?").get(first.id).attempts,
+    0,
+  )
+})
+
+test("cancelling a dormant task preserves the article and refuses an active execution lease", async () => {
+  const f = fixture()
+  await f.note()
+  const job = await f.queue()
+  f.sqlite
+    .prepare("UPDATE publication_jobs SET lease_until=? WHERE id=?")
+    .run(Date.now() + 60000, job.id)
+  assert.equal((await f.call({}, `personal/jobs/${job.id}/cancel`)).status, 409)
+  f.sqlite.prepare("UPDATE publication_jobs SET lease_until=0 WHERE id=?").run(job.id)
+  const cancelled = await f.call({}, `personal/jobs/${job.id}/cancel`)
+  assert.equal(cancelled.status, 200)
+  assert.equal((await cancelled.json()).status, "cancelled")
+  assert.equal(
+    f.sqlite.prepare("SELECT token_cipher FROM publication_jobs").get().token_cipher,
+    null,
+  )
+  assert.equal(f.sqlite.prepare("SELECT raw FROM personal_articles").get().raw, raw)
+  await runPendingPublications(f.env, f.DB, f.fetcher)
+  assert.equal(f.state.writes, 0)
+})
+
+test("abandoned expired authorization task metadata expires after thirty days without deleting originals", async () => {
+  const f = fixture()
+  await f.note()
+  const job = await f.queue()
+  f.sqlite
+    .prepare(
+      "UPDATE publication_jobs SET status='awaiting_auth',token_cipher=NULL,updated_at=? WHERE id=?",
+    )
+    .run(Date.now() - 31 * 86400000, job.id)
+  await runPendingPublications(f.env, f.DB, f.fetcher)
+  assert.equal(f.sqlite.prepare("SELECT count(*) AS count FROM publication_jobs").get().count, 0)
+  assert.equal(f.sqlite.prepare("SELECT raw FROM personal_articles").get().raw, raw)
+})
+
 test("publish-private refuses owner-only attachment links before Git writes", async () => {
   const f = fixture()
   await f.note(raw + "![private](/howard-notes/api/content/personal/files/private-image)")

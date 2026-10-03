@@ -3,6 +3,7 @@ import path from "node:path"
 import { createHash } from "node:crypto"
 import { build } from "esbuild"
 import { runtimeBrowserPlugins } from "../runtime/build.mjs"
+import { buildPreviewWorker } from "./build-preview-worker.mjs"
 import { buildPublicationWorker } from "./build-publication-worker.mjs"
 import { buildPrivateNotesWorker } from "./build-private-notes-worker.mjs"
 import { buildMermaidViewer } from "./build-mermaid-viewer.mjs"
@@ -15,38 +16,15 @@ export async function buildMaintenance(
   privateWorkerEntry,
   mermaidViewerEntry,
   articleShareEntry,
+  previewWorkerEntry,
 ) {
+  previewWorkerEntry ||= await buildPreviewWorker()
   workerEntry ||= await buildPublicationWorker()
   privateWorkerEntry ||= await buildPrivateNotesWorker()
   mermaidViewerEntry ||= await buildMermaidViewer()
   articleShareEntry ||= await buildArticleShare()
   const outdir = "public/maintenance-assets"
   await fs.mkdir(outdir, { recursive: true })
-  const bundle = await build({
-    entryPoints: ["admin/maintenance.mjs"],
-    outdir,
-    entryNames: "maintenance-[hash]",
-    chunkNames: "chunks/[name]-[hash]",
-    format: "esm",
-    splitting: true,
-    bundle: true,
-    minify: true,
-    platform: "browser",
-    target: ["es2022"],
-    metafile: true,
-    define: {
-      __HOWARD_PUBLICATION_WORKER__: JSON.stringify(workerEntry),
-      __HOWARD_PRIVATE_NOTES_WORKER__: JSON.stringify(privateWorkerEntry),
-    },
-    plugins: runtimeBrowserPlugins(),
-    loader: { ".scss": "empty" },
-  })
-  const entry = Object.entries(bundle.metafile.outputs).find(
-    ([, output]) =>
-      output.entryPoint &&
-      path.resolve(output.entryPoint) === path.resolve("admin/maintenance.mjs"),
-  )
-  if (!entry) throw new Error("The maintenance entry is missing.")
   const main = template.match(/<main>([\s\S]*?)<\/main>/)?.[1]
   if (!main) throw new Error("The shared workspace template is missing.")
   const hiddenAccount =
@@ -64,6 +42,40 @@ export async function buildMaintenance(
     .replaceAll(":root", ":host")
     .replace(/(^|[\s,>])body(?=[\s{,.:[>+~])/gm, "$1.workspace-body")
   const overrides = await fs.readFile("admin/maintenance.css", "utf8")
+  const templateText = hiddenAccount + main
+  const styleText = styles + "\n" + overrides
+  const hash = (value) => createHash("sha256").update(value).digest("hex").slice(0, 16)
+  const workspaceTemplate = `maintenance-assets/workspace-${hash(templateText)}.txt`
+  const workspaceStyle = `maintenance-assets/workspace-${hash(styleText)}.css`
+  const bundle = await build({
+    absWorkingDir: process.cwd(),
+    entryPoints: ["admin/maintenance.mjs"],
+    outdir,
+    entryNames: "maintenance-[hash]",
+    chunkNames: "chunks/[name]-[hash]",
+    format: "esm",
+    splitting: true,
+    bundle: true,
+    minify: true,
+    platform: "browser",
+    target: ["es2022"],
+    metafile: true,
+    define: {
+      __HOWARD_WORKSPACE_TEMPLATE__: JSON.stringify(workspaceTemplate),
+      __HOWARD_WORKSPACE_STYLE__: JSON.stringify(workspaceStyle),
+      __HOWARD_PREVIEW_WORKER__: JSON.stringify(previewWorkerEntry),
+      __HOWARD_PUBLICATION_WORKER__: JSON.stringify(workerEntry),
+      __HOWARD_PRIVATE_NOTES_WORKER__: JSON.stringify(privateWorkerEntry),
+    },
+    plugins: runtimeBrowserPlugins(),
+    loader: { ".scss": "empty" },
+  })
+  const entry = Object.entries(bundle.metafile.outputs).find(
+    ([, output]) =>
+      output.entryPoint &&
+      path.resolve(output.entryPoint) === path.resolve("admin/maintenance.mjs"),
+  )
+  if (!entry) throw new Error("The maintenance entry is missing.")
   const version = createHash("sha256")
     .update(entry[0])
     .update(mermaidViewerEntry)
@@ -74,8 +86,10 @@ export async function buildMaintenance(
     .digest("hex")
     .slice(0, 16)
   await Promise.all([
-    fs.writeFile(path.join(outdir, "workspace.txt"), hiddenAccount + main),
-    fs.writeFile(path.join(outdir, "workspace.css"), styles + "\n" + overrides),
+    fs.writeFile(path.join(outdir, "workspace.txt"), templateText),
+    fs.writeFile(path.join("public", workspaceTemplate), templateText),
+    fs.writeFile(path.join(outdir, "workspace.css"), styleText),
+    fs.writeFile(path.join("public", workspaceStyle), styleText),
     fs.writeFile(
       path.join(outdir, "manifest.json"),
       JSON.stringify({
@@ -85,6 +99,9 @@ export async function buildMaintenance(
         privateWorkerEntry,
         mermaidViewerEntry,
         articleShareEntry,
+        previewWorkerEntry,
+        workspaceTemplate,
+        workspaceStyle,
       }),
     ),
   ])

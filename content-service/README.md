@@ -2,7 +2,7 @@
 
 当前采用网页主维护架构：公开 Git 原文生成可再生 D1 投影；私密原文、修改稿、版本历史和恢复稿由认证 D1 管理；私密附件只进入私有 R2。`personal/*`、`backups/*` 只允许固定维护者，自动同步密钥不能读取这些数据。详见 [维护架构与边界](../docs/webfirst-maintenance.md)、[加密备份及恢复](../docs/longterm-backup-recovery.md)。
 
-扩展已有实例需幂等执行 `personal-notes-schema.sql`、`publication-jobs-schema.sql`、`backups-schema.sql`，绑定两个私有 R2 bucket，并配置独立 `BACKUP_SECRET`。恢复密钥单独保存，不重置既有备份密钥，不部署无实际绑定的登录模板。日常公开发布由持久任务与 GitHub Actions继续，关页不取消；网页/Actions token 长度不能按短个人令牌格式假定。
+数据库结构通过 `migrations/` 中的编号 SQL 和 Wrangler migration 记录管理；`0001_initial.sql` 是五套现有幂等 schema 的冻结基线，不删除既有数据。后续结构变化新增迁移文件，不改写已应用迁移。绑定两个私有 R2 bucket，并配置独立 `BACKUP_SECRET`。恢复密钥单独保存，不重置既有备份密钥，不部署无实际绑定的登录模板。日常公开发布由持久任务与 GitHub Actions 继续，关页不取消；网页/Actions token 长度不能按短个人令牌格式假定。
 
 主站：<https://howard-notes.howard-notes-login.workers.dev/howard-notes/>
 
@@ -16,10 +16,14 @@ Worker Static Assets 保存前端和编辑器资源，独立 D1 `howard-notes-co
 
 - `npm run test:publish`、`npx tsc --noEmit`、`npm run build`、`npm run verify:site`。
 - `npm run content:sync`：当前 Git 提交必须已经推送到 main；本地复用 `gh` 的现有登录，不要求在网页粘贴令牌。
-- `npm run build:cloudflare`：准备前端资源；使用 `auth-service/node_modules/wrangler/bin/wrangler.js deploy --config content-service/wrangler.json` 部署代码。
-- 代码部署后 `npm run content:sync -- --update-shell` 更新渲染模板和当前页面（npm 参数最终由共享脚本读取）。
+- `npm run deploy:cloudflare`：已提交源码必须与远端 main 一致；统一运行回归、类型、构建及站点检查，再依据线上清单保留旧依赖、应用数据库迁移、部署 Worker/Assets、验证资源并切换 D1 模板。首次新站才使用 `-- --initial`。
+- `npm run deploy:cloudflare -- --prepare-only` 只检查并准备，不写云端；中断后 `-- --resume` 重新核验同一源码和资源。普通本机构建不能视为已经上线。专门排错时才单独调用 `content:sync -- --update-shell`。
 - `npm run content:seed` 生成公开投影和本地 SQLite 校验材料。远端初次迁移先配置小型页面模板，然后使用受保护的 `content:sync` 分块绑定参数上传；不要直接导入含大型 HTML 的 SQL，也不要用初始化 SQL 覆盖已有文库。
 - `GET /howard-notes/api/content/status` 查看公开版本、Git 提交和更新时间；Cloudflare D1 Metrics 查看真实读写和容量。
+
+内容同步在开始后重新读取并核对 D1 基线，再计算差异；409 最多有限重试。Git commit 相同但上海业务日期变化时，活动日期仍刷新。发布任务的 GitHub 单请求默认 20 秒，单轮网络期限 60 秒；按到期时间公平调度。授权过期的暂停任务元数据保留 30 天，清理不删除私密原文。`POST personal/jobs/<id>/cancel` 仅停止未持有效执行租约的任务，已完成 Git 提交不会因此撤回。
+
+`/health` 实际探测数据库；发布、备份及定时清理分别执行并隔离失败。Worker 仅持久化不含正文、路径、凭据和堆栈的结构化事件，关闭逐请求 invocation 日志并隐藏查询参数。维护者 `backups/status` 与 `backups/storage` 提供健康和登记用量；匿名及同步/导出凭据不能读取这些运维详情。
 
 文章只保留当前公开快照、一个供请求读取的前一快照和一个有期限的暂存版本；每次发布清理更旧快照，每小时清理过期上传。不会永久保存每次文章编辑或每次访问。JSON 源数据和索引同样只包含公开文章；文章图片不进入数据库。记忆卡独立保存当前内容，删除后在回收站保留 30 天，之后定时清理记录和无引用的迁入附件。SQL 删除后的文件大小可能不会立即缩小，释放页面可被后续数据复用。
 
@@ -27,9 +31,9 @@ GitHub Pages 保留静态回退版本。新主站内容更新以 D1 同步完成
 
 ## 记忆卡
 
-`/howard-notes/memory/` 只有公共页面外壳，独立客户端按需加载；`api/content/memories` 实时读取数据，卡片视图固定每页 20 张，支持搜索、标签、排序、时间线。记忆卡写入立即反映在模块内，无需 Git 提交或重新构建页面。文章与记忆卡的标签分别统计。
+`/howard-notes/memory/` 只有公共页面外壳，独立客户端按需加载；`api/content/memories` 实时读取数据，卡片视图固定每页 20 张，时间线每页最多 100 张并提供完整可见月份统计，支持搜索、标签、排序和按月跳转。记忆卡写入立即反映在模块内，无需 Git 提交或重新构建页面。文章与记忆卡的标签分别统计。
 
-首次部署新模块前执行 `memories-schema.sql`，只创建独立表和索引，不清空文章或记忆卡。已有 OAuth 权限不能使用 D1 文件导入接口时，去掉 SQL 注释后用 `wrangler d1 execute howard-notes-content --remote --command=<SQL> --config content-service/wrangler.json` 执行相同建表语句。
+记忆卡表已经纳入 `migrations/0001_initial.sql`，由统一部署工具应用。单独的 `memories-schema.sql` 保留供本地隔离测试和旧环境审查，不再作为常规部署的独立步骤；后续结构变化新增编号迁移。
 
 访客只能通过记忆卡 API 读取 `PUBLIC + NORMAL` 记录和它们引用的附件；`PRIVATE`、`PROTECTED`、已归档和回收站记录仅现有维护者账号可见。复用 HttpOnly 会话，GitHub Pages 回退站复用已验证维护会话的内存凭证。搜索、标签、分页计数和附件端点均在服务端应用同样的可见性限制，公共响应不包含原始元数据或私密关联。独立公开图床中的原文件可通过直接链接访问，此规则不受卡片可见性控制。
 

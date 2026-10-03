@@ -8,6 +8,8 @@ import path from "node:path"
 import { Readable } from "node:stream"
 import {
   backupsResponse,
+  backupHealth,
+  backupStorageReport,
   runScheduledBackup,
   retainBackups,
   garbageCollectBackupObjects,
@@ -21,7 +23,7 @@ import {
 } from "../scripts/lib/backup-crypto.mjs"
 import { unpackBackupBundle, verifyAndRestoreBackup } from "../scripts/lib/backup-restore.mjs"
 import { encryptBackupStream, decryptBackupStream } from "../scripts/lib/backup-node-stream.mjs"
-import { handle } from "./worker.mjs"
+import { handle, runScheduledTasks } from "./worker.mjs"
 
 const secret = Buffer.alloc(32, 15).toString("base64url")
 const now = Date.parse("2026-10-02T09:00:00.000Z")
@@ -456,7 +458,15 @@ test("dedicated export status reveals only complete snapshot metadata and never 
   assert.equal(response.headers.get("X-Content-Type-Options"), "nosniff")
   assert.equal(response.headers.get("Access-Control-Allow-Headers"), null)
   const status = await response.json()
-  assert.deepEqual(status, { configured: true, latest: result.latest })
+  assert.deepEqual(status, {
+    configured: true,
+    latest: Object.fromEntries(
+      ["id", "createdAt", "completedAt", "rows", "tables", "bytes", "privateFiles"].map((key) => [
+        key,
+        result.latest[key],
+      ]),
+    ),
+  })
   assert.deepEqual(Object.keys(status.latest), [
     "id",
     "createdAt",
@@ -908,4 +918,104 @@ test("portable streaming archive encryption matches AES envelope and never overw
   } finally {
     await fs.rm(directory, { recursive: true, force: true })
   }
+})
+
+test("missing canonical tables and counterfeit guards cannot complete a backup", async () => {
+  for (const sql of [
+    "DROP TABLE personal_draft_versions",
+    "DROP TRIGGER backup_epoch_memory_cards_insert; CREATE TRIGGER backup_epoch_memory_cards_insert AFTER INSERT ON memory_cards BEGIN SELECT 1; END;",
+    "DROP TRIGGER backup_epoch_memory_cards_update; CREATE TRIGGER backup_epoch_memory_cards_update AFTER UPDATE ON memory_cards WHEN 0 BEGIN UPDATE backups_epoch SET generation=generation+1 WHERE id=1; END;",
+  ]) {
+    const f = fixture()
+    f.sqlite.exec(sql)
+    await assert.rejects(runScheduledBackup(f.env, { now }), /missing/)
+    assert.equal(
+      [...f.env.BACKUP_BUCKET.objects.keys()].some(
+        (key) => key.startsWith("snapshots/") && key.endsWith("manifest.hnbackup"),
+      ),
+      false,
+    )
+  }
+})
+test("resumed backup rechecks guard integrity and records mutation restarts", async () => {
+  const f = fixture()
+  await runScheduledBackup(f.env, { now, maxPages: 1 })
+  f.sqlite.exec("UPDATE memory_cards SET modified_at=3")
+  const retry = await runScheduledBackup(f.env, { now: now + 60000, maxPages: 1 })
+  assert.equal(retry.progress.restartCount, 1)
+  assert.equal(retry.progress.firstStartedAt, new Date(now).toISOString())
+  f.sqlite.exec("DROP TRIGGER backup_epoch_memory_cards_update")
+  await assert.rejects(runScheduledBackup(f.env, { now: now + 120000 }), /missing/)
+})
+test("scheduled backup progresses independently while publication waits or rejects", async () => {
+  const f = fixture()
+  let release,
+    backupRan = false
+  const waiting = new Promise((resolve) => {
+    release = resolve
+  })
+  const task = runScheduledTasks({ cron: "* * * * *" }, f.env, {
+    publication: async () => {
+      await waiting
+      throw new Error("synthetic")
+    },
+    backup: async (_env, options) => {
+      backupRan = true
+      assert.equal(options.maxFileChunks, 4)
+      return { status: "progress" }
+    },
+  })
+  await new Promise((resolve) => setImmediate(resolve))
+  assert.equal(backupRan, true)
+  release()
+  await assert.rejects(task, /need retry/)
+})
+test("backup health reports age and restarts without content", () => {
+  assert.deepEqual(backupHealth(null, now), {
+    ageMs: null,
+    stale: true,
+    restartCount: 0,
+    durationMs: null,
+    privateBytes: null,
+  })
+  const status = {
+    latest: {
+      completedAt: new Date(now - 49 * 3600000).toISOString(),
+      durationMs: 120000,
+      privateBytes: 100,
+    },
+    progress: { restartCount: 3 },
+  }
+  assert.equal(backupHealth(status, now).stale, true)
+  assert.equal(backupHealth(status, now).restartCount, 3)
+})
+
+test("storage report retains uncatalogued originals and never exposes their identities or bodies", async () => {
+  const f = fixture()
+  f.sqlite.exec(
+    "INSERT INTO personal_files VALUES ('sensitive-id','sensitive-name.png','image/png',123,'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa','personal-files/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',1,1,'{}')",
+  )
+  const report = await backupStorageReport(f.DB, now)
+  assert.equal(report.files.uncataloguedBytes, 123)
+  assert.equal(report.files.uniqueObjectBytes, 123)
+  assert.equal(report.policy.deletionEnabled, false)
+  assert.equal(JSON.stringify(report).includes("sensitive"), false)
+  assert.equal(f.sqlite.prepare("SELECT COUNT(*) AS count FROM personal_files").get().count, 1)
+})
+
+test("public health probes the database and reveals no internal failure details", async () => {
+  const f = fixture()
+  const healthy = await handle(new Request("https://notes.example/health"), f.env)
+  assert.equal(healthy.status, 200)
+  assert.equal((await healthy.json()).database, true)
+  f.DB.prepare = () => {
+    throw new Error("sensitive database path and raw content")
+  }
+  const failed = await handle(new Request("https://notes.example/health"), f.env)
+  assert.equal(failed.status, 503)
+  assert.deepEqual(await failed.json(), {
+    status: "unavailable",
+    service: "howard-notes-content",
+    database: false,
+  })
 })

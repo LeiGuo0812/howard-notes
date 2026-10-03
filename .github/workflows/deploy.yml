@@ -18,24 +18,36 @@ concurrency:
 jobs:
   build:
     runs-on: ubuntu-latest
+    outputs:
+      kind: ${{ steps.changes.outputs.kind }}
     steps:
       - uses: actions/checkout@v6
         with:
           fetch-depth: 0
+      - name: Classify changes
+        id: changes
+        run: node scripts/ci-change-kind.mjs
       - uses: actions/setup-node@v6
         with:
           node-version: 24
           cache: npm
       - run: npm ci
       - run: npm run test:publish
+        if: steps.changes.outputs.kind != 'docs'
       - run: npx tsc --noEmit
+        if: steps.changes.outputs.kind != 'docs'
+      - run: npx prettier . --check
+        if: steps.changes.outputs.kind != 'docs'
       - run: npm run build
+        if: steps.changes.outputs.kind != 'docs'
       - run: npm run verify:site
+        if: steps.changes.outputs.kind != 'docs'
       - uses: actions/upload-pages-artifact@v3
+        if: steps.changes.outputs.kind != 'docs'
         with:
           path: public
   deploy:
-    if: github.event_name != 'pull_request'
+    if: github.event_name != 'pull_request' && needs.build.outputs.kind != 'docs'
     needs: build
     runs-on: ubuntu-latest
     permissions:

@@ -1,6 +1,21 @@
 import { test } from "node:test"
 import assert from "node:assert/strict"
-import { backupRequest } from "./backup-manager.mjs"
+import { backupRequest, backupMetrics } from "./backup-manager.mjs"
+
+test("backup metrics distinguish stale backups, queued jobs and retained unlinked files", () => {
+  const rows = backupMetrics(
+    { health: { stale: true, restartCount: 3, durationMs: 1200 } },
+    {
+      files: { uniqueObjectCount: 2, uniqueObjectBytes: 2 * 1024 * 1024, uncataloguedCount: 1 },
+      queue: { activeCount: 4, awaitingAuthCount: 1, oldestPendingAgeMs: 20 * 60000 },
+    },
+  )
+  assert.match(JSON.stringify(rows), /48 小时/)
+  assert.match(JSON.stringify(rows), /2\.0 MB/)
+  assert.match(JSON.stringify(rows), /继续保留/)
+  assert.match(JSON.stringify(rows), /20 分钟/)
+  assert.equal(backupMetrics({}, null).length, 0)
+})
 
 test("backup request never sends credentials to another origin or an arbitrary route", async () => {
   let calls = 0

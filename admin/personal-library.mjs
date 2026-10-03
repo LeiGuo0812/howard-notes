@@ -1,6 +1,7 @@
 import { GitHubLibrary } from "./github.mjs"
 import { equal, validateCatalog } from "../scripts/lib/catalog.mjs"
 import { TRASH_RETENTION_MS } from "./trash.mjs"
+import { readPersonalPages } from "./personal-pages.mjs"
 
 const versionOf = (sha) => /^pv:(\d+)$/.exec(sha || "")?.[1]
 const conflict = () =>
@@ -108,6 +109,9 @@ export class PersonalLibrary {
   async publicSnapshot() {
     return this.git.snapshot()
   }
+  personalList(path, options) {
+    return readPersonalPages((page) => this.personalRequest(page), path, options)
+  }
   mergeSnapshot(publicSnapshot, privateRows) {
     const entries = new Map(publicSnapshot.entries)
     const privateArticles = new Map(
@@ -138,8 +142,8 @@ export class PersonalLibrary {
   async snapshot() {
     const [publicSnapshot, privateList, recoveries, jobs] = await Promise.all([
       this.git.snapshot(),
-      this.personalRequest("articles?all=1"),
-      this.personalRequest("drafts?all=1"),
+      this.personalList("articles"),
+      this.personalList("drafts"),
       this.personalRequest("jobs"),
     ])
     this.recoveries = recoveries.drafts || []
@@ -360,8 +364,8 @@ export class PersonalLibrary {
   async listTrash(snapshot) {
     const [old, rows, recoveries] = await Promise.all([
       this.git.listTrash(snapshot?.publicSnapshot || snapshot),
-      this.personalRequest("articles?status=TRASH&all=1"),
-      this.personalRequest("drafts?status=TRASH&all=1"),
+      this.personalList("articles?status=TRASH"),
+      this.personalList("drafts?status=TRASH"),
     ])
     return [
       ...old,

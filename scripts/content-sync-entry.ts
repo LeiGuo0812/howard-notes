@@ -8,6 +8,7 @@ import { readLibrary } from "../scripts/lib/library.mjs"
 import { prepareProjection } from "../runtime/projection.mjs"
 import { extractShell, renderPages } from "../quartz/runtime/render"
 import { publicationChunks } from "../admin/runtime-publish.mjs"
+import { synchronizeContent } from "./lib/content-sync-client.mjs"
 
 const args = process.argv.slice(2)
 const seedFile = args.includes("--seed-sql") ? args[args.indexOf("--seed-sql") + 1] : null
@@ -41,6 +42,8 @@ const token = seedFile
 async function request(path: string, body?: unknown) {
   const response = await fetch(`${api}/${path}`, {
     method: body ? "POST" : "GET",
+    cache: "no-store",
+    redirect: "error",
     headers: body
       ? {
           "Content-Type": "application/json",
@@ -54,15 +57,11 @@ async function request(path: string, body?: unknown) {
     signal: AbortSignal.timeout(90000),
   })
   const data = (await response.json()) as any
-  if (!response.ok) throw new Error(`内容同步失败 (${response.status}): ${data.error || "请重试"}`)
+  if (!response.ok)
+    throw Object.assign(new Error(`内容同步失败 (${response.status}): ${data.error || "请重试"}`), {
+      status: response.status,
+    })
   return data
-}
-if (!seedFile && !args.includes("--update-shell")) {
-  const live = await request("status")
-  if (live.commit === commit) {
-    console.log(`Already synchronized revision ${live.revision}.`)
-    process.exit(0)
-  }
 }
 const { catalog, sources } = await readLibrary("library")
 const settings = JSON.parse(await fs.readFile("library/site.json", "utf8"))
@@ -75,36 +74,26 @@ const entries = new Map(
       return [path, { sha: meta.split(" ")[2] }]
     }),
 )
-const previous = seedFile ? {} : await request("snapshot")
-const shell = seedFile
-  ? extractShell(
-      await fs.readFile(
-        `public/notes/${catalog.articles.find((a: any) => a.published).id}.html`,
-        "utf8",
-      ),
-      { basePath: "/howard-notes", origin: siteOrigin },
-    )
-  : args.includes("--update-shell")
-    ? extractShell(
-        await fs.readFile(
-          `public/notes/${catalog.articles.find((a: any) => a.published).id}.html`,
-          "utf8",
-        ),
-        { basePath: "/howard-notes", origin: siteOrigin },
-      )
-    : await request("shell")
-shell.origin = siteOrigin
-const projection = await prepareProjection({
-  catalog,
-  settings,
-  sources,
-  commit,
-  entries,
-  previous,
-})
-const pages = renderPages(projection, shell)
+const localShell = async () =>
+  extractShell(
+    await fs.readFile(
+      `public/notes/${catalog.articles.find((a: any) => a.published).id}.html`,
+      "utf8",
+    ),
+    { basePath: "/howard-notes", origin: siteOrigin },
+  )
 const hash = (value: string) => createHash("sha256").update(value).digest("hex")
 if (seedFile) {
+  const shell = await localShell()
+  const projection = await prepareProjection({
+    catalog,
+    settings,
+    sources,
+    commit,
+    entries,
+    previous: {},
+  })
+  const pages = renderPages(projection, shell)
   const quote = (text: string) => `'${text.replaceAll("'", "''")}'`
   const sql = ["BEGIN TRANSACTION;"]
   for (const doc of projection.documents)
@@ -145,29 +134,50 @@ if (seedFile) {
     `Prepared ${projection.documents.length} public notes and ${pages.length} routes; raw Markdown unchanged.`,
   )
 } else {
-  const begun = await request("sync/begin", { commit, force: args.includes("--update-shell") })
-  if (begun.status === "synchronized") {
-    console.log(`Already synchronized revision ${begun.revision}.`)
-  } else {
-    const oldDocs = new Map((previous.documents || []).map((d: any) => [d.id, d]))
-    const reusable = new Set(begun.reusableDocuments || [])
-    const docs = projection.documents.filter(
-      (d: any) => !reusable.has(d.id) || JSON.stringify(oldDocs.get(d.id)) !== JSON.stringify(d),
-    )
-    const changedPages = pages.filter(
-      (page) => previous.pageHashes?.[page.path] !== hash(page.html),
-    )
-    const chunks = publicationChunks(docs, changedPages)
-    for (const chunk of chunks) await request("sync/chunk", { syncId: begun.syncId, ...chunk })
-    for (const item of [
-      { contentIndex: projection.contentIndex },
-      { blogData: projection.blogData },
-      ...(args.includes("--update-shell") ? [{ shell }] : []),
-    ])
-      await request("sync/chunk", { syncId: begun.syncId, ...item })
-    const result = await request("sync/finish", { syncId: begun.syncId })
-    console.log(
-      `Synchronized ${projection.documents.length} public notes, ${docs.length} changed documents and ${changedPages.length} changed pages; revision ${result.revision}.`,
-    )
-  }
+  const updateShell = args.includes("--update-shell")
+  const result = await synchronizeContent({
+    request,
+    commit,
+    updateShell,
+    prepare: async ({ previous, shell: deployedShell, begun, now }: any) => {
+      const shell = updateShell ? await localShell() : deployedShell
+      shell.origin = siteOrigin
+      const projection = await prepareProjection({
+        catalog,
+        settings,
+        sources,
+        commit,
+        entries,
+        previous,
+        now,
+      })
+      const pages = renderPages(projection, shell)
+      const oldDocs = new Map((previous.documents || []).map((d: any) => [d.id, d]))
+      const reusable = new Set(begun.reusableDocuments || [])
+      const docs = projection.documents.filter(
+        (d: any) => !reusable.has(d.id) || JSON.stringify(oldDocs.get(d.id)) !== JSON.stringify(d),
+      )
+      const changedPages = pages.filter(
+        (page) => previous.pageHashes?.[page.path] !== hash(page.html),
+      )
+      return {
+        chunks: publicationChunks(docs, changedPages),
+        metadata: [
+          { contentIndex: projection.contentIndex },
+          { blogData: projection.blogData },
+          ...(updateShell ? [{ shell }] : []),
+        ],
+        summary: {
+          documents: projection.documents.length,
+          changedDocuments: docs.length,
+          changedPages: changedPages.length,
+        },
+      }
+    },
+  })
+  console.log(
+    result.unchanged
+      ? `Already synchronized revision ${result.revision}.`
+      : `Synchronized ${result.documents} public notes, ${result.changedDocuments} changed documents and ${result.changedPages} changed pages; revision ${result.revision}.`,
+  )
 }

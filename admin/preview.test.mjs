@@ -1,5 +1,7 @@
 import assert from "node:assert/strict"
 import test from "node:test"
+import { Marked } from "marked"
+import { createPreviewCompiler } from "./preview-compiler.mjs"
 import { createDiagramCache, articleForLink, createPreview } from "./preview.mjs"
 
 test("private Markdown links resolve in the merged library without intercepting external links", () => {
@@ -150,7 +152,7 @@ function previewFixture({ pendingLoad = false, pendingRender = false, imageConte
     },
     querySelectorAll(selector) {
       if (selector === "img") return this.children.filter((child) => child.isImage)
-      return selector === "pre > code.language-mermaid"
+      return selector === "pre > code.language-mermaid, pre > code.mermaid"
         ? this.children.filter((child) => child.code?.isConnected).map((child) => child.code)
         : []
     },
@@ -210,6 +212,12 @@ function previewFixture({ pendingLoad = false, pendingRender = false, imageConte
       ...imageContext,
     }),
     {
+      compiler: {
+        render: async ({ raw, siteBase }) => {
+          assert.equal(typeof siteBase, "string", "worker input must never contain a URL instance")
+          return { html: new Marked().parse(raw) }
+        },
+      },
       sanitize: (html) => html,
       loadViewer: async (base) => {
         assert.equal(base, "https://notes.test/site/")
@@ -239,6 +247,14 @@ function previewFixture({ pendingLoad = false, pendingRender = false, imageConte
 }
 
 const diagramMarkdown = "```mermaid\nflowchart LR\n  A[开始] --> B[完成]\n```"
+test("workspace URL objects are normalized before crossing the preview worker boundary", async () => {
+  const f = previewFixture({ imageContext: { siteBase: new URL("https://notes.test/site/") } })
+  try {
+    await f.preview.render("# Synthetic plain preview")
+  } finally {
+    f.cleanup()
+  }
+})
 const until = async (condition) => {
   for (let turn = 0; turn < 50; turn++) {
     if (condition()) return
@@ -307,6 +323,7 @@ test("clearing during lazy module loading cannot install an observer or private 
   const f = previewFixture({ pendingLoad: true })
   try {
     const pending = f.preview.render(diagramMarkdown)
+    await until(() => f.element.children.length > 0)
     f.preview.clear()
     f.releaseLoad()
     await pending
@@ -396,6 +413,7 @@ test("clearing a preview prevents delayed private attachment URLs from starting 
   })
   try {
     const pending = f.preview.render("![附件](private.png)")
+    await until(() => typeof release === "function")
     f.preview.clear()
     release("https://notes.test/site/api/content/personal/files/private-file")
     await pending
@@ -440,4 +458,43 @@ test("private image previews still use owner reads and revoke their Blob URL on 
     URL.createObjectURL = originalCreate
     URL.revokeObjectURL = originalRevoke
   }
+})
+
+test("preview compilation coalesces edits and releases stale originals on clear", async () => {
+  const workers = []
+  class FakeWorker {
+    sent = []
+    constructor() {
+      workers.push(this)
+    }
+    postMessage(message) {
+      this.sent.push(message)
+    }
+    terminate() {
+      this.terminated = true
+    }
+  }
+  const compiler = createPreviewCompiler({
+    siteBase: "https://notes.test/site/",
+    WorkerClass: FakeWorker,
+  })
+  const a = compiler.render({ raw: "old" })
+  const b = compiler.render({ raw: "middle" })
+  const c = compiler.render({ raw: "latest" })
+  assert.equal(await a, null)
+  assert.equal(await b, null)
+  assert.equal(workers[0].sent.length, 1)
+  workers[0].onmessage({ data: { id: 1, result: { html: "old" } } })
+  assert.equal(workers[0].sent.length, 2)
+  assert.equal(workers[0].sent[1].input.raw, "latest")
+  workers[0].onmessage({ data: { id: 3, result: { html: "latest" } } })
+  assert.deepEqual(await c, { html: "latest" })
+  const pending = compiler.render({ raw: "private" })
+  compiler.clear()
+  assert.equal(await pending, null)
+  assert.equal(workers[0].terminated, true)
+  const next = compiler.render({ raw: "new-context" })
+  assert.equal(workers.length, 2)
+  compiler.destroy()
+  assert.equal(await next, null)
 })

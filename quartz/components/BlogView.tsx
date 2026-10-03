@@ -403,62 +403,64 @@ function Heatmap({ props }: { props: QuartzComponentProps }) {
           ))}
         </select>
       </label>
-      {activity.periods.map((period) => (
-        <div
-          class="activity-period"
-          data-activity-period={period.id}
-          hidden={period.id !== activity.selected}
-        >
-          <div class="activity-summary">
-            <span>{period.total} 次笔记活动</span>
-            <span>
-              {period.from} — {period.asOf}
-            </span>
-          </div>
+      {activity.periods
+        .filter((period) => period.id === activity.selected)
+        .map((period) => (
           <div
-            class="heatmap-scroll"
-            tabIndex={0}
-            role="group"
-            aria-label={`${period.label}共 ${period.total} 次笔记创建或更新`}
+            class="activity-period"
+            data-activity-period={period.id}
+            hidden={period.id !== activity.selected}
           >
-            <div class="heatmap-weekdays" aria-hidden="true">
-              <span>一</span>
-              <span>三</span>
-              <span>五</span>
+            <div class="activity-summary">
+              <span>{period.total} 次笔记活动</span>
+              <span>
+                {period.from} — {period.asOf}
+              </span>
             </div>
-            <div class="heatmap-weeks">
-              {period.weeks.map((week) => (
-                <div class="heatmap-week">
-                  <span class="heatmap-month">{week.month}</span>
-                  {week.days.map((day) => {
-                    const label = `${day.date} · ${day.count} 篇 · 创建 ${day.created} / 更新 ${day.modified}`
-                    const cls = `heatmap-day level-${day.level}${day.inRange ? "" : " outside"}`
-                    return day.count > 0 ? (
-                      <a
-                        class={`${cls} internal`}
-                        data-no-popover="true"
-                        title={label}
-                        aria-label={label}
-                        data-date={day.date}
-                        data-count={day.count}
-                        href={`${href(props, "notes/index")}?activity=${day.date}`}
-                      />
-                    ) : (
-                      <span
-                        class={cls}
-                        title={day.inRange ? label : undefined}
-                        data-date={day.date}
-                        data-count={day.count}
-                        aria-hidden="true"
-                      />
-                    )
-                  })}
-                </div>
-              ))}
+            <div
+              class="heatmap-scroll"
+              tabIndex={0}
+              role="group"
+              aria-label={`${period.label}共 ${period.total} 次笔记创建或更新`}
+            >
+              <div class="heatmap-weekdays" aria-hidden="true">
+                <span>一</span>
+                <span>三</span>
+                <span>五</span>
+              </div>
+              <div class="heatmap-weeks">
+                {period.weeks.map((week) => (
+                  <div class="heatmap-week">
+                    <span class="heatmap-month">{week.month}</span>
+                    {week.days.map((day) => {
+                      const label = `${day.date} · ${day.count} 篇 · 创建 ${day.created} / 更新 ${day.modified}`
+                      const cls = `heatmap-day level-${day.level}${day.inRange ? "" : " outside"}`
+                      return day.count > 0 ? (
+                        <a
+                          class={`${cls} internal`}
+                          data-no-popover="true"
+                          title={label}
+                          aria-label={label}
+                          data-date={day.date}
+                          data-count={day.count}
+                          href={`${href(props, "notes/index")}?activity=${day.date}`}
+                        />
+                      ) : (
+                        <span
+                          class={cls}
+                          title={day.inRange ? label : undefined}
+                          data-date={day.date}
+                          data-count={day.count}
+                          aria-hidden="true"
+                        />
+                      )
+                    })}
+                  </div>
+                ))}
+              </div>
             </div>
           </div>
-        </div>
-      ))}
+        ))}
       <div class="heatmap-legend" aria-hidden="true">
         <span>少</span>
         {[0, 1, 2, 3, 4].map((level) => (
@@ -495,6 +497,26 @@ export const BlogHome: QuartzComponent = (props) => {
       <p class="home-description" hidden={!settings.home.description}>
         {settings.home.description}
       </p>
+      <script
+        id="home-browse-data"
+        type="application/json"
+        dangerouslySetInnerHTML={{
+          __html: JSON.stringify({
+            noteBase: href(props, "notes/"),
+            listing: href(props, "notes/index"),
+            asOf: data(props).activity.periods.find((period) => period.id === "recent")?.asOf,
+            notes: data(props).articles.map((row) => [
+              row.id,
+              row.title,
+              row.created,
+              row.modified,
+              row.excerpt,
+              row.category,
+              row.categoryKey || row.category,
+            ]),
+          }).replaceAll("<", "\\u003c"),
+        }}
+      />
       <div class="home-modules">
         {sections.map((section) => (
           <section
@@ -557,11 +579,6 @@ export const BlogHome: QuartzComponent = (props) => {
                       <NotePreview props={props} row={row} frosted />
                     ))}
                 </div>
-                <template id="random-note-pool">
-                  {data(props).articles.map((row) => (
-                    <NotePreview props={props} row={row} />
-                  ))}
-                </template>
               </>
             ) : section.id === "recent" ? (
               <div class={`home-note-previews ${section.id}-previews`}>

@@ -56,18 +56,19 @@ export function buildActivity(articles, now = new Date(), year) {
 export function readActivity(articles, now = new Date()) {
   const today = chinaDate(now)
   const years = [
-    ...new Set(
-      articles
+    ...new Set([
+      today.slice(0, 4),
+      ...articles
         .filter((a) => a.published)
         .flatMap((a) => [createdDay(a), modifiedDay(a)])
         .filter((date) => validDay(date) && date <= today)
         .map((date) => date.slice(0, 4)),
-    ),
+    ]),
   ]
     .sort()
     .reverse()
   return {
-    selected: "recent",
+    selected: today.slice(0, 4),
     periods: [
       { id: "recent", label: "近一年", ...buildActivity(articles, now) },
       ...years.map((year) => ({ id: year, label: year, ...buildActivity(articles, now, year) })),

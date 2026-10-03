@@ -10,6 +10,47 @@ import { readLayoutDraft, writeLayoutDraft, clearLayoutDraft } from "./layout-dr
 import { TRASH_RETENTION_MS, trashPaths, trashRecordContent } from "./trash.mjs"
 const settings = JSON.parse(await fs.readFile("library/site.json", "utf8"))
 
+test("GitHub requests abort on a bounded deadline without automatically repeating writes", async () => {
+  let calls = 0
+  const client = new GitHubLibrary(
+    "fixture",
+    (_url, options) =>
+      new Promise((_resolve, reject) => {
+        calls++
+        options.signal.addEventListener("abort", () => reject(options.signal.reason), {
+          once: true,
+        })
+      }),
+    { requestTimeoutMs: 10 },
+  )
+  await assert.rejects(client.request("/fixture", "POST", { title: "private" }), /请求超时/)
+  assert.equal(calls, 1)
+})
+
+test("GitHub request deadline includes response bodies and honors the task's aborted signal", async () => {
+  const client = new GitHubLibrary(
+    "fixture",
+    async (_url, options) => ({
+      ok: true,
+      status: 200,
+      json: () =>
+        new Promise((_resolve, reject) =>
+          options.signal.addEventListener("abort", () => reject(options.signal.reason), {
+            once: true,
+          }),
+        ),
+    }),
+    { requestTimeoutMs: 10 },
+  )
+  await assert.rejects(client.request("/fixture"), /请求超时/)
+  const controller = new AbortController()
+  controller.abort()
+  let calls = 0
+  const cancelled = new GitHubLibrary("fixture", async () => calls++, { signal: controller.signal })
+  await assert.rejects(cancelled.request("/fixture"), /请求超时/)
+  assert.equal(calls, 0)
+})
+
 test("layout drafts persist the original version without credentials or repository writes", () => {
   const values = new Map()
   const storage = {

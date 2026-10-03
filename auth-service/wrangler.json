@@ -4,7 +4,15 @@
   "main": "worker.mjs",
   "compatibility_date": "2026-09-30",
   "workers_dev": true,
-  "observability": { "enabled": false },
+  "observability": {
+    "enabled": true,
+    "head_sampling_rate": 1,
+    "logs": {
+      "enabled": true,
+      "invocation_logs": false
+    },
+    "redact_query_string": true
+  },
   "vars": {
     "ADMIN_URL": "https://leiguo0812.github.io/howard-notes/admin/",
     "ADDITIONAL_ADMIN_URLS": "https://howard-notes.howard-notes-login.workers.dev/howard-notes/admin/",

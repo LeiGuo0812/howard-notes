@@ -1,13 +1,7 @@
-import { Marked } from "marked"
 import DOMPurify from "dompurify"
-import katex from "katex"
+import { createPreviewCompiler } from "./preview-compiler.mjs"
 import { loadMermaidViewer } from "./mermaid-loader.mjs"
 
-const escape = (text) =>
-  String(text).replace(
-    /[&<>"']/g,
-    (ch) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[ch],
-  )
 let serial = 0
 // A preview reuses only sanitized output for an unchanged diagram at the same
 // position. Position scopes Mermaid IDs; identical diagrams elsewhere in the
@@ -95,6 +89,8 @@ export function articleForLink(source, { articles = [], siteBase, articleFile } 
       return null
     }
     if (url.origin !== base.origin) return null
+    if (url.pathname === new URL("private/", base).pathname)
+      return articles.find((article) => article.id === url.searchParams.get("note")) || null
     return (
       articles.find((article) => url.pathname === new URL(`notes/${article.id}`, base).pathname) ||
       null
@@ -119,7 +115,11 @@ export function articleForLink(source, { articles = [], siteBase, articleFile } 
 export function createPreview(
   element,
   context,
-  { loadViewer = loadMermaidViewer, sanitize = (...args) => DOMPurify.sanitize(...args) } = {},
+  {
+    loadViewer = loadMermaidViewer,
+    sanitize = (...args) => DOMPurify.sanitize(...args),
+    compiler: suppliedCompiler,
+  } = {},
 ) {
   let epoch = 0,
     contextEpoch = 0,
@@ -128,6 +128,7 @@ export function createPreview(
     lastMarkdown = null,
     unobserveTheme = null,
     observedTheme = null
+  const compiler = suppliedCompiler || createPreviewCompiler({ siteBase: context().siteBase })
   const imageCache = new Map()
   const diagramCache = createDiagramCache()
   const viewers = new Set()
@@ -137,6 +138,7 @@ export function createPreview(
   }
   const clear = () => {
     epoch++
+    compiler.clear?.()
     contextEpoch++
     contextController.abort()
     contextController = new AbortController()
@@ -153,77 +155,6 @@ export function createPreview(
         .catch(() => {})
     imageCache.clear()
   }
-  const mathToken = (raw, expression, display) => ({
-    type: display ? "displayMath" : "inlineMath",
-    raw,
-    expression,
-    display,
-  })
-  const mathRenderer = (token) =>
-    `<span class="math-placeholder" data-expression="${encodeURIComponent(token.expression)}" data-display="${token.display}"></span>`
-  const parser = new Marked({ gfm: true, breaks: false })
-  parser.use({
-    extensions: [
-      {
-        name: "displayMath",
-        level: "block",
-        start: (src) => src.indexOf("$$"),
-        tokenizer(src) {
-          const m = /^\$\$[ \t]*\n?([\s\S]+?)\n?\$\$(?:\n|$)/.exec(src)
-          if (m) return mathToken(m[0], m[1], true)
-        },
-        renderer: mathRenderer,
-      },
-      {
-        name: "inlineMath",
-        level: "inline",
-        start: (src) => src.indexOf("$"),
-        tokenizer(src) {
-          const m = /^\$(?!\$)((?:\\.|[^$\n\\])+?)\$(?!\$)/.exec(src)
-          if (m) return mathToken(m[0], m[1], false)
-        },
-        renderer: mathRenderer,
-      },
-      {
-        name: "wiki",
-        level: "inline",
-        start: (src) => src.search(/!?\[\[/),
-        tokenizer(src) {
-          const m = /^(!?)\[\[([^\]\n]+)\]\]/.exec(src)
-          if (m) return { type: "wiki", raw: m[0], embed: !!m[1], value: m[2] }
-        },
-        renderer(token) {
-          const [reference, alias] = token.value.split("|"),
-            [target, anchor] = reference.split("#"),
-            label = alias || target
-          if (token.embed && /\.(png|jpe?g|gif|webp|avif)$/i.test(target))
-            return `<img alt="${escape(alias || target)}" src="${escape(target)}">`
-          const resolved = articleForLink(target, context())
-          const matches = resolved
-            ? [resolved]
-            : context().articles.filter(
-                (article) =>
-                  article.title === target ||
-                  article.file.replace(/^notes\//, "").replace(/\.md$/, "") === target ||
-                  article.file.split("/").pop().replace(/\.md$/, "") === target,
-              )
-          return matches.length === 1
-            ? `<a ${matches[0].published === false ? `data-private-article="${escape(matches[0].id)}"` : ""} href="${escape(new URL(`notes/${matches[0].id}${anchor ? "#" + encodeURIComponent(anchor) : ""}`, context().siteBase || new URL("../", location.href)).href)}">${escape(label)}</a>`
-            : `<span class="unavailable-note">${escape(label)}</span>`
-        },
-      },
-      {
-        name: "highlight",
-        level: "inline",
-        start: (src) => src.indexOf("=="),
-        tokenizer(src) {
-          const m = /^==([^=\n]+)==/.exec(src)
-          if (m) return { type: "highlight", raw: m[0], text: m[1] }
-        },
-        renderer: (token) => `<mark>${escape(token.text)}</mark>`,
-      },
-    ],
-  })
   const preview = {
     clear,
     destroy() {
@@ -237,12 +168,65 @@ export function createPreview(
         generation = contextEpoch,
         contextSignal = contextController.signal,
         scroll = element.scrollTop
+      const ctx = context()
+      const article = ctx.articles.find((row) => row.file === ctx.articleFile) || {
+        id: "editor-preview",
+        file: ctx.articleFile || "notes/new.md",
+        title: "预览",
+        published: false,
+      }
+      const compiled = await compiler.render({
+        raw: text,
+        article: {
+          id: article.id,
+          file: article.file,
+          title: article.title,
+          published: article.published,
+          attachments: (ctx.attachments || []).map(({ source, aliases, publicUrl }) => ({
+            source,
+            aliases,
+            publicUrl,
+          })),
+        },
+        articles: ctx.articles.map(
+          ({
+            id,
+            file,
+            title,
+            published,
+            category,
+            date,
+            created,
+            modified,
+            description,
+            featured,
+            tags,
+          }) => ({
+            id,
+            file,
+            title,
+            published,
+            category,
+            date,
+            created,
+            modified,
+            description,
+            featured,
+            tags,
+          }),
+        ),
+        // URL objects are not structured-cloneable in browsers. Worker
+        // messages carry only plain metadata, even though workspace uses URL.
+        siteBase: String(ctx.siteBase),
+      })
+      if (!compiled || version !== epoch || disposed || !element.isConnected) return
       removeViewers()
-      const source = text.replace(/^\uFEFF?---\r?\n[\s\S]*?\r?\n---(?:\r?\n|$)/, "")
-      element.innerHTML = sanitize(parser.parse(source), {
-        USE_PROFILES: { html: true },
-        FORBID_TAGS: ["style", "iframe", "form", "button"],
-        FORBID_ATTR: ["style", "srcset", "id", "name"],
+      // The shared compiler has already sanitized author HTML. Keep its trusted
+      // KaTeX/highlighter styles; DOMPurify adds an independent DOM boundary.
+      element.innerHTML = sanitize(compiled.html, {
+        USE_PROFILES: { html: true, svg: true, svgFilters: true },
+        FORBID_TAGS: ["script", "iframe", "form"],
+        FORBID_ATTR: ["srcset", "name"],
       })
       for (const input of element.querySelectorAll("input")) {
         if (input.type === "checkbox") input.disabled = true
@@ -252,7 +236,7 @@ export function createPreview(
         link.target = "_blank"
         link.rel = "noopener noreferrer"
         const matched = articleForLink(link.getAttribute("href"), context())
-        if (matched)
+        if (matched?.published !== false && matched)
           link.href = new URL(
             `notes/${matched.id}${new URL(link.href).hash}`,
             context().siteBase,
@@ -265,23 +249,9 @@ export function createPreview(
             void context().openArticle?.(privateId)
           })
       }
-      for (const span of element.querySelectorAll(".math-placeholder")) {
-        try {
-          katex.render(decodeURIComponent(span.dataset.expression), span, {
-            displayMode: span.dataset.display === "true",
-            throwOnError: false,
-            trust: false,
-            maxExpand: 1000,
-            strict: "ignore",
-          })
-        } catch {
-          span.textContent = "公式格式有误"
-        }
-      }
       element.scrollTop = scroll
-      const ctx = context()
       const imageTasks = [...element.querySelectorAll("img")].map(async (img) => {
-        const src = img.getAttribute("src") || ""
+        const src = img.getAttribute("data-preview-source") || img.getAttribute("src") || ""
         img.referrerPolicy = "no-referrer"
         img.loading = "lazy"
         const file = assetPath(src, ctx.articleFile),
@@ -341,7 +311,9 @@ export function createPreview(
         }
       })
       const imagesReady = Promise.allSettled(imageTasks)
-      const diagrams = [...element.querySelectorAll("pre > code.language-mermaid")]
+      const diagrams = [
+        ...element.querySelectorAll("pre > code.language-mermaid, pre > code.mermaid"),
+      ]
       if (diagrams.length) {
         lastMarkdown = text
         try {
@@ -365,7 +337,7 @@ export function createPreview(
             if (version !== epoch || disposed || !element.isConnected) break
             const host = document.createElement("div")
             host.className = "mermaid-viewer-preview"
-            const diagramSource = code.textContent
+            const diagramSource = code.getAttribute?.("data-clipboard") || code.textContent
             const diagramId = `preview-diagram-${++serial}`
             try {
               const svg = await diagramCache.get(

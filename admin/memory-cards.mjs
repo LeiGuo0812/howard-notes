@@ -8,8 +8,22 @@ import { mountPagination } from "../scripts/lib/pagination.mjs"
 import { githubMemoryAttachmentUrl } from "../scripts/lib/memory-attachment-storage.mjs"
 import { createDurableDraftController } from "./durable-drafts.mjs"
 import { memoryRecoveryRecord, validatedMemoryRecovery } from "./memory-recovery.mjs"
+import { readPersonalPages } from "./personal-pages.mjs"
 
 const PAGE_SIZE = 20
+const timelineMonth = new Intl.DateTimeFormat("en-CA", {
+  year: "numeric",
+  month: "2-digit",
+  timeZone: "Asia/Shanghai",
+})
+const monthOf = (value) => {
+  const date = new Date(value)
+  if (!Number.isFinite(date.getTime())) return "undated"
+  const parts = Object.fromEntries(
+    timelineMonth.formatToParts(date).map(({ type, value }) => [type, value]),
+  )
+  return `${parts.year}-${parts.month}`
+}
 const validSorts = new Set(["created-desc", "created-asc", "modified-desc", "modified-asc"])
 const dateFormat = new Intl.DateTimeFormat("zh-CN", {
   year: "numeric",
@@ -80,6 +94,7 @@ export function mountMemories(hub, { siteBase }) {
     sort: validSorts.has(query.get("sort")) ? query.get("sort") : "created-desc",
     view: query.get("view") === "timeline" ? "timeline" : "cards",
     status: "NORMAL",
+    month: /^\d{4}-(0[1-9]|1[0-2])$/.test(query.get("month") || "") ? query.get("month") : "",
   }
   let apiBase,
     owner = false,
@@ -110,7 +125,7 @@ export function mountMemories(hub, { siteBase }) {
     pager.update({
       page: state.page,
       pages: pageCount,
-      hidden: state.view !== "cards" || pageCount <= 1,
+      hidden: pageCount <= 1,
       busy,
     })
   }
@@ -233,7 +248,7 @@ export function mountMemories(hub, { siteBase }) {
   }
   const writeUrl = () => {
     const url = new URL(location.href)
-    for (const key of ["q", "tag", "view", "page", "sort"]) {
+    for (const key of ["q", "tag", "view", "page", "sort", "month"]) {
       const value = state[key]
       if (
         !value ||
@@ -320,7 +335,9 @@ export function mountMemories(hub, { siteBase }) {
     const serial = ++cloudRequest,
       epoch = authEpoch
     try {
-      const result = await privateRequest("drafts?all=1")
+      const result = await readPersonalPages(privateRequest, "drafts", {
+        isCurrent: () => alive && owner && serial === cloudRequest && epoch === authEpoch,
+      })
       if (!alive || !owner || serial !== cloudRequest || epoch !== authEpoch) return
       cloudRecords.clear()
       for (const draft of result.drafts || [])
@@ -598,14 +615,11 @@ export function mountMemories(hub, { siteBase }) {
     protectResources(card)
     return card
   }
-  async function renderTimeline(memories, serial) {
+  async function renderTimeline(memories, serial, months) {
     const groups = new Map()
     const field = state.sort.startsWith("modified") ? "modified" : "created"
     for (const memory of memories) {
-      const date = new Date(memory[field])
-      const month = Number.isFinite(date.getTime())
-        ? `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`
-        : "undated"
+      const month = monthOf(memory[field])
       if (!groups.has(month)) groups.set(month, [])
       groups.get(month).push(memory)
     }
@@ -622,6 +636,11 @@ export function mountMemories(hub, { siteBase }) {
       navigation = document.createDocumentFragment()
     navigation.append(createElement("h2", "memory-index-heading", "时间"))
     const yearGroups = new Map()
+    const all = createElement("button", "memory-month-link", "全部月份")
+    all.type = "button"
+    all.dataset.memoryPeriod = ""
+    all.setAttribute("aria-current", state.month ? "false" : "location")
+    navigation.append(all)
     let index = 0
     for (const month of monthKeys) {
       const section = createElement("section", "memory-timeline-month")
@@ -641,6 +660,14 @@ export function mountMemories(hub, { siteBase }) {
       }
       section.append(entries)
       fragment.append(section)
+    }
+    // Navigation counts come from the whole authorised result set, including
+    // months that are absent from this page. Clicking a month loads that range.
+    for (const { month, count } of months ||
+      monthKeys.map((month) => ({ month, count: groups.get(month).length }))) {
+      if (!month) continue
+      const label =
+        month === "undated" ? "日期未记录" : `${month.slice(0, 4)} 年 ${Number(month.slice(5))} 月`
       const year = month === "undated" ? "未记录" : month.slice(0, 4)
       let yearGroup = yearGroups.get(year)
       if (!yearGroup) {
@@ -661,8 +688,9 @@ export function mountMemories(hub, { siteBase }) {
       button.dataset.memoryPeriod = month
       button.append(
         createElement("span", "", month === "undated" ? label : `${Number(month.slice(5))} 月`),
-        createElement("small", "", String(groups.get(month).length)),
+        createElement("small", "", String(count)),
       )
+      button.setAttribute("aria-current", month === state.month ? "location" : "false")
       yearGroup.append(button)
     }
     timeline.replaceChildren(fragment)
@@ -687,7 +715,10 @@ export function mountMemories(hub, { siteBase }) {
       tag: state.tag,
       status: state.status,
     })
-    if (state.view === "timeline") parameters.set("view", "timeline")
+    if (state.view === "timeline") {
+      parameters.set("view", "timeline")
+      if (state.month) parameters.set("month", state.month)
+    }
     try {
       const result = await requestJson(`?${parameters}`, { signal: pendingFetch.signal })
       if (!alive || serial !== request) return
@@ -705,13 +736,13 @@ export function mountMemories(hub, { siteBase }) {
         return load()
       }
       const values = result.memories || []
-      pageCount = Math.max(1, Math.ceil((result.total || 0) / PAGE_SIZE))
-      if (state.view === "cards" && state.page > 1 && !values.length && result.total > 0) {
+      pageCount = Math.max(1, Math.ceil((result.total || 0) / (result.pageSize || PAGE_SIZE)))
+      if (state.page > 1 && !values.length && result.total > 0) {
         state.page = pageCount
         writeUrl()
         return load()
       }
-      if (state.view === "cards" && !result.total && state.page !== 1) {
+      if (!result.total && state.page !== 1) {
         state.page = 1
         writeUrl()
       }
@@ -726,7 +757,7 @@ export function mountMemories(hub, { siteBase }) {
       updatePagination()
       if (state.view === "timeline") {
         list.replaceChildren()
-        await renderTimeline(values, serial)
+        await renderTimeline(values, serial, result.months)
         if (!alive || serial !== request) return
       } else {
         timeline.replaceChildren()
@@ -1220,6 +1251,7 @@ export function mountMemories(hub, { siteBase }) {
     const view = event.target.closest("button[data-memory-view]")
     if (view) {
       state.view = view.dataset.memoryView
+      state.month = ""
       state.page = 1
       writeUrl()
       updateControls()
@@ -1228,16 +1260,12 @@ export function mountMemories(hub, { siteBase }) {
     }
     const period = event.target.closest("[data-memory-period]")
     if (period) {
-      const target = hub.querySelector(`#memory-month-${CSS.escape(period.dataset.memoryPeriod)}`)
-      if (target) {
-        if (!matchMedia("(min-width: 1001px)").matches) sidebar.open = false
-        target.scrollIntoView({
-          block: "start",
-          behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "instant" : "smooth",
-        })
-        for (const button of timeNavigation.querySelectorAll("[data-memory-period]"))
-          button.setAttribute("aria-current", button === period ? "location" : "false")
-      }
+      state.month = period.dataset.memoryPeriod
+      state.page = 1
+      writeUrl()
+      if (!matchMedia("(min-width: 1001px)").matches) sidebar.open = false
+      void load()
+      hub.scrollIntoView({ block: "start" })
       return
     }
     const action = event.target.closest("[data-memory-action]")
@@ -1271,6 +1299,7 @@ export function mountMemories(hub, { siteBase }) {
   })
   on(sort, "change", () => {
     state.sort = sort.value
+    state.month = ""
     state.page = 1
     writeUrl()
     void load()

@@ -47,11 +47,11 @@ async function loadRuntime() {
 async function invoke(callback, control) {
   const request = ++invocation
   control?.setAttribute("aria-busy", "true")
-  if (!runtime) notice("正在打开维护窗口…")
+  notice("正在打开维护窗口…")
   try {
     const controller = await loadRuntime()
-    if (request === invocation) notice("")
     await callback(controller)
+    if (request === invocation) notice("")
   } catch (error) {
     if (request === invocation) notice(error.message || "维护操作失败，请重试。")
   } finally {

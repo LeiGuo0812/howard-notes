@@ -6,6 +6,7 @@ import { createHash } from "node:crypto"
 import { spawn } from "node:child_process"
 import { Transform, Readable } from "node:stream"
 import { pipeline } from "node:stream/promises"
+import { GitHubBackupLease } from "./offsite-lease.mjs"
 
 export const FORMAT = "howard-notes-offsite-v1"
 export const TRUSTED_SITE_BASE = "https://howard-notes.howard-notes-login.workers.dev/howard-notes/"
@@ -24,6 +25,8 @@ const fail = (code) => {
 }
 const messages = {
   CONFIG: "Backup configuration is invalid.",
+  LEASE_BUSY: "Another backup or cleanup owns the private-repository lease; retry later.",
+  LEASE_LOST: "Private backup lease is lost or expired; publication and cleanup have stopped.",
   PRIVATE_REPOSITORY: "Backup destination must be a private GitHub repository.",
   STATUS: "Completed backup status is unavailable or invalid.",
   STALE: "The latest completed backup is older than 48 hours.",
@@ -91,8 +94,18 @@ export function validateConfiguration(config) {
   const retention = {
     dailyDays: config.retention?.dailyDays ?? 30,
     monthlyMonths: config.retention?.monthlyMonths ?? 12,
+    archiveGraceDays: config.retention?.archiveGraceDays ?? 30,
+    archiveCleanup: config.retention?.archiveCleanup ?? "dry-run",
   }
-  if (retention.dailyDays !== 30 || retention.monthlyMonths !== 12) fail("CONFIG")
+  if (
+    retention.dailyDays !== 30 ||
+    retention.monthlyMonths !== 12 ||
+    !Number.isInteger(retention.archiveGraceDays) ||
+    retention.archiveGraceDays < 30 ||
+    retention.archiveGraceDays > 365 ||
+    !["dry-run", "apply"].includes(retention.archiveCleanup)
+  )
+    fail("CONFIG")
   return {
     version: 1,
     siteBase: site.href,
@@ -708,7 +721,7 @@ export async function createHandoffTar(directory, file) {
 export async function command(
   program,
   args,
-  { cwd, outputFile, env = process.env, maxBytes = 32 * 1024 * 1024 } = {},
+  { cwd, outputFile, env = process.env, maxBytes = 32 * 1024 * 1024, timeoutMs = 0 } = {},
 ) {
   return new Promise((resolve, reject) => {
     const child = spawn(program, args, { cwd, env, stdio: ["ignore", "pipe", "pipe"] }),
@@ -716,6 +729,7 @@ export async function command(
     let size = 0,
       stderr = "",
       destination
+    const timer = timeoutMs ? setTimeout(() => child.kill("SIGKILL"), timeoutMs) : null
     if (outputFile) destination = createWriteStream(outputFile, { flags: "wx", mode: 0o600 })
     child.stdout.on("data", (chunk) => {
       size += chunk.length
@@ -731,10 +745,12 @@ export async function command(
       if (stderr.length < 65536) stderr += chunk.toString("utf8")
     })
     child.on("error", () => {
+      clearTimeout(timer)
       destination?.destroy()
       reject(new OffsiteBackupError("COMMAND"))
     })
     child.on("close", (code) => {
+      clearTimeout(timer)
       const finish = () => {
         if (code !== 0 || size > maxBytes) {
           const error = new OffsiteBackupError(size > maxBytes ? "SIZE" : "COMMAND")
@@ -746,6 +762,7 @@ export async function command(
       else finish()
     })
     destination?.on("error", () => {
+      clearTimeout(timer)
       child.kill()
       reject(new OffsiteBackupError("COMMAND"))
     })
@@ -758,11 +775,39 @@ export class GitHubBackupStore {
     this.directory = directory
     this.runner = runner
     this.sequence = 0
+    this.lease = new GitHubBackupLease(this.repository, (...args) => this.api(...args))
+  }
+  async acquireLease() {
+    try {
+      return await this.lease.acquire()
+    } catch (error) {
+      fail(error.code === "LEASE_BUSY" ? "LEASE_BUSY" : "LEASE_LOST")
+    }
+  }
+  async assertLease() {
+    try {
+      return await this.lease.assert()
+    } catch {
+      fail("LEASE_LOST")
+    }
+  }
+  async releaseLease() {
+    try {
+      return await this.lease.release()
+    } catch {
+      fail("LEASE_LOST")
+    }
   }
   async gh(args, options = {}) {
     return this.runner("gh", args, { ...options, env: { ...process.env, GH_HOST: "github.com" } })
   }
   async api(endpoint, { method, body } = {}) {
+    if (
+      method &&
+      method !== "GET" &&
+      (/\/releases(?:\/|$)/.test(endpoint) || /\/git\/refs\/tags\//.test(endpoint))
+    )
+      await this.assertLease()
     const args = ["api", endpoint, "--hostname", "github.com"]
     if (method) args.push("--method", method)
     if (body !== undefined) {
@@ -770,7 +815,7 @@ export class GitHubBackupStore {
       await fs.writeFile(file, JSON.stringify(body), { mode: 0o600, flag: "wx" })
       args.push("--input", file)
     }
-    const text = await this.gh(args)
+    const text = await this.gh(args, { timeoutMs: 60_000 })
     try {
       return text ? JSON.parse(text) : null
     } catch {
@@ -830,7 +875,10 @@ export class GitHubBackupStore {
     }
   }
   async upload(tag, file) {
-    await this.gh(["release", "upload", tag, "--repo", this.repository, file])
+    await this.assertLease()
+    await this.gh(["release", "upload", tag, "--repo", this.repository, file], {
+      timeoutMs: 120_000,
+    })
   }
   async verifyAssets(release, files) {
     const current = await this.api(`repos/${this.repository}/releases/${release.id}`)
@@ -849,6 +897,7 @@ export class GitHubBackupStore {
     return current
   }
   async publish(metadata, files) {
+    await this.assertLease()
     const tag = metadata.tag
     if (!(SNAPSHOT_TAG.test(tag) || ARCHIVE_TAG.test(tag))) fail("RELEASE")
     const infos = await Promise.all(files.map((file) => fileInfo(file)))
@@ -962,44 +1011,174 @@ export class GitHubBackupStore {
     }
     return { release, receipt, manifest }
   }
-  async prune(now) {
+  async prune(now, { dryRun = false, archiveCleanup = "dry-run", archiveGraceDays = 30 } = {}) {
+    if (!dryRun) await this.assertLease()
     const releases = await this.listReleases(),
-      owned = []
-    let skippedUnverified = 0
+      owned = [],
+      archives = []
+    let skippedUnverified = 0,
+      archiveBlocked = false
+    const snapshots = new Map()
     for (const release of releases) {
       const body = parseOwnedRelease(release)
-      if (body?.kind !== "snapshot" || body.state !== "verified" || release.draft) continue
-      try {
-        await this.complete(release, body.identity)
-      } catch {
-        skippedUnverified++
+      if (!body || body.state !== "verified" || release.draft) {
+        // An interrupted or unknown owned snapshot may already reference an
+        // archive. Collection stays closed until that release is reconciled.
+        if (SNAPSHOT_TAG.test(release.tag_name || "")) archiveBlocked = true
         continue
       }
-      owned.push({
-        tag: release.tag_name,
-        identity: body.identity,
-        completedAt: body.completedAt,
-        complete: true,
-        id: release.id,
-      })
+      if (body.kind === "snapshot") {
+        try {
+          const complete = await this.complete(release, body.identity)
+          snapshots.set(release.tag_name, complete.manifest)
+        } catch {
+          skippedUnverified++
+          archiveBlocked = true
+          continue
+        }
+        owned.push({
+          tag: release.tag_name,
+          identity: body.identity,
+          completedAt: body.completedAt,
+          complete: true,
+          id: release.id,
+          bytes: release.assets.reduce((sum, asset) => sum + (asset.size || 0), 0),
+        })
+      } else if (body.kind === "archive") {
+        try {
+          await this.complete(release, body.identity)
+          archives.push({
+            tag: release.tag_name,
+            id: release.id,
+            createdAt: release.published_at || release.created_at || body.verifiedAt,
+            metadata: body,
+            unreferencedSince: body.unreferencedSince,
+            bytes: release.assets.reduce((sum, asset) => sum + (asset.size || 0), 0),
+          })
+        } catch {
+          /* Unverified archives are always retained. */
+        }
+      }
     }
     const plan = retentionPlan(owned, now)
-    for (const release of plan.remove) {
-      await this.api(`repos/${this.repository}/releases/${release.id}`, { method: "DELETE" })
-      try {
-        await this.api(
-          `repos/${this.repository}/git/refs/tags/${encodeURIComponent(release.tag)}`,
-          { method: "DELETE" },
-        )
-      } catch (error) {
-        if (error.status !== 404) throw error
+    const references = new Set(
+      plan.keep.flatMap((item) => snapshots.get(item.tag).archives.map((archive) => archive.tag)),
+    )
+    const unreferenced =
+      !archiveBlocked && plan.keep.length
+        ? archives.filter((archive) => !references.has(archive.tag))
+        : []
+    const quarantined = unreferenced.filter((archive) =>
+      Number.isFinite(Date.parse(archive.unreferencedSince)),
+    )
+    const quarantineCandidates = unreferenced.filter(
+      (archive) => !Number.isFinite(Date.parse(archive.unreferencedSince)),
+    )
+    const candidates = quarantined.filter(
+      (archive) =>
+        Number.isFinite(Date.parse(archive.createdAt)) &&
+        Date.parse(archive.createdAt) < now - Math.max(30, archiveGraceDays) * 86400000 &&
+        Date.parse(archive.unreferencedSince) < now - Math.max(30, archiveGraceDays) * 86400000,
+    )
+    if (!dryRun) for (const release of plan.remove) await this.removeOwnedRelease(release)
+    let removedArchives = 0,
+      removedArchiveBytes = 0
+    if (!dryRun && archiveCleanup === "apply") {
+      if (!archiveBlocked && plan.keep.length) {
+        // Quarantine begins when an archive is first observed without any
+        // retained reference, never merely when the archive was created.
+        for (const archive of archives) {
+          const referenced = references.has(archive.tag)
+          if ((referenced && archive.unreferencedSince) || quarantineCandidates.includes(archive)) {
+            const metadata = { ...archive.metadata }
+            if (referenced) delete metadata.unreferencedSince
+            else metadata.unreferencedSince = new Date(now).toISOString()
+            await this.api(`repos/${this.repository}/releases/${archive.id}`, {
+              method: "PATCH",
+              body: { body: JSON.stringify(metadata) },
+            })
+          }
+        }
+      }
+      for (const archive of candidates) {
+        // Re-read every remaining managed snapshot immediately before deletion.
+        // Concurrent/new or incomplete snapshots protect all of their archives.
+        let safe = true,
+          count = 0
+        for (const release of await this.listReleases()) {
+          if (!SNAPSHOT_TAG.test(release.tag_name || "")) continue
+          const body = parseOwnedRelease(release)
+          if (!body || body.state !== "verified" || release.draft) {
+            safe = false
+            break
+          }
+          try {
+            const checked = await this.complete(release, body.identity)
+            count++
+            if (checked.manifest.archives.some((reference) => reference.tag === archive.tag)) {
+              safe = false
+              break
+            }
+          } catch {
+            safe = false
+            break
+          }
+        }
+        if (safe && count) {
+          await this.removeOwnedRelease(archive)
+          removedArchives++
+          removedArchiveBytes += archive.bytes
+        }
       }
     }
     return {
+      dryRun,
       retained: plan.keep.length,
-      removed: plan.remove.length,
+      removed: dryRun ? 0 : plan.remove.length,
+      snapshotCandidates: plan.remove.map(({ tag, bytes }) => ({ tag, bytes })),
       skippedUnverified,
-      immutableArchivesAlwaysRetained: true,
+      archiveCleanup,
+      archiveGraceDays: Math.max(30, archiveGraceDays),
+      archiveBlocked,
+      archiveCandidates: candidates.map(({ tag, bytes }) => ({ tag, bytes })),
+      archiveCandidateBytes: candidates.reduce((sum, item) => sum + item.bytes, 0),
+      archiveQuarantineCandidates: quarantineCandidates.map(({ tag, bytes }) => ({ tag, bytes })),
+      quarantinedArchives: quarantined.length,
+      removedArchives,
+      retainedBytes:
+        plan.keep.reduce((sum, item) => sum + item.bytes, 0) +
+        archives.reduce((sum, item) => sum + item.bytes, 0) -
+        removedArchiveBytes,
+      immutableArchivesAlwaysRetained: false,
+      archiveRetention: "all-retained-snapshot-references-plus-grace-period",
+    }
+  }
+  async pinArchive(release) {
+    await this.assertLease()
+    const body = parseOwnedRelease(release)
+    if (!body || body.kind !== "archive" || body.state !== "verified" || release.draft)
+      fail("RELEASE")
+    // Reuse may be followed by an interrupted snapshot upload. Clear the old
+    // quarantine before publishing so its grace period cannot survive a new use.
+    if (body.unreferencedSince) {
+      const metadata = { ...body }
+      delete metadata.unreferencedSince
+      await this.api(`repos/${this.repository}/releases/${release.id}`, {
+        method: "PATCH",
+        body: { body: JSON.stringify(metadata) },
+      })
+    }
+  }
+  async removeOwnedRelease(release) {
+    await this.assertLease()
+    await this.api(`repos/${this.repository}/releases/${release.id}`, { method: "DELETE" })
+    try {
+      await this.assertLease()
+      await this.api(`repos/${this.repository}/git/refs/tags/${encodeURIComponent(release.tag)}`, {
+        method: "DELETE",
+      })
+    } catch (error) {
+      if (error.status !== 404) throw error
     }
   }
 }
@@ -1050,6 +1229,7 @@ export async function sourceArchive(repository, directory, store, runner = comma
       fail("SHA")
     const bundle = complete.receipt.files.find((file) => file.name === "archive.gitbundle")
     if (!bundle || !sameAssetRecord(complete.manifest.bundle, bundle)) fail("SHA")
+    await store.pinArchive?.(existing)
     return { ...normalized, tag, asset: { ...bundle } }
   }
   const archiveDir = await fs.mkdtemp(path.join(directory, "archive-")),
@@ -1112,11 +1292,126 @@ export async function sourceArchive(repository, directory, store, runner = comma
   await store.publish({ kind: "archive", identity: identity.refsSha256, tag }, [file, manifestFile])
   return { ...actual, tag, asset: bundle }
 }
+/** Archive private maintenance history and executable configuration, never release assets or Git credentials. */
+export async function stageHandoffMaterials(
+  materials,
+  maintenanceRepository,
+  directory,
+  runner = command,
+) {
+  if (!maintenanceRepository) return materials
+  const root = path.resolve(maintenanceRepository)
+  if ((await fs.realpath(root)) !== root || path.resolve(materials) !== path.join(root, "handoff"))
+    fail("PATH")
+  if (
+    (await runner("git", ["-C", root, "rev-parse", "--is-shallow-repository"])).trim() !== "false"
+  )
+    fail("CHANGED")
+  const dirty = await runner("git", ["-C", root, "status", "--porcelain", "--untracked-files=no"])
+  if (dirty.trim()) fail("CHANGED")
+  const staged = path.join(directory, "handoff-materials")
+  await fs.mkdir(staged, { mode: 0o700 })
+  async function copy(source, destination) {
+    const stat = await fs.lstat(source)
+    if (
+      stat.isSymbolicLink() ||
+      (!stat.isDirectory() && !stat.isFile()) ||
+      (stat.isFile() && stat.nlink !== 1)
+    )
+      fail("PATH")
+    if (stat.isDirectory()) {
+      await fs.mkdir(destination, { recursive: true, mode: 0o700 })
+      for (const name of (await fs.readdir(source)).sort())
+        await copy(path.join(source, name), path.join(destination, name))
+    } else await fs.copyFile(source, destination, constants.COPYFILE_EXCL)
+  }
+  const tracked = (
+    await runner("git", [
+      "-C",
+      root,
+      "ls-tree",
+      "-r",
+      "--name-only",
+      "-z",
+      "HEAD",
+      "--",
+      "handoff/",
+    ])
+  )
+    .split("\0")
+    .filter(Boolean)
+  if (!tracked.length) fail("PATH")
+  for (const file of tracked) {
+    assertRelativePath(file)
+    if (!file.startsWith("handoff/")) fail("PATH")
+    const destination = path.join(staged, file.slice("handoff/".length))
+    await fs.mkdir(path.dirname(destination), { recursive: true, mode: 0o700 })
+    await copy(path.join(root, file), destination)
+  }
+  const extra = path.join(staged, "maintenance")
+  await fs.mkdir(extra, { mode: 0o700 })
+  await copy(path.join(root, "backup.config.json"), path.join(extra, "backup.config.json"))
+  await copy(path.join(root, ".github/workflows/backup.yml"), path.join(extra, "backup.yml"))
+  const head = (await runner("git", ["-C", root, "rev-parse", "HEAD"])).trim()
+  const refs = (
+    await runner("git", [
+      "-C",
+      root,
+      "for-each-ref",
+      "--format=%(refname)",
+      "refs/heads",
+      "refs/remotes/origin",
+      "refs/tags",
+    ])
+  )
+    .trim()
+    .split("\n")
+    .filter(
+      (ref) =>
+        ref &&
+        ref !== "refs/remotes/origin/HEAD" &&
+        !/^refs\/tags\/hn-offsite-/.test(ref) &&
+        !/^refs\/(?:heads|remotes\/origin)\/hn-offsite-lock$/.test(ref),
+    )
+  const bundle = path.join(extra, "maintenance.gitbundle")
+  await runner("git", ["-C", root, "bundle", "create", bundle, "HEAD", ...refs])
+  await runner("git", ["-C", root, "bundle", "verify", bundle], { maxBytes: 32 * 1024 * 1024 })
+  if (
+    (await runner("git", ["-C", root, "rev-parse", "HEAD"])).trim() !== head ||
+    (await runner("git", ["-C", root, "status", "--porcelain", "--untracked-files=no"])).trim()
+  )
+    fail("CHANGED")
+  await fs.writeFile(
+    path.join(extra, "manifest.json"),
+    JSON.stringify(
+      {
+        format: "howard-notes-maintenance-v1",
+        head,
+        refs,
+        bundle: await fileInfo(bundle),
+        excludes: [
+          "release-assets",
+          "hn-offsite-release-tags",
+          "hn-offsite-lock-ref",
+          "git-config",
+          "credentials",
+          "untracked-files",
+        ],
+      },
+      null,
+      2,
+    ) + "\n",
+    { mode: 0o600, flag: "wx" },
+  )
+  return staged
+}
 export async function runOffsiteBackup({
   config,
   repository,
   key,
   materials,
+  maintenanceRepository,
+  dryRun = false,
   fetcher = fetch,
   runner = command,
   now = Date.now(),
@@ -1127,9 +1422,19 @@ export async function runOffsiteBackup({
   repositoryName(repository)
   const directory = await fs.mkdtemp(path.join(tempRoot, "howard-offsite-"))
   await fs.chmod(directory, 0o700)
+  let store,
+    leased = false
   try {
-    const store = storeFactory(repository, directory)
+    store = storeFactory(repository, directory)
     await store.assertPrivate()
+    if (dryRun)
+      return {
+        complete: false,
+        dryRun: true,
+        retention: await store.prune(now, { ...config.retention, dryRun: true }),
+      }
+    await store.acquireLease()
+    leased = true
     const latest = await fetchBackupStatus(config.siteBase, key, { fetcher, now })
     const contentFile = path.join(directory, "content.hnbackup"),
       content = await downloadContentBackup(config.siteBase, key, latest.id, contentFile, {
@@ -1137,7 +1442,12 @@ export async function runOffsiteBackup({
       })
     const handoffFile = path.join(directory, "handoff.tar"),
       handoff = await createHandoffTar(
-        materials || path.resolve(config.handoffDirectory),
+        await stageHandoffMaterials(
+          materials || path.resolve(config.handoffDirectory),
+          maintenanceRepository,
+          directory,
+          runner,
+        ),
         handoffFile,
       )
     const archives = []
@@ -1158,7 +1468,7 @@ export async function runOffsiteBackup({
     const existing = await store.release(tag)
     if (existing && !existing.draft) {
       await store.complete(existing, identity)
-      const retention = await store.prune(now)
+      const retention = await store.prune(now, config.retention)
       return {
         complete: true,
         noOp: true,
@@ -1182,7 +1492,10 @@ export async function runOffsiteBackup({
           githubRoundtripSha256: true,
           ciphertextAuthenticated: false,
         },
-        retention: { ...config.retention, immutableArchivesAlwaysRetained: true },
+        retention: {
+          ...config.retention,
+          archiveRetention: "all-retained-snapshot-references-plus-grace-period",
+        },
       },
       manifestFile = path.join(directory, "manifest.json")
     await fs.writeFile(manifestFile, JSON.stringify(manifest, null, 2) + "\n", {
@@ -1196,7 +1509,7 @@ export async function runOffsiteBackup({
     ])
     let retention
     try {
-      retention = await store.prune(now)
+      retention = await store.prune(now, config.retention)
     } catch {
       fail("RETENTION")
     }
@@ -1209,6 +1522,7 @@ export async function runOffsiteBackup({
       retention,
     }
   } finally {
+    if (leased) await store.releaseLease().catch(() => {})
     await fs.rm(directory, { recursive: true, force: true })
   }
 }

@@ -67,37 +67,61 @@ export class GitHubLibrary {
     this.repository = options.repository || REPOSITORY
     this.branch = options.branch || BRANCH
     this.now = options.now || Date.now
+    this.requestTimeoutMs = options.requestTimeoutMs ?? 20_000
+    this.signal = options.signal
     this.trashId = options.trashId || (() => crypto.randomUUID())
     this.trashCache = new Map()
     this.textCache = new Map()
   }
   async request(endpoint, method = "GET", body) {
-    const response = await this.fetcher(`https://api.github.com${endpoint}`, {
-      method,
-      credentials: "omit",
-      cache: "no-store",
-      headers: {
-        Accept: "application/vnd.github+json",
-        Authorization: `Bearer ${this.token}`,
-        "X-GitHub-Api-Version": "2026-03-10",
-        ...(body ? { "Content-Type": "application/json" } : {}),
-      },
-      ...(body ? { body: JSON.stringify(body) } : {}),
-    })
-    if (!response.ok) {
-      const error = new Error(
-        response.status === 401
-          ? "登录凭据无效或已过期，请重新登录。"
-          : response.status === 403
-            ? "GitHub 拒绝了请求。请检查应用的仓库权限，或稍后重试。"
-            : [409, 422].includes(response.status)
-              ? "远端发生变化，本次未覆盖任何远端内容。请重新载入后再保存。"
-              : `GitHub 请求失败（${response.status}），请稍后重试。`,
-      )
-      error.status = response.status
+    const controller = new AbortController()
+    const abort = () => controller.abort(this.signal.reason)
+    if (this.signal?.aborted) abort()
+    else this.signal?.addEventListener("abort", abort, { once: true })
+    const timer = setTimeout(
+      () => controller.abort(new DOMException("GitHub request deadline exceeded", "TimeoutError")),
+      this.requestTimeoutMs,
+    )
+    try {
+      controller.signal.throwIfAborted()
+      const response = await this.fetcher(`https://api.github.com${endpoint}`, {
+        method,
+        signal: controller.signal,
+        credentials: "omit",
+        cache: "no-store",
+        headers: {
+          Accept: "application/vnd.github+json",
+          Authorization: `Bearer ${this.token}`,
+          "X-GitHub-Api-Version": "2026-03-10",
+          ...(body ? { "Content-Type": "application/json" } : {}),
+        },
+        ...(body ? { body: JSON.stringify(body) } : {}),
+      })
+      if (!response.ok) {
+        const error = new Error(
+          response.status === 401
+            ? "登录凭据无效或已过期，请重新登录。"
+            : response.status === 403
+              ? "GitHub 拒绝了请求。请检查应用的仓库权限，或稍后重试。"
+              : [409, 422].includes(response.status)
+                ? "远端发生变化，本次未覆盖任何远端内容。请重新载入后再保存。"
+                : `GitHub 请求失败（${response.status}），请稍后重试。`,
+        )
+        error.status = response.status
+        throw error
+      }
+      return response.status === 204 ? null : await response.json()
+    } catch (error) {
+      if (controller.signal.aborted) {
+        const timeout = new Error("GitHub 请求超时或已停止，原文已保留，请稍后重试。")
+        timeout.name = "TimeoutError"
+        throw timeout
+      }
       throw error
+    } finally {
+      clearTimeout(timer)
+      this.signal?.removeEventListener("abort", abort)
     }
-    return response.status === 204 ? null : response.json()
   }
   repo(endpoint, method, body) {
     return this.request(`/repos/${this.repository}/${endpoint}`, method, body)

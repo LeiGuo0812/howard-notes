@@ -42,7 +42,10 @@ function fixture() {
       }
       return response({ jobs })
     }
-    if (route === "drafts") return response({ drafts: [] })
+    const query = new URL(url).searchParams
+    const page = Number(query.get("page") || 1),
+      pageSize = Number(query.get("pageSize") || 20)
+    if (route === "drafts") return response({ drafts: [], total: 0, page, pageSize })
     if (route === "articles") {
       if (options.method === "POST") {
         const prior = rows.get(body.article.id)
@@ -62,10 +65,14 @@ function fixture() {
         return response(row)
       }
       const status = new URL(url).searchParams.get("status") || "ACTIVE"
+      const values = [...rows.values()]
+        .filter((row) => row.status === status)
+        .map(({ raw, ...row }) => row)
       return response({
-        articles: [...rows.values()]
-          .filter((row) => row.status === status)
-          .map(({ raw, ...row }) => row),
+        articles: values.slice((page - 1) * pageSize, page * pageSize),
+        total: values.length,
+        page,
+        pageSize,
       })
     }
     const historical = /^articles\/([^/]+)\/versions(?:\/(\d+)(?:\/(restore))?)?$/.exec(route)

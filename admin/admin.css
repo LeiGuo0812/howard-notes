@@ -1249,3 +1249,22 @@ body > main > .publication-status {
     transform: none;
   }
 }
+.backup-metrics {
+  display: grid;
+  grid-template-columns: minmax(7em, auto) minmax(0, 1fr);
+  gap: 0.45rem 1rem;
+  font-size: 0.85rem;
+  line-height: 1.6;
+}
+.backup-metrics dt {
+  opacity: 0.75;
+}
+.backup-metrics dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.backup-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}

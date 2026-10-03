@@ -254,3 +254,17 @@ test("minified maintenance renderer retains graph and TOC presentation", async (
   assert.match(pages.find((page) => page.path === "notes/related-note")!.html, /runtime-backlinks/)
   assert.match(article, /id="quartz-body"/)
 })
+
+test("home embeds compact public previews without hidden full-card pools", () => {
+  const projection = fixture()
+  const home = renderPages(projection, shell).find((page) => page.path === "index")!.html
+  assert.doesNotMatch(home, /random-note-pool/)
+  const payload = home.match(
+    /<script id="home-browse-data" type="application\/json">([\s\S]*?)<\/script>/,
+  )![1]
+  const data = JSON.parse(payload)
+  assert.equal(data.notes.length, projection.blogData.articles.length)
+  assert.equal(data.notes[0][1], "新文章 <script>")
+  assert.ok(!payload.includes("<script>"))
+  assert.ok(data.notes.every((row: unknown[]) => row.length === 7))
+})

@@ -755,7 +755,7 @@ export async function memoriesResponse(request, env, db, path, authorize) {
       return await fileRead(request, env, db, suffix.slice(6), auth.owner, auth.headers)
     }
     if (!writing && (!suffix || suffix === "tags")) {
-      const filter = condition(url, auth.owner)
+      let filter = condition(url, auth.owner)
       const tags = await db
         .prepare(
           "SELECT j.value AS name,count(*) AS count FROM memory_cards,json_each(json_extract(body,'$.tags')) j" +
@@ -767,9 +767,40 @@ export async function memoriesResponse(request, env, db, path, authorize) {
       if (suffix === "tags")
         return json({ tags: tags.results, owner: auth.owner }, 200, auth.headers)
       const { order, sort } = orderOf(url)
+      const timeline = url.searchParams.get("view") === "timeline"
+      const field = sort.startsWith("modified") ? "modified_at" : "created_at"
+      let months
+      if (timeline) {
+        // Aggregate the entire visible result set, independently of the page
+        // and selected month. A visitor never receives private month counts.
+        const result = await db
+          .prepare(
+            `SELECT strftime('%Y-%m', ${field}/1000, 'unixepoch', '+8 hours') AS month,count(*) AS count FROM memory_cards` +
+              filter.where +
+              ` GROUP BY month ORDER BY month ${sort.endsWith("asc") ? "ASC" : "DESC"}`,
+          )
+          .bind(...filter.values)
+          .all()
+        months = result.results
+        const month = url.searchParams.get("month")
+        if (month) {
+          if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(month)) throw new MemoryError("月份不正确。")
+          const start = new Date(`${month}-01T00:00:00Z`)
+          const end = new Date(start)
+          end.setUTCMonth(end.getUTCMonth() + 1)
+          const offset = 8 * 60 * 60 * 1000
+          filter = {
+            where:
+              filter.where +
+              (filter.where ? " AND " : " WHERE ") +
+              `${field} >= ? AND ${field} < ?`,
+            values: [...filter.values, start.getTime() - offset, end.getTime() - offset],
+          }
+        }
+      }
       const page = Math.max(1, Number(url.searchParams.get("page")) || 1)
       if (!Number.isSafeInteger(page) || page > 100000) throw new MemoryError("页码不正确。")
-      const pageSize = url.searchParams.get("view") === "timeline" ? 5000 : 20
+      const pageSize = timeline ? 100 : 20
       const count = await db
         .prepare("SELECT count(*) AS count FROM memory_cards" + filter.where)
         .bind(...filter.values)
@@ -789,6 +820,7 @@ export async function memoriesResponse(request, env, db, path, authorize) {
           sort,
           owner: auth.owner,
           tags: tags.results,
+          ...(months ? { months } : {}),
         },
         200,
         auth.headers,

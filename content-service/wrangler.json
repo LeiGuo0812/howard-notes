@@ -4,17 +4,34 @@
   "main": "worker.mjs",
   "compatibility_date": "2026-09-30",
   "workers_dev": true,
-  "observability": { "enabled": false },
-  "triggers": { "crons": ["* * * * *", "47 * * * *"] },
+  "observability": {
+    "enabled": true,
+    "head_sampling_rate": 1,
+    "logs": {
+      "enabled": true,
+      "invocation_logs": false
+    },
+    "redact_query_string": true
+  },
+  "triggers": {
+    "crons": ["* * * * *", "47 * * * *"]
+  },
   "r2_buckets": [
-    { "binding": "BACKUP_BUCKET", "bucket_name": "howard-notes-backups" },
-    { "binding": "PERSONAL_FILES_BUCKET", "bucket_name": "howard-notes-private-files" }
+    {
+      "binding": "BACKUP_BUCKET",
+      "bucket_name": "howard-notes-backups"
+    },
+    {
+      "binding": "PERSONAL_FILES_BUCKET",
+      "bucket_name": "howard-notes-private-files"
+    }
   ],
   "d1_databases": [
     {
       "binding": "DB",
       "database_name": "howard-notes-content",
-      "database_id": "33d90842-0e8f-40d2-b278-11a8f6048b5c"
+      "database_id": "33d90842-0e8f-40d2-b278-11a8f6048b5c",
+      "migrations_dir": "migrations"
     }
   ],
   "assets": {

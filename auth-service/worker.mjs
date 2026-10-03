@@ -568,6 +568,7 @@ export async function handle(request, env, fetcher = (...args) => fetch(...args)
           expiresAt: exchangeStartedAt + token.expires_in * 1000,
         })
       } catch (error) {
+        console.warn(JSON.stringify({ service: "login", event: "authorization_incomplete" }))
         return await complete(env, flow, { error: error.message })
       }
     }
@@ -576,6 +577,7 @@ export async function handle(request, env, fetcher = (...args) => fetch(...args)
   } catch (error) {
     // Do not expose upstream bodies, authorization codes or configuration in error pages/logs.
     const known = /[\u3400-\u9fff]/.test(error.message || "")
+    if (!known) console.error(JSON.stringify({ service: "login", event: "request_failed" }))
     return page(
       "暂未完成",
       `<p>${escape(known ? error.message : "登录服务暂时不可用，请稍后重试。")}</p><a href="${escape(env.ADMIN_URL)}">返回管理后台</a>`,

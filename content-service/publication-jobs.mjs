@@ -327,7 +327,7 @@ async function synchronized(db, checkpoint, client) {
   }
   return true
 }
-export async function runPublicationJob(env, db, id, fetcher = fetch) {
+export async function runPublicationJob(env, db, id, fetcher = fetch, options = {}) {
   let row = await db.prepare("SELECT * FROM publication_jobs WHERE id=?").bind(id).first()
   if (!row || terminal.has(row.status)) return row ? describe(row) : null
   const now = Date.now(),
@@ -340,6 +340,11 @@ export async function runPublicationJob(env, db, id, fetcher = fetch) {
     .run()
   if (!claimed.meta.changes) return describe(row)
   row = await db.prepare("SELECT * FROM publication_jobs WHERE id=?").bind(id).first()
+  const controller = new AbortController()
+  const timer = setTimeout(
+    () => controller.abort(new DOMException("Publication deadline exceeded", "TimeoutError")),
+    options.timeoutMs ?? 60_000,
+  )
   try {
     const token = await openToken(env, row)
     const githubFetch = (url, options) =>
@@ -351,6 +356,8 @@ export async function runPublicationJob(env, db, id, fetcher = fetch) {
     const client = new GitHubLibrary(token, githubFetch, {
       repository: env.REPOSITORY,
       branch: env.BRANCH,
+      signal: controller.signal,
+      requestTimeoutMs: options.requestTimeoutMs ?? 20_000,
     })
     const checkpoint = await writeGit(env, db, row, client, leaseId)
     if (checkpoint.deferred) {
@@ -420,13 +427,15 @@ export async function runPublicationJob(env, db, id, fetcher = fetch) {
         leaseId,
       )
       .run()
+  } finally {
+    clearTimeout(timer)
   }
   return describe(await db.prepare("SELECT * FROM publication_jobs WHERE id=?").bind(id).first())
 }
 export async function runPendingPublications(env, db, fetcher = fetch) {
   const rows = await db
     .prepare(
-      "SELECT id FROM publication_jobs WHERE status IN ('queued','running','awaiting_sync','retry') AND next_run_at<=? AND lease_until<=? ORDER BY created_at LIMIT 1",
+      "SELECT id FROM publication_jobs WHERE status IN ('queued','running','awaiting_sync','retry') AND next_run_at<=? AND lease_until<=? ORDER BY next_run_at,updated_at,created_at,id LIMIT 1",
     )
     .bind(Date.now(), Date.now())
     .all()
@@ -439,9 +448,9 @@ export async function runPendingPublications(env, db, fetcher = fetch) {
     .run()
   await db
     .prepare(
-      "DELETE FROM publication_jobs WHERE updated_at<? AND status IN ('completed','cancelled','conflict')",
+      "DELETE FROM publication_jobs WHERE updated_at<? AND lease_until<=? AND status IN ('completed','cancelled','conflict','awaiting_auth')",
     )
-    .bind(Date.now() - 30 * 86400000)
+    .bind(Date.now() - 30 * 86400000, Date.now())
     .run()
 }
 export async function publicationJobsResponse(
@@ -495,6 +504,35 @@ export async function publicationJobsResponse(
       value = JSON.parse(new TextDecoder().decode(bytes))
     } catch {
       throw new JobError("任务内容格式不正确。")
+    }
+    const cancel = /^personal\/jobs\/([a-f0-9-]+)\/cancel$/.exec(route)
+    if (cancel) {
+      if (!uuid.test(cancel[1])) throw new JobError("任务编号不正确。")
+      const row = await db
+        .prepare("SELECT * FROM publication_jobs WHERE id=?")
+        .bind(cancel[1])
+        .first()
+      if (!row) throw new JobError("任务不存在。", 404)
+      if (terminal.has(row.status)) return json(describe(row))
+      const changed = await db
+        .prepare(
+          "UPDATE publication_jobs SET status='cancelled',token_cipher=NULL,lease_id=NULL,lease_until=0,updated_at=?,error=? WHERE id=? AND lease_until<=? AND status NOT IN ('completed','cancelled','conflict')",
+        )
+        .bind(
+          Date.now(),
+          row.checkpoint
+            ? "已停止跟踪；已提交的公开内容不会自动撤回。"
+            : "已停止任务，私密原文继续保留。",
+          row.id,
+          Date.now(),
+        )
+        .run()
+      if (!changed.meta.changes) throw new JobError("任务正在处理，请稍后停止。", 409)
+      return json(
+        describe(
+          await db.prepare("SELECT * FROM publication_jobs WHERE id=?").bind(row.id).first(),
+        ),
+      )
     }
     const resume = /^personal\/jobs\/([a-f0-9-]+)\/resume$/.exec(route)
     if (resume) {

@@ -74,10 +74,21 @@ async function schema(db) {
       .all()
   ).results
   const tables = rows.filter((row) => row.type === "table" && BACKUP_TABLES.includes(row.name))
+  if (tables.length !== BACKUP_TABLES.length)
+    throw new Error("A required canonical backup table is missing.")
   for (const table of tables) {
-    for (const operation of ["insert", "update", "delete"])
-      if (!rows.some((row) => row.name === `backup_epoch_${table.name}_${operation}`))
-        throw new Error("A canonical table is missing its backup mutation guard.")
+    for (const operation of ["insert", "update", "delete"]) {
+      const name = `backup_epoch_${table.name}_${operation}`
+      const guard = rows.find((row) => row.type === "trigger" && row.name === name)
+      const normalized = guard?.sql
+        ?.toLowerCase()
+        .replace(/\bif\s+not\s+exists\s+/g, "")
+        .replace(/[\s"`\[\]]/g, "")
+        .replace(/;$/, "")
+      const expected = `createtrigger${name}after${operation}on${table.name}beginupdatebackups_epochsetgeneration=generation+1whereid=1;end`
+      if (guard?.tbl_name !== table.name || normalized !== expected)
+        throw new Error("A canonical table is missing its valid backup mutation guard.")
+    }
   }
   return {
     tables: tables.map((table) => ({
@@ -124,6 +135,9 @@ function publicProgress(job) {
     ? {
         id: job.id,
         startedAt: job.createdAt,
+        firstStartedAt: job.firstStartedAt || job.createdAt,
+        restartCount: job.restartCount || 0,
+        attempts: (job.restartCount || 0) + 1,
         copiedTables: job.tableIndex,
         totalTables: job.tables.length,
         rows: job.parts.reduce((sum, part) => sum + part.rows, 0),
@@ -133,7 +147,7 @@ function publicProgress(job) {
       }
     : null
 }
-async function saveProgress(env, job, latest, error = null) {
+async function saveProgress(env, job, latest, error = null, metrics = {}) {
   if (job) await writeEncrypted(env.BACKUP_BUCKET, PROGRESS, job, env.BACKUP_SECRET)
   else await env.BACKUP_BUCKET.delete(PROGRESS)
   await env.BACKUP_BUCKET.put(
@@ -143,6 +157,7 @@ async function saveProgress(env, job, latest, error = null) {
       progress: publicProgress(job),
       error,
       checkedAt: new Date().toISOString(),
+      ...metrics,
     }),
     { httpMetadata: { contentType: "application/json" } },
   )
@@ -240,7 +255,9 @@ async function performScheduledBackup(env, options) {
   const db = options.db
   const now = options.now
   const budget = Math.max(8, Math.min(35, options.maxQueries ?? 8))
-  const maxPages = Math.max(1, Math.min(8, options.maxPages ?? 1))
+  const maxPages = Math.max(1, Math.min(8, options.maxPages ?? 4))
+  const maxFileChunks = Math.max(1, Math.min(4, options.maxFileChunks ?? 1))
+  const deadline = Date.now() + Math.max(250, Math.min(15_000, options.maxMilliseconds ?? 8_000))
   const previous = await readJson(env.BACKUP_BUCKET, STATUS)
   let job = await readEncrypted(env.BACKUP_BUCKET, PROGRESS, env.BACKUP_SECRET)
   if (
@@ -249,17 +266,21 @@ async function performScheduledBackup(env, options) {
     previous?.latest?.completedAt?.slice(0, 10) === new Date(now).toISOString().slice(0, 10)
   )
     return { status: "current", latest: previous.latest }
+  let restartCount = job?.restartCount || previous?.restartCount || 0
+  let firstStartedAt =
+    job?.firstStartedAt || job?.createdAt || previous?.firstStartedAt || new Date(now).toISOString()
   try {
     let queries = 0
+    const definitions = await schema(db)
+    queries++
     const generation = await epoch(db)
     queries++
     if (job && job.generation !== generation) {
       await discardSnapshot(env.BACKUP_BUCKET, job.id)
+      restartCount++
       job = null
     }
     if (!job) {
-      const definitions = await schema(db)
-      queries++
       const counts = definitions.tables.length
         ? await db.prepare(rowCounts(definitions.tables)).first()
         : {}
@@ -271,6 +292,8 @@ async function performScheduledBackup(env, options) {
         id,
         generation,
         createdAt: new Date(now).toISOString(),
+        firstStartedAt,
+        restartCount,
         tables: definitions.tables.map((table) => {
           return {
             ...table,
@@ -291,21 +314,23 @@ async function performScheduledBackup(env, options) {
       }
     }
     let copiedPages = 0
-    let copiedAttachment = false
-    if (job.pendingFile) {
+    let copiedAttachment = 0
+    while (job.pendingFile && copiedAttachment < maxFileChunks && Date.now() < deadline) {
       job.pendingFile = await backupPrivateFile(
         env,
         job.pendingFile.file,
         job.objects,
         job.pendingFile,
       )
-      copiedAttachment = true
+      copiedAttachment++
     }
     while (
       job.tableIndex < job.tables.length &&
       queries < budget - 2 &&
       copiedPages < maxPages &&
-      !copiedAttachment
+      !job.pendingFile &&
+      copiedAttachment < maxFileChunks &&
+      Date.now() < deadline
     ) {
       const table = job.tables[job.tableIndex]
       const rows = (
@@ -340,10 +365,19 @@ async function performScheduledBackup(env, options) {
       })
       copiedPages++
       if (table.name === "personal_files") {
-        // A metadata page has at most one file; each invocation copies one
-        // 256KiB range, then saves its encrypted checkpoint before returning.
+        // File ranges remain bounded; cron may copy up to four 256KiB chunks
+        // per invocation before persisting its encrypted checkpoint.
         job.pendingFile = await backupPrivateFile(env, values[0], job.objects)
-        copiedAttachment = true
+        copiedAttachment++
+        while (job.pendingFile && copiedAttachment < maxFileChunks && Date.now() < deadline) {
+          job.pendingFile = await backupPrivateFile(
+            env,
+            job.pendingFile.file,
+            job.objects,
+            job.pendingFile,
+          )
+          copiedAttachment++
+        }
       }
     }
     if ((await epoch(db)) !== job.generation)
@@ -352,6 +386,8 @@ async function performScheduledBackup(env, options) {
       await saveProgress(env, job, previous?.latest || null)
       return { status: "progress", progress: publicProgress(job) }
     }
+    // Revalidate the complete canonical structure before activating the manifest.
+    await schema(db)
     const latest = {
       id: job.id,
       createdAt: job.createdAt,
@@ -360,6 +396,10 @@ async function performScheduledBackup(env, options) {
       tables: job.tables.length,
       bytes: job.parts.reduce((sum, part) => sum + part.bytes, 0),
       privateFiles: job.objects.length,
+      privateBytes: job.objects.reduce((total, file) => total + file.size, 0),
+      durationMs: Math.max(0, now - Date.parse(job.createdAt)),
+      totalDurationMs: Math.max(0, now - Date.parse(firstStartedAt)),
+      restartCount,
     }
     const manifest = { ...job, completedAt: latest.completedAt }
     delete manifest.tableIndex
@@ -385,7 +425,11 @@ async function performScheduledBackup(env, options) {
     return { status: "complete", latest }
   } catch (error) {
     if (job) await discardSnapshot(env.BACKUP_BUCKET, job.id).catch(() => {})
-    await saveProgress(env, null, previous?.latest || null, error.message).catch(() => {})
+    if (error.message === "Canonical data changed during backup.") restartCount++
+    await saveProgress(env, null, previous?.latest || null, error.message, {
+      restartCount,
+      firstStartedAt,
+    }).catch(() => {})
     throw error
   }
 }
@@ -522,6 +566,8 @@ function completeManifestKeys(manifest, id) {
       throw new Error("Snapshot contains an unsupported table.")
     tables.add(table.name)
   }
+  if (tables.size !== BACKUP_TABLES.length)
+    throw new Error("Snapshot is missing a required canonical table.")
   for (const part of manifest.parts) {
     if (
       !part ||
@@ -570,7 +616,7 @@ function exportMetadata(value) {
     ["rows", "tables", "bytes", "privateFiles"].some(
       (field) => !Number.isSafeInteger(value[field]) || value[field] < 0,
     ) ||
-    value.tables > BACKUP_TABLES.length
+    value.tables !== BACKUP_TABLES.length
   )
     return null
   return {
@@ -701,6 +747,84 @@ async function exportBackupsResponse(request, env, route, extraHeaders) {
   return backupBundle(env, parameters.get("id"), extraHeaders)
 }
 
+/** Read-only metadata totals. Missing catalogue links are not proof of garbage. */
+export async function backupStorageReport(db, now = Date.now()) {
+  const files = await db
+    .prepare(
+      `SELECT
+    COUNT(*) AS registeredCount, COALESCE(SUM(size),0) AS registeredBytes,
+    SUM(CASE WHEN complete=0 THEN 1 ELSE 0 END) AS incompleteCount,
+    SUM(CASE WHEN NOT EXISTS (SELECT 1 FROM personal_attachments a WHERE a.file_id=personal_files.id) THEN 1 ELSE 0 END) AS uncataloguedCount,
+    COALESCE(SUM(CASE WHEN NOT EXISTS (SELECT 1 FROM personal_attachments a WHERE a.file_id=personal_files.id) THEN size ELSE 0 END),0) AS uncataloguedBytes
+    FROM personal_files`,
+    )
+    .first()
+  const unique = await db
+    .prepare(
+      "SELECT COUNT(*) AS uniqueObjectCount,COALESCE(SUM(size),0) AS uniqueObjectBytes FROM (SELECT object_key,MAX(size) AS size FROM personal_files WHERE complete=1 GROUP BY object_key)",
+    )
+    .first()
+  const records = await db
+    .prepare(
+      `SELECT
+    (SELECT COUNT(*) FROM personal_articles) AS articles,
+    (SELECT COUNT(*) FROM personal_drafts) AS drafts,
+    (SELECT COUNT(*) FROM personal_article_versions) AS articleVersions,
+    (SELECT COUNT(*) FROM personal_draft_versions) AS draftVersions,
+    (SELECT COUNT(*) FROM personal_articles WHERE status='TRASH') AS trashedArticles,
+    (SELECT COUNT(*) FROM personal_drafts WHERE status='TRASH') AS trashedDrafts`,
+    )
+    .first()
+  let queue = null
+  try {
+    const row = await db
+      .prepare(
+        `SELECT
+      SUM(CASE WHEN status IN ('queued','running','retry','awaiting_sync','awaiting_auth') THEN 1 ELSE 0 END) AS activeCount,
+      SUM(CASE WHEN status='awaiting_auth' THEN 1 ELSE 0 END) AS awaitingAuthCount,
+      MIN(CASE WHEN status IN ('queued','running','retry','awaiting_sync','awaiting_auth') THEN created_at END) AS oldestCreatedAt
+      FROM publication_jobs`,
+      )
+      .first()
+    queue = {
+      activeCount: row.activeCount || 0,
+      awaitingAuthCount: row.awaitingAuthCount || 0,
+      oldestPendingAgeMs:
+        row.oldestCreatedAt == null ? null : Math.max(0, now - row.oldestCreatedAt),
+    }
+  } catch {
+    /* Older restored databases may not have the transient publication queue yet. */
+  }
+  return {
+    files: {
+      ...files,
+      ...unique,
+      incompleteCount: files.incompleteCount || 0,
+      uncataloguedCount: files.uncataloguedCount || 0,
+    },
+    records,
+    queue,
+    policy: {
+      deletionEnabled: false,
+      unreferencedProven: false,
+      reason:
+        "Current Markdown, drafts, version history, trash and retained backups may reference uncatalogued originals; all originals remain preserved.",
+    },
+  }
+}
+
+export function backupHealth(status, now = Date.now()) {
+  const completed = Date.parse(status?.latest?.completedAt)
+  const ageMs = Number.isFinite(completed) ? Math.max(0, now - completed) : null
+  return {
+    ageMs,
+    stale: ageMs === null || ageMs > 48 * 60 * 60_000,
+    restartCount: status?.progress?.restartCount ?? status?.restartCount ?? 0,
+    durationMs: status?.latest?.durationMs ?? null,
+    privateBytes: status?.latest?.privateBytes ?? null,
+  }
+}
+
 /** Caller supplies the existing verified owner authorization and CORS policy. */
 export async function backupsResponse(
   request,
@@ -729,11 +853,17 @@ export async function backupsResponse(
     if (request.method === "GET" && (route === "backups" || route === "backups/status")) {
       const status = await readJson(env.BACKUP_BUCKET, STATUS)
       return json(
-        { configured: true, ...(status || { latest: null, progress: null, error: null }) },
+        {
+          configured: true,
+          ...(status || { latest: null, progress: null, error: null }),
+          health: backupHealth(status),
+        },
         200,
         extraHeaders,
       )
     }
+    if (request.method === "GET" && route === "backups/storage")
+      return json(await backupStorageReport(db), 200, extraHeaders)
     if (request.method === "GET" && route === "backups/download") {
       const id =
         new URL(request.url).searchParams.get("id") ||

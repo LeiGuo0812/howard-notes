@@ -40,7 +40,9 @@
 | `content-service/personal-notes.mjs`            | 认证 D1 原文、草稿、历史、回收站及私密文件接口 |
 | `scripts/build-maintenance.mjs`                 | 共用表单生成、Shadow DOM 样式及版本化入口      |
 
-访客只加载轻量启动器。编辑器、预览依赖、GitHub 文库、原文章与草稿均在维护模式按需获取。独立后台和主站分别构建入口，但使用同一套源码和同一份 `admin/index.html` 表单。
+访客只加载轻量启动器。`maintenance.mjs` 只负责会话、权限状态、导航及命令入口；恢复登录不会加载完整目录与编辑器。第一次打开维护窗口时，才动态导入 `maintenance-workspace.mjs`、共享表单和样式。独立后台和主站分别构建入口，但使用同一套 `workspace.mjs` 和同一份 `admin/index.html` 表单。
+
+编辑预览由 `runtime/editor-preview.ts` 在独立 Worker 中复用正式 Quartz 编译器，提示块、代码、公式和净化规则与正式阅读一致。连续输入只保留最新待处理版本，过期响应不得覆盖新文章；图片解析和 Mermaid 生命周期仍由主线程控制，不把原文或登录凭据发送给 Worker 之外的服务。
 
 维护工作区使用 Shadow DOM 隔离样式与 ID；输入锁定仅作用于工作区。Quartz 在 `prenav` 时拆下维护宿主，在 `nav` 时重新挂载同一个宿主，避免 `micromorph` 替换编辑器；会话、撤销历史和未保存缓冲区因此保留。编辑原文章时挂到正文位置，导航到其他页面时以面板继续保留。
 
