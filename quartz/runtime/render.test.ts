@@ -212,7 +212,8 @@ test("page settings update the tab icon without deploying new static image asset
   projection.settings = {
     ...projection.settings,
     brand: { ...projection.settings.brand, mark: "G&" },
-    design: { ...projection.settings.design, accentColor: "#56789a" },
+    // Custom accent coverage must not depend on the owner's saved preset.
+    design: { ...projection.settings.design, palette: "current", accentColor: "#56789a" },
   }
   projection.blogData.settings = projection.settings
   const cachedShell = { ...shell, head: shell.head + '<link rel="icon" href="/old-brand.svg">' }
@@ -226,6 +227,8 @@ test("page settings update the tab icon without deploying new static image asset
     const svg = decodeURIComponent(dataUrl.slice("data:image/svg+xml,".length))
     assert.match(svg, /G&amp;/)
     assert.match(svg, /#56789a/)
+    assert.match(page.html, /data-site-palette="current"/)
+    assert.match(page.html, /data-site-brand-mark="G&amp;"/)
   }
 })
 
