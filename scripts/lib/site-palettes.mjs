@@ -1,3 +1,5 @@
+import { brandMarkColors } from "./site-brand-colors.mjs"
+
 // Paired color presets approved in the theme preview. Only semantic colors are
 // included here; glass, shadows, geometry and motion keep their existing rules.
 const freeze = (value) => {
@@ -247,6 +249,9 @@ export function paletteVariables(selection) {
       const value = palette[mode][key]
       if (value) variables[`--site-palette-${role}-${mode}`] = value
     }
+    const mark = brandMarkColors(palette[mode])
+    variables[`--site-palette-mark-${mode}`] = mark.background
+    variables[`--site-palette-mark-ink-${mode}`] = mark.foreground
     for (const [index, colors] of (palette.categories?.[mode] ?? []).entries()) {
       variables[`--site-palette-category-${index + 1}-bg-${mode}`] = colors.bg
       variables[`--site-palette-category-${index + 1}-fg-${mode}`] = colors.fg

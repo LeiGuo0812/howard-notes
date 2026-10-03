@@ -197,15 +197,19 @@ a.blog-brand.internal {
   place-items: center;
   width: 42px;
   height: 42px;
-  border: 1px solid color-mix(in srgb, var(--secondary) 35%, transparent);
+  border: 0;
   border-radius: 14px;
-  background: linear-gradient(155deg, var(--glass-highlight), transparent), var(--highlight);
-  color: var(--secondary);
-  box-shadow: inset 0 1px 0 var(--glass-highlight);
+  background: var(--site-brand-fill-light, var(--secondary));
+  color: var(--site-brand-ink-light, #fff);
+  box-shadow: none;
   font:
     700 29px/1 Georgia,
     serif;
   padding-bottom: 4px;
+}
+:root[saved-theme="dark"] .brand-mark {
+  background: var(--site-brand-fill-dark, var(--secondary));
+  color: var(--site-brand-ink-dark, #181c24);
 }
 .brand-name {
   font-size: 17px;
@@ -1837,29 +1841,165 @@ a.article-row.internal {
   }
 }
 
-// Palette presets use an unmixed page colour while retaining every material
-// surface, shadow, blur, hover transition and spotlight layer above it.
+// Approved preview recipes own component colours, rather than just the root
+// variables. Geometry, blur, shadows and interaction timing stay unchanged.
 :root:where([data-site-palette]:not([data-site-palette="current"])) {
   body,
   body:has(.blog-layout.is-article) {
     background: var(--site-theme-page);
   }
-  .brand-mark {
-    background-color: var(--site-theme-mark);
-    color: var(--site-theme-mark-ink);
+  .home-heading h1 {
+    color: var(--site-theme-home-title);
+  }
+  .home-eyebrow .home-identity,
+  .blog-nav a:not([aria-current="page"]):not(:hover),
+  .lucky-previews a.note-preview.internal time,
+  .lucky-previews a.note-preview.internal p {
+    color: var(--site-theme-muted);
+  }
+  .blog-nav a[aria-current="page"],
+  .listing-tag-link[aria-current="true"],
+  .listing-tag-link[aria-current="location"] {
+    background: var(--site-theme-selected-fill);
+  }
+  a.topic-chip.internal,
+  .tag-chips a.topic-chip.internal,
+  .lucky-previews a.note-preview.internal > small {
+    background: var(--site-theme-chip-fill);
+    color: var(--site-theme-accent);
+  }
+  #refresh-random-notes,
+  .maintenance-toolbar [data-maintenance-action="new"] {
+    background: var(--site-theme-signal);
+    border-color: var(--site-theme-signal);
+    color: var(--site-theme-on-signal);
+    small {
+      color: inherit;
+    }
+    &:hover {
+      background: var(--site-theme-signal-hover);
+      color: var(--site-theme-on-signal);
+    }
+  }
+  .heatmap-day {
+    --activity-level: 7%;
+    border-color: color-mix(in srgb, var(--site-theme-signal) 12%, transparent);
+    background: color-mix(
+      in srgb,
+      var(--site-theme-signal) var(--activity-level),
+      var(--site-theme-page)
+    );
+    &.level-1 {
+      --activity-level: 18%;
+    }
+    &.level-2 {
+      --activity-level: 34%;
+    }
+    &.level-3 {
+      --activity-level: 50%;
+    }
+    &.level-4 {
+      --activity-level: 82%;
+    }
+  }
+  .reading-sidebar .toc ul.toc-content.overflow > li > a {
+    color: var(--site-theme-muted);
+    opacity: 1;
+    &:hover,
+    &.in-view {
+      color: var(--site-theme-accent);
+    }
+    &.in-view {
+      box-shadow: -2px 0 0 var(--site-theme-signal);
+    }
+  }
+  .reading-sidebar .toc .toc-header h3 {
+    color: var(--site-theme-text);
+  }
+  .note-relationship-graph {
+    circle {
+      fill: var(--site-theme-related-node);
+    }
+    .current-node {
+      fill: var(--site-theme-accent);
+    }
+    text {
+      fill: var(--site-theme-muted);
+    }
+    .current-node-title {
+      fill: var(--site-theme-accent);
+    }
+  }
+  .page[data-frame="blog"] .site-surface article,
+  #private-notes-app .private-reading-body {
+    blockquote {
+      background: var(--site-theme-quote-fill);
+      color: var(--site-theme-muted);
+      border-left-color: color-mix(in srgb, var(--site-theme-accent) 55%, transparent);
+    }
+    .table-container {
+      border-color: var(--site-theme-table-line);
+    }
+    th,
+    td {
+      border-color: var(--site-theme-table-line);
+    }
+    th {
+      background: var(--site-theme-table-fill);
+      color: var(--site-theme-muted);
+    }
+    tr:nth-child(even) {
+      background: transparent;
+    }
+  }
+  // Shiki's inner code background must not hide the themed pre surface.
+  pre > code[data-theme] {
+    background: transparent;
+    color: var(--site-theme-text);
+    span[data-token-type="comment"] {
+      color: var(--site-theme-muted);
+    }
+    span[data-token-type="string"] {
+      color: var(--site-theme-accent);
+    }
+  }
+  .memory-hub {
+    --memory-card-fill: var(--glass-card);
+    --memory-control-fill: var(--glass-card);
+  }
+  .memory-sidebar {
+    background: var(--glass-fill);
+  }
+}
+:root:where(
+    [data-site-palette]:not([data-site-palette="current"], [data-site-palette="clean-multicolor"])
+  )
+  .module-topics
+  .topic-chips
+  > a.topic-chip:first-child {
+  background: var(--site-theme-signal);
+  border-color: var(--site-theme-signal);
+  color: var(--site-theme-on-signal);
+  small {
+    color: inherit;
+  }
+  &:hover {
+    background: var(--site-theme-signal-hover);
+    color: var(--site-theme-on-signal);
   }
 }
 :root:where([data-site-palette="clean-multicolor"]) {
   a.topic-chip.internal[data-palette-category],
   .lucky-previews a.note-preview.internal[data-palette-category] > small,
+  .tag-chips a.topic-chip.internal[data-palette-category],
   .listing-tag-link[data-palette-category] {
     background-color: var(--site-category-fill);
     color: var(--site-category-ink);
     border-color: color-mix(in srgb, var(--site-category-ink) 16%, transparent);
   }
   a.topic-chip.internal[data-palette-category]:hover {
-    background: var(--glass-hover);
-    color: var(--secondary);
+    background: var(--site-category-fill);
+    color: var(--site-category-ink);
     border-color: color-mix(in srgb, var(--secondary) 40%, var(--glass-edge));
   }
   .listing-tag-link[data-palette-category]:hover,
@@ -1870,15 +2010,15 @@ a.article-row.internal {
   }
   .topic-card-grid .topic-section.topic-card[data-palette-category] {
     --frost-solid: var(--site-category-fill);
-    --frost-fill: color-mix(in srgb, var(--site-category-fill) 55%, transparent);
-    --glass-card-tint: color-mix(in srgb, var(--site-category-fill) 15%, transparent);
-    --glass-card-violet: color-mix(in srgb, var(--site-category-fill) 15%, transparent);
+    --frost-fill: var(--site-category-fill);
+    --glass-card-tint: transparent;
+    --glass-card-violet: transparent;
   }
 }
 :root[saved-theme="dark"]:where([data-site-palette="clean-multicolor"]) {
   .topic-card-grid .topic-section.topic-card[data-palette-category] {
-    --frost-fill: color-mix(in srgb, var(--site-category-fill) 62%, transparent);
-    --glass-card-tint: color-mix(in srgb, var(--site-category-fill) 9%, transparent);
-    --glass-card-violet: color-mix(in srgb, var(--site-category-fill) 10%, transparent);
+    --frost-fill: var(--site-category-fill);
+    --glass-card-tint: transparent;
+    --glass-card-violet: transparent;
   }
 }

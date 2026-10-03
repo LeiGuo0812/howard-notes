@@ -211,7 +211,12 @@ function TagChips({
   return (
     <nav class="topic-chips tag-chips" aria-label="笔记标签">
       {tags.map((tag) => (
-        <a class="internal topic-chip" data-no-popover="true" href={href(props, `tags/${tag.id}`)}>
+        <a
+          class="internal topic-chip"
+          data-no-popover="true"
+          data-palette-category={paletteCategory(tag.title)}
+          href={href(props, `tags/${tag.id}`)}
+        >
           <span class="tag-symbol" aria-hidden="true">
             #
           </span>

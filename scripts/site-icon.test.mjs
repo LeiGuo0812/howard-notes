@@ -5,17 +5,48 @@ import { fromHtml } from "hast-util-from-html"
 import { visit } from "unist-util-visit"
 import { brandIcon, brandIconLinks, renderBrandIconFiles } from "./lib/site-icon.mjs"
 import { brandIconSvg, brandIconDataLink } from "./lib/site-icon-svg.mjs"
+import { brandMarkColors } from "./lib/site-brand-colors.mjs"
+import { SITE_PALETTES } from "./lib/site-palettes.mjs"
 
 const settings = { brand: { name: "Howard", mark: "h." }, accent: "blue" }
 
-test("pure SVG generation preserves the pre-extraction static icon bytes and hash", async () => {
+test("all favicon formats use the same flat brand mark and change their version with its bytes", async () => {
   const svg = brandIconSvg(settings)
   const staticIcon = brandIcon(settings)
   assert.equal(svg, staticIcon.svg)
-  assert.equal(staticIcon.version, "69ccdc737fe8")
-  assert.equal(staticIcon.basename, "howard-icon-69ccdc737fe8")
+  assert.match(staticIcon.version, /^[\da-f]{12}$/)
+  assert.equal(staticIcon.basename, `howard-icon-${staticIcon.version}`)
+  assert.doesNotMatch(svg, /gradient|filter|shadow|opacity|url\(|<defs|stroke=/i)
   const { files } = await renderBrandIconFiles(settings)
   assert.ok(files.get(`static/${staticIcon.basename}.svg`).equals(Buffer.from(svg)))
+})
+
+test("preset icons retain the exact plate color and a legible palette ink in both modes", () => {
+  for (const palette of SITE_PALETTES) {
+    for (const mode of ["light", "dark"]) {
+      const colors = palette[mode]
+      const icon = brandMarkColors(colors)
+      assert.equal(icon.background, colors.mark || colors.signal)
+      assert.ok([colors.onSignal, colors.text, "#ffffff", "#000000"].includes(icon.foreground))
+      const svg = brandIconSvg({ ...settings, design: { palette: palette.id } })
+      if (mode === "light") {
+        assert.ok(svg.includes(`fill="${icon.background}"`))
+        assert.ok(svg.includes(`fill="${icon.foreground}"`))
+      }
+    }
+  }
+  assert.deepEqual(brandMarkColors(SITE_PALETTES[0].light), {
+    background: "#e3bd4a",
+    foreground: "#18202b",
+  })
+  assert.deepEqual(brandMarkColors(undefined, "#ffffff"), {
+    background: "#ffffff",
+    foreground: "#000000",
+  })
+  assert.deepEqual(brandMarkColors(undefined, "#000000"), {
+    background: "#000000",
+    foreground: "#ffffff",
+  })
 })
 
 test("live SVG favicon URI updates branding and encodes literal custom XML inside one safe link", () => {
@@ -114,5 +145,18 @@ test("favicon is a real multi-frame ICO with decodable PNG sizes and transparent
     const metadata = await sharp(files.get(file)).metadata()
     assert.equal(metadata.width, size)
     assert.equal(metadata.height, size)
+  }
+  const { data, info } = await sharp(files.get("static/icon.png"))
+    .resize(64, 64)
+    .ensureAlpha()
+    .raw()
+    .toBuffer({ resolveWithObject: true })
+  for (const [x, y] of [
+    [32, 8],
+    [32, 15],
+    [48, 15],
+  ]) {
+    const offset = (y * info.width + x) * 4
+    assert.deepEqual([...data.subarray(offset, offset + 4)], [54, 95, 139, 255])
   }
 })

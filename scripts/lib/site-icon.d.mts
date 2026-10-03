@@ -1,7 +1,7 @@
 export interface BrandIconSettings {
   brand?: { mark?: string; name?: string }
   accent?: string
-  design?: { accentColor?: string; darkAccentColor?: string }
+  design?: { palette?: string; accentColor?: string; darkAccentColor?: string }
 }
 export function brandIcon(settings: BrandIconSettings): {
   svg: string

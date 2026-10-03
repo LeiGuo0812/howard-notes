@@ -104,10 +104,10 @@
   background:
     linear-gradient(
       135deg,
-      var(--glass-highlight),
+      var(--glass-pane-highlight, var(--glass-highlight)),
       transparent 28%,
-      var(--glass-tint) 78%,
-      var(--glass-reflection)
+      var(--glass-pane-tint, var(--glass-tint)) 78%,
+      var(--glass-pane-reflection, var(--glass-reflection))
     ),
     var(--glass-solid);
   box-shadow: var(--glass-inset), var(--glass-shadow);
@@ -115,10 +115,10 @@
     background:
       linear-gradient(
         135deg,
-        var(--glass-highlight),
+        var(--glass-pane-highlight, var(--glass-highlight)),
         transparent 28%,
-        var(--glass-tint) 78%,
-        var(--glass-reflection)
+        var(--glass-pane-tint, var(--glass-tint)) 78%,
+        var(--glass-pane-reflection, var(--glass-reflection))
       ),
       var(--glass-fill);
     -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(125%);

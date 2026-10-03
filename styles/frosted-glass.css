@@ -101,7 +101,12 @@
 .frosted-panel::before {
   background:
     url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='128' height='128'%3E%3Cfilter id='grain'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.75' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' opacity='.035' filter='url(%23grain)'/%3E%3C/svg%3E"),
-    linear-gradient(125deg, var(--frost-shine), transparent 42%, var(--frost-shade));
+    linear-gradient(
+      125deg,
+      var(--frost-pane-shine, var(--frost-shine)),
+      transparent 42%,
+      var(--frost-pane-shade, var(--frost-shade))
+    );
 }
 .frosted-panel > :not(.frost-rim) {
   position: relative;
@@ -187,7 +192,34 @@
     --site-palette-line-light,
     color-mix(in srgb, var(--site-theme-muted) 24%, transparent)
   );
-  --site-theme-mark-ink: var(--site-theme-text);
+  --site-theme-mark-ink: var(--site-palette-mark-ink-light);
+  --site-theme-home-title: var(--site-palette-display-light, var(--site-theme-accent));
+  --site-theme-chip-fill: color-mix(
+    in srgb,
+    var(--site-theme-accent) 7%,
+    var(--site-theme-surface)
+  );
+  --site-theme-selected-fill: color-mix(
+    in srgb,
+    var(--site-theme-accent) 10%,
+    var(--site-theme-surface)
+  );
+  --site-theme-quote-fill: color-mix(
+    in srgb,
+    var(--site-theme-accent) 5%,
+    var(--site-theme-reader)
+  );
+  --site-theme-table-fill: color-mix(
+    in srgb,
+    var(--site-theme-accent) 3%,
+    var(--site-theme-reader)
+  );
+  --site-theme-table-line: color-mix(in srgb, var(--site-theme-muted) 20%, transparent);
+  --site-theme-related-node: color-mix(
+    in srgb,
+    var(--site-theme-accent) 55%,
+    var(--site-theme-surface)
+  );
   --site-theme-accent-hover: color-mix(
     in srgb,
     var(--site-theme-accent) 85%,
@@ -222,29 +254,47 @@
   --highlight: color-mix(in srgb, var(--site-theme-accent) 8%, transparent);
   --textHighlight: color-mix(in srgb, var(--site-theme-accent) 24%, transparent);
   --glass-solid: var(--site-theme-surface);
-  --glass-fill: color-mix(in srgb, var(--site-theme-surface) 64%, transparent);
-  --glass-border: color-mix(in srgb, var(--site-theme-surface) 88%, transparent);
-  --glass-edge: color-mix(in srgb, var(--site-theme-line) 26%, transparent);
+  --glass-fill: color-mix(in srgb, var(--site-theme-surface) 86%, transparent);
+  --glass-border: var(--site-theme-line);
+  --glass-edge: var(--site-theme-line);
+  --glass-highlight: color-mix(in srgb, var(--site-theme-surface) 88%, var(--site-theme-text));
+  --glass-pane-highlight: transparent;
+  --glass-pane-tint: transparent;
+  --glass-pane-reflection: transparent;
   --glass-reflection: color-mix(in srgb, var(--site-theme-surface) 28%, transparent);
   --glass-tint: color-mix(in srgb, var(--site-theme-surface) 16%, transparent);
-  --glass-card: color-mix(in srgb, var(--site-theme-surface) 78%, transparent);
+  --glass-card: color-mix(in srgb, var(--site-theme-surface) 86%, transparent);
   --glass-card-hover: color-mix(in srgb, var(--site-theme-surface) 93%, white);
-  --glass-card-tint: color-mix(in srgb, var(--site-theme-surface) 15%, transparent);
-  --glass-card-violet: color-mix(in srgb, var(--site-theme-surface) 15%, transparent);
-  --glass-recessed: color-mix(in srgb, var(--site-theme-code) 32%, transparent);
-  --glass-reading: var(--site-theme-surface);
+  --glass-card-tint: transparent;
+  --glass-card-violet: transparent;
+  --glass-shadow:
+    0 20px 44px -16px color-mix(in srgb, var(--site-theme-text) 22%, transparent),
+    0 6px 12px -6px color-mix(in srgb, var(--site-theme-text) 14%, transparent);
+  --glass-card-shadow:
+    0 18px 32px -16px color-mix(in srgb, var(--site-theme-text) 19%, transparent),
+    0 4px 9px -5px color-mix(in srgb, var(--site-theme-text) 12%, transparent);
+  --glass-recessed: transparent;
+  --glass-reading: var(--site-theme-reader);
   --glass-reader-surface: var(--site-theme-reader);
   --glass-reader-page: var(--site-theme-page);
   --glass-reader-muted: var(--site-theme-muted);
   --glass-code: var(--site-theme-code);
   --glass-hover: color-mix(in srgb, var(--site-theme-code) 60%, transparent);
-  --frost-fill: color-mix(in srgb, var(--site-theme-surface) 55%, transparent);
+  --frost-fill: color-mix(in srgb, var(--site-theme-surface) 86%, transparent);
   --frost-solid: var(--site-theme-surface);
-  --frost-border: color-mix(in srgb, var(--site-theme-surface) 74%, transparent);
+  --frost-border: var(--site-theme-line);
   --frost-shade: color-mix(in srgb, var(--site-theme-text) 7%, transparent);
-  --frost-ambient-cyan: color-mix(in srgb, var(--site-theme-surface) 34%, transparent);
-  --frost-ambient-blue: color-mix(in srgb, var(--site-theme-surface) 33%, transparent);
-  --frost-ambient-violet: color-mix(in srgb, var(--site-theme-surface) 29%, transparent);
+  --frost-pane-shine: transparent;
+  --frost-pane-shade: transparent;
+  --frost-ambient-cyan: transparent;
+  --frost-ambient-blue: transparent;
+  --frost-ambient-violet: transparent;
+  --frost-shadow:
+    0 20px 38px -20px color-mix(in srgb, var(--site-theme-text) 26%, transparent),
+    0 4px 10px -6px color-mix(in srgb, var(--site-theme-text) 15%, transparent);
+  --frost-independent-shadow:
+    0 8px 14px -10px color-mix(in srgb, var(--site-theme-text) 26%, transparent),
+    0 2px 6px -4px color-mix(in srgb, var(--site-theme-text) 15%, transparent);
   --site-theme-spotlight: color-mix(in srgb, var(--site-theme-signal) 28%, white);
   --frost-light-core: color-mix(in srgb, var(--site-theme-spotlight) 22%, transparent);
   --frost-light-halo: color-mix(in srgb, var(--site-theme-spotlight) 9%, transparent);
@@ -266,7 +316,8 @@
     --site-palette-line-dark,
     color-mix(in srgb, var(--site-theme-muted) 24%, transparent)
   );
-  --site-theme-mark-ink: var(--site-theme-on-signal);
+  --site-theme-mark-ink: var(--site-palette-mark-ink-dark);
+  --site-theme-home-title: var(--site-palette-display-dark, var(--site-theme-accent));
   --site-theme-category-bg-1: var(--site-palette-category-1-bg-dark);
   --site-theme-category-bg-2: var(--site-palette-category-2-bg-dark);
   --site-theme-category-bg-3: var(--site-palette-category-3-bg-dark);
@@ -281,23 +332,27 @@
   --site-theme-category-fg-5: var(--site-palette-category-5-fg-dark);
   --site-theme-category-fg-6: var(--site-palette-category-6-fg-dark);
   --site-theme-category-fg-7: var(--site-palette-category-7-fg-dark);
-  --glass-fill: color-mix(in srgb, var(--site-theme-surface) 54%, transparent);
-  --glass-border: color-mix(in srgb, var(--site-theme-text) 25%, transparent);
-  --glass-edge: color-mix(in srgb, var(--site-theme-line) 12%, transparent);
+  --glass-fill: color-mix(in srgb, var(--site-theme-surface) 86%, transparent);
+  --glass-border: var(--site-theme-line);
+  --glass-edge: var(--site-theme-line);
   --glass-reflection: color-mix(in srgb, var(--site-theme-text) 17%, transparent);
   --glass-tint: color-mix(in srgb, var(--site-theme-surface) 10%, transparent);
-  --glass-card: color-mix(in srgb, var(--site-theme-surface) 80%, transparent);
+  --glass-card: color-mix(in srgb, var(--site-theme-surface) 86%, transparent);
   --glass-card-hover: color-mix(in srgb, var(--site-theme-surface) 93%, var(--site-theme-text));
-  --glass-card-tint: color-mix(in srgb, var(--site-theme-surface) 9%, transparent);
-  --glass-card-violet: color-mix(in srgb, var(--site-theme-surface) 10%, transparent);
-  --glass-recessed: color-mix(in srgb, var(--site-theme-code) 26%, transparent);
+  --glass-card-tint: transparent;
+  --glass-card-violet: transparent;
+  --glass-shadow: 0 24px 48px -14px rgb(0 0 0 / 58%), 0 8px 14px -6px rgb(0 0 0 / 36%);
+  --glass-card-shadow: 0 20px 36px -14px rgb(0 0 0 / 36%), 0 5px 10px -5px rgb(0 0 0 / 24%);
+  --glass-recessed: transparent;
   --glass-hover: color-mix(in srgb, var(--site-theme-text) 13%, transparent);
-  --frost-fill: color-mix(in srgb, var(--site-theme-surface) 62%, transparent);
-  --frost-border: color-mix(in srgb, var(--site-theme-text) 24%, transparent);
-  --frost-shade: rgb(5 13 23 / 15%);
-  --frost-ambient-cyan: color-mix(in srgb, var(--site-theme-surface) 29%, transparent);
-  --frost-ambient-blue: color-mix(in srgb, var(--site-theme-surface) 34%, transparent);
-  --frost-ambient-violet: color-mix(in srgb, var(--site-theme-surface) 28%, transparent);
+  --frost-fill: color-mix(in srgb, var(--site-theme-surface) 86%, transparent);
+  --frost-border: var(--site-theme-line);
+  --frost-shade: color-mix(in srgb, var(--site-theme-page) 15%, transparent);
+  --frost-ambient-cyan: transparent;
+  --frost-ambient-blue: transparent;
+  --frost-ambient-violet: transparent;
+  --frost-shadow: 0 22px 40px -16px rgb(0 0 0 / 46%), 0 5px 12px -6px rgb(0 0 0 / 24%);
+  --frost-independent-shadow: 0 8px 14px -10px rgb(0 0 0 / 46%), 0 2px 6px -4px rgb(0 0 0 / 24%);
   --site-theme-spotlight: color-mix(in srgb, var(--site-theme-signal) 18%, white);
   --frost-light-core: color-mix(in srgb, var(--site-theme-spotlight) 20%, transparent);
   --frost-light-halo: color-mix(in srgb, var(--site-theme-spotlight) 13%, transparent);
@@ -336,9 +391,9 @@
 }
 :root:where([data-site-palette="clean-multicolor"]) .frosted-panel[data-palette-category] {
   --frost-solid: var(--site-category-fill);
-  --frost-fill: color-mix(in srgb, var(--site-category-fill) 55%, transparent);
+  --frost-fill: var(--site-category-fill);
 }
 :root[saved-theme="dark"]:where([data-site-palette="clean-multicolor"])
   .frosted-panel[data-palette-category] {
-  --frost-fill: color-mix(in srgb, var(--site-category-fill) 62%, transparent);
+  --frost-fill: var(--site-category-fill);
 }

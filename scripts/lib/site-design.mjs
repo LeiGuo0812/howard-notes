@@ -1,4 +1,5 @@
 import { getSitePalette, paletteVariables } from "./site-palettes.mjs"
+import { brandMarkColors } from "./site-brand-colors.mjs"
 
 export const DEFAULT_DESIGN = Object.freeze({
   palette: "current",
@@ -239,6 +240,9 @@ export function applyHomeTemplate(settings, template) {
 }
 export function designVariables(settings) {
   const d = siteDesign(settings)
+  const palette = getSitePalette(d.palette)
+  const lightMark = brandMarkColors(palette?.light, d.accentColor)
+  const darkMark = brandMarkColors(palette?.dark, d.darkAccentColor)
   const chinese = Object.hasOwn(chineseFonts, d.chineseFont)
     ? chineseFonts[d.chineseFont]
     : chineseFonts.sans
@@ -252,6 +256,10 @@ export function designVariables(settings) {
     ...paletteVariables(d),
     "--site-accent-light": d.accentColor,
     "--site-accent-dark": d.darkAccentColor,
+    "--site-brand-fill-light": lightMark.background,
+    "--site-brand-ink-light": lightMark.foreground,
+    "--site-brand-fill-dark": darkMark.background,
+    "--site-brand-ink-dark": darkMark.foreground,
     "--site-font": `${familyList(families)}, ${chinese.generic}`,
     "--site-font-chinese": `${familyList(chinese.families)}, ${chinese.generic}`,
     "--site-font-english": `${familyList(english.families)}, ${english.generic}`,

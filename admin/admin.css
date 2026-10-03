@@ -1282,3 +1282,38 @@ body > main > .publication-status {
   .theme-control {
   background: color-mix(in srgb, var(--surface) 35%, transparent);
 }
+
+/* The editor mirrors the article's semantic colour roles. */
+:root:where([data-site-palette]:not([data-site-palette="current"])) {
+  #body,
+  #preview {
+    background: var(--site-theme-reader);
+    color: var(--site-theme-text);
+  }
+  #preview blockquote {
+    background: var(--site-theme-quote-fill);
+    border-left-color: color-mix(in srgb, var(--accent) 55%, transparent);
+    color: var(--muted);
+  }
+  #preview th,
+  #preview td {
+    border-color: var(--site-theme-table-line);
+  }
+  #preview th {
+    background: var(--site-theme-table-fill);
+    color: var(--muted);
+  }
+  #preview mark {
+    background: var(--site-theme-mark);
+    color: var(--site-theme-mark-ink);
+  }
+  #preview pre > code {
+    background: transparent;
+  }
+  #preview code span[data-token-type="comment"] {
+    color: var(--muted);
+  }
+  #preview code span[data-token-type="string"] {
+    color: var(--accent);
+  }
+}
