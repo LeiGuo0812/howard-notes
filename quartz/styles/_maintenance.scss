@@ -359,6 +359,91 @@
   cursor: grabbing;
   user-select: none;
 }
+// A small public window paints before the editor or owner catalogue arrives.
+// Static placeholders keep the loading view quiet and responsive to controls.
+.maintenance-opening {
+  color: var(--darkgray);
+  font-size: 13px;
+  .maintenance-opening-heading {
+    position: sticky;
+    top: 0;
+    z-index: 1;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 12px 18px;
+    border-bottom: 1px solid var(--glass-edge);
+    background: var(--glass-solid);
+  }
+  .maintenance-opening-caption {
+    flex: 1;
+    min-width: 0;
+    font-size: 14px;
+    font-weight: 600;
+    line-height: 40px;
+    &:focus-visible {
+      outline: 2px solid var(--secondary);
+      outline-offset: 3px;
+      border-radius: 8px;
+    }
+  }
+  .maintenance-opening-heading.is-movable .maintenance-opening-caption {
+    cursor: grab;
+    user-select: none;
+    touch-action: none;
+  }
+  &.is-dragging .maintenance-opening-caption {
+    cursor: grabbing;
+  }
+  .maintenance-opening-control {
+    @include material.control;
+    display: inline-grid;
+    place-items: center;
+    flex-shrink: 0;
+    width: 40px;
+    height: 40px;
+    padding: 0;
+    color: var(--secondary);
+    background: var(--glass-card);
+    box-shadow: none;
+    &:focus-visible {
+      outline: 2px solid var(--secondary);
+      outline-offset: 3px;
+    }
+    svg {
+      width: 18px;
+      height: 18px;
+    }
+  }
+  .maintenance-opening-body {
+    display: grid;
+    gap: 24px;
+    padding: 24px;
+  }
+  .maintenance-opening-status {
+    margin: 0;
+    color: var(--gray);
+    font-size: 13px;
+    line-height: 1.7;
+    overflow-wrap: anywhere;
+  }
+  .maintenance-opening-placeholders {
+    display: grid;
+    gap: 16px;
+    max-width: 680px;
+  }
+  .maintenance-opening-placeholder {
+    height: 64px;
+    border-radius: var(--glass-radius-control);
+    background: color-mix(in srgb, var(--gray) 6%, transparent);
+    &:nth-child(2) {
+      width: 82%;
+    }
+    &:nth-child(3) {
+      width: 65%;
+    }
+  }
+}
 .center.maintenance-editing > article,
 .center.maintenance-editing > .page-footer {
   display: none;
@@ -450,6 +535,14 @@
   }
 }
 @media (max-width: 800px) {
+  .maintenance-opening {
+    .maintenance-opening-heading {
+      padding: 12px;
+    }
+    .maintenance-opening-body {
+      padding: 18px;
+    }
+  }
   .maintenance-status {
     flex: 1;
     margin-left: 0;
@@ -548,6 +641,7 @@
 @media (prefers-reduced-motion: reduce) {
   .maintenance-toolbar button,
   .maintenance-edit,
+  .maintenance-opening-control,
   .maintenance-toolbar [data-tooltip]::after,
   .maintenance-edit[data-tooltip]::after,
   .reading-scroll-controls [data-tooltip]::after {

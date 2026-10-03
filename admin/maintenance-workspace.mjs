@@ -126,6 +126,7 @@ export async function createMaintenanceWorkspace({ siteBase, version, onSession 
     stopDeployment = () => {},
     noticeTimer,
     pendingSynchronization = null
+  let pendingOpeningLayout = null
   const operationLabels = {
     article: "正在发布文章…",
     draft: "正在保存草稿…",
@@ -386,7 +387,11 @@ export async function createMaintenanceWorkspace({ siteBase, version, onSession 
   function showCurrentWindow() {
     const opening = !visible || host.classList.contains("is-inline")
     visible = true
-    if (opening && mode !== "inline") windowState.center()
+    if (pendingOpeningLayout && mode !== "inline") {
+      const layout = pendingOpeningLayout
+      pendingOpeningLayout = null
+      windowState.adopt(layout)
+    } else if (opening && mode !== "inline") windowState.center()
     else attach()
   }
   function showPanel(action) {
@@ -537,14 +542,19 @@ export async function createMaintenanceWorkspace({ siteBase, version, onSession 
     if (matchMedia("(max-width: 800px)").matches)
       container.querySelector('button[data-view="edit"]')?.click()
   }
-  async function perform(action) {
+  async function perform(action, { openingLayout } = {}) {
     if (!account) return login()
     if (workspace.isBusy()) {
       showCurrentWindow()
       showProgress("操作正在后台进行，可以收起窗口继续阅读。")
       return
     }
-    await commands.get(action)?.()
+    pendingOpeningLayout = openingLayout || null
+    try {
+      await commands.get(action)?.()
+    } finally {
+      pendingOpeningLayout = null
+    }
   }
   menuItems.addEventListener("click", (event) => {
     const button = event.target.closest("[data-workspace-action]")
@@ -576,6 +586,7 @@ export async function createMaintenanceWorkspace({ siteBase, version, onSession 
     connect: (credentials) => workspace.connect(credentials),
     // Preserve an unsaved editor while withholding expired-session controls.
     expireSession() {
+      workspace.cancelConnection()
       hide()
       account = null
       sessionDeadline = 0
@@ -583,6 +594,7 @@ export async function createMaintenanceWorkspace({ siteBase, version, onSession 
     },
     login,
     resume,
+    logout: () => workspace.logout(),
     perform,
     getOwnerAccess() {
       return account && performance.now() < sessionDeadline ? workspace.getOwnerAccess() : null

@@ -45,6 +45,8 @@ export function createWorkspace(root, options = {}) {
     cloudDrafts,
     backups,
     jobTimer
+  let connectionEpoch = 0,
+    connecting = false
   const cloudKnown = new Set()
   let client,
     snapshot,
@@ -980,6 +982,11 @@ export function createWorkspace(root, options = {}) {
   async function connect(credentials) {
     if (!credentials) return
     if (busy || disposed) throw new Error("操作正在进行，请稍后重新登录。")
+    const epoch = ++connectionEpoch
+    connecting = true
+    const assertCurrent = () => {
+      if (disposed || connectionEpoch !== epoch) throw new Error("登录状态已变化，已取消载入。")
+    }
     lock(true)
     const connection = new PersonalLibrary(credentials.token, undefined, {
       siteBase,
@@ -987,12 +994,15 @@ export function createWorkspace(root, options = {}) {
     })
     try {
       const account = await connection.authenticate()
+      assertCurrent()
       if (credentials.login && credentials.login !== account) {
         connection.token = ""
         throw new Error("登录账号与授权返回不一致，请重新登录。")
       }
       if (!client) {
-        snapshot = await connection.snapshot()
+        const loaded = await connection.snapshot()
+        assertCurrent()
+        snapshot = loaded
         client = connection
         backups = createBackupManager({
           root: $("backup-manager"),
@@ -1025,7 +1035,6 @@ export function createWorkspace(root, options = {}) {
           },
         })
         showMode("articles")
-        renderList()
         settings.load(snapshot)
       } else {
         // Reauthentication preserves unsaved text/settings and their original conflict baselines.
@@ -1048,6 +1057,7 @@ export function createWorkspace(root, options = {}) {
       connection.token = ""
       throw error
     } finally {
+      connecting = false
       lock(false)
     }
   }
@@ -1055,6 +1065,7 @@ export function createWorkspace(root, options = {}) {
     options.onReauthenticate?.()
   }
   function logout() {
+    connectionEpoch++
     void clearSession(siteBase)
     persistRecovery()
     clearTimeout(cloudTimer)
@@ -1663,7 +1674,10 @@ export function createWorkspace(root, options = {}) {
     isBusy: () => busy,
     canClose,
     closeEditor: () => !busy && closeEditor(),
-    logout: () => !busy && logout(),
+    logout: () => (!busy || connecting) && logout(),
+    cancelConnection() {
+      connectionEpoch++
+    },
     getSession: () => session && { ...session },
     getOwnerAccess: () =>
       session && client?.token && { account: session.account, token: client.token },
@@ -1677,6 +1691,7 @@ export function createWorkspace(root, options = {}) {
       if (disposed) return
       persistRecovery()
       disposed = true
+      connectionEpoch++
       clearTimeout(previewTimer)
       clearTimeout(cloudTimer)
       clearTimeout(jobTimer)

@@ -168,6 +168,33 @@ export function createPanelWindow({ host, heading, caption, toggle, onChange }) 
   return {
     isFullscreen: () => fullscreen,
     restore: () => setFullscreen(false),
+    snapshot() {
+      return { fullscreen, position: position && { ...position } }
+    },
+    adopt(layout) {
+      finishDrag()
+      const requestedPosition = layout?.position
+      const validPosition =
+        requestedPosition &&
+        Number.isFinite(requestedPosition.x) &&
+        Number.isFinite(requestedPosition.y)
+      // Measure the ordinary panel before applying fullscreen so that a
+      // restored window keeps its own usable position, rather than the
+      // fullscreen panel's dimensions clamping it to the viewport edge.
+      fullscreen = false
+      position = null
+      host.classList.remove("is-fullscreen", "is-floating")
+      host.style.removeProperty("--maintenance-window-x")
+      host.style.removeProperty("--maintenance-window-y")
+      updateHeading()
+      onChange()
+      if (validPosition) moveTo(requestedPosition.x, requestedPosition.y)
+      fullscreen = layout?.fullscreen === true
+      host.classList.toggle("is-fullscreen", fullscreen)
+      updateHeading()
+      onChange()
+      queueClamp()
+    },
     center() {
       finishDrag()
       fullscreen = false

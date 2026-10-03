@@ -18,6 +18,7 @@ export class PersonalLibrary {
       globalThis.location?.href || "https://notes.invalid/",
     )
     this.apiBase = options.apiBase || null
+    this.endpointPromise = null
     this.tokenExpiresAt = options.tokenExpiresAt
     this.privateCache = new Map()
     this.recoveries = []
@@ -51,27 +52,34 @@ export class PersonalLibrary {
     return this.git.commit(...args)
   }
   async endpoint() {
-    if (!this.apiBase) {
-      const response = await this.fetcher(new URL("runtime-config.json", this.siteBase), {
-        cache: "no-store",
-        credentials: "omit",
+    if (this.apiBase) return this.apiBase
+    if (!this.endpointPromise) {
+      // Concurrent list requests share only this client's endpoint discovery.
+      // Failed discovery is released so a later action can retry deployment or network changes.
+      this.endpointPromise = (async () => {
+        const response = await this.fetcher(new URL("runtime-config.json", this.siteBase), {
+          cache: "no-store",
+          credentials: "omit",
+        })
+        const config = await response.json()
+        if (!response.ok || !config.enabled)
+          throw new Error("私密文库需要内容服务，请先完成网站部署。")
+        const url = new URL(config.apiBase, this.siteBase)
+        if (
+          (url.protocol !== "https:" && url.origin !== this.siteBase.origin) ||
+          url.username ||
+          url.password ||
+          url.search ||
+          url.hash ||
+          !/\/api\/content\/?$/.test(url.pathname)
+        )
+          throw new Error("私密文库服务地址不正确。")
+        return (this.apiBase = url.href.replace(/\/$/, ""))
+      })().finally(() => {
+        this.endpointPromise = null
       })
-      const config = await response.json()
-      if (!response.ok || !config.enabled)
-        throw new Error("私密文库需要内容服务，请先完成网站部署。")
-      const url = new URL(config.apiBase, this.siteBase)
-      if (
-        (url.protocol !== "https:" && url.origin !== this.siteBase.origin) ||
-        url.username ||
-        url.password ||
-        url.search ||
-        url.hash ||
-        !/\/api\/content\/?$/.test(url.pathname)
-      )
-        throw new Error("私密文库服务地址不正确。")
-      this.apiBase = url.href.replace(/\/$/, "")
     }
-    return this.apiBase
+    return this.endpointPromise
   }
   async personalRequest(path, method = "GET", body, binary = false) {
     const base = await this.endpoint()

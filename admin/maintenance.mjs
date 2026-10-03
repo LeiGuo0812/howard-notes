@@ -1,13 +1,16 @@
 import { restoreSession, rememberSession, clearSession } from "./session.mjs"
 import { signIn, resumeSignIn } from "./auth.mjs"
+import { createMaintenanceOpening } from "./maintenance-opening.mjs"
 
 const INTENT_KEY = "howard-maintenance-return"
+const WINDOW_ACTIONS = new Set(["settings", "articles", "new", "drafts", "trash", "private"])
 
 // Session restoration is independent of Markdown, the editor and its catalogue.
 export async function createMaintenance({
   siteBase,
   version,
   loadWorkspace = () => import("./maintenance-workspace.mjs"),
+  createOpeningView = createMaintenanceOpening,
 }) {
   const base = new URL(siteBase)
   const configUrl = new URL("admin/auth-config.json", base).href
@@ -18,12 +21,20 @@ export async function createMaintenance({
     connectionPromise = null,
     authenticating = false,
     privateReader = null,
+    opening = null,
+    openSerial = 0,
     sessionGeneration = 0,
     expiryTimer
   const commands = new Map()
   const commandHandles = new Map()
   const invalidatedTokens = new Set()
+  function cancelOpening() {
+    openSerial++
+    opening?.destroy()
+    opening = null
+  }
   function expireSession() {
+    cancelOpening()
     clearTimeout(expiryTimer)
     sessionGeneration++
     if (credentials?.token) invalidatedTokens.add(credentials.token)
@@ -96,8 +107,8 @@ export async function createMaintenance({
     deadline = receivedAt + value.expiresAt - value.serverTime
     scheduleExpiry()
     void rememberSession(base, credentials)
-    if (panel) await panel.connect(credentials)
     changed()
+    if (panel) await openWorkspace()
   }
   async function openWorkspace() {
     if (!panelPromise) {
@@ -145,11 +156,13 @@ export async function createMaintenance({
         })
     }
     const instance = await panelPromise
-    if (credentials && instance.getOwnerAccess()?.token !== credentials.token) {
-      if (!connectionPromise)
-        connectionPromise = instance.connect(credentials).finally(() => {
+    while (credentials && instance.getOwnerAccess()?.token !== credentials.token) {
+      if (!connectionPromise) {
+        const access = credentials
+        connectionPromise = instance.connect(access).finally(() => {
           connectionPromise = null
         })
+      }
       await connectionPromise
     }
     return instance
@@ -195,21 +208,74 @@ export async function createMaintenance({
       } catch {}
     }
   }
+  const currentOpening = (serial, token) =>
+    serial === openSerial && credentials?.token === token && performance.now() < deadline
+  const hiddenOpening = (view, token) =>
+    opening === view &&
+    !view.isVisible() &&
+    credentials?.token === token &&
+    performance.now() < deadline
+  async function perform(action) {
+    if (action === "reconnect") return login(true)
+    if (action === "logout") {
+      expireSession()
+      panel?.logout?.()
+      void clearSession(base)
+      return
+    }
+    if (!credentials || performance.now() >= deadline) return login()
+    const token = credentials.token
+    const serial = ++openSerial
+    const loading =
+      WINDOW_ACTIONS.has(action) && (!panel || panel.getOwnerAccess()?.token !== token)
+    if (!loading) {
+      opening?.destroy()
+      opening = null
+      const instance = await openWorkspace()
+      if (currentOpening(serial, token)) return instance.perform(action)
+      return
+    }
+    opening ||= createOpeningView({
+      onHide() {
+        openSerial++
+      },
+      onRetry(requested) {
+        void perform(requested).catch(() => {})
+      },
+    })
+    const view = opening
+    // The first visual response does not depend on module, template or API requests.
+    view.show(action)
+    await view.afterPaint()
+    if (!currentOpening(serial, token) || !view.isVisible()) {
+      if (hiddenOpening(view, token)) view.setStatus("窗口已收起，可重新打开。")
+      return
+    }
+    try {
+      view.setStatus("正在加载维护界面和设置…")
+      const instance = await openWorkspace()
+      if (!currentOpening(serial, token) || !view.isVisible()) {
+        if (hiddenOpening(view, token)) view.setStatus("维护界面已就绪，可重新打开。")
+        return
+      }
+      await instance.perform(action, { openingLayout: view.capture() })
+      if (currentOpening(serial, token)) {
+        view.destroy()
+        if (opening === view) opening = null
+      }
+    } catch (error) {
+      if (!currentOpening(serial, token)) {
+        if (hiddenOpening(view, token)) view.fail(error)
+        return
+      }
+      view.fail(error)
+      throw error
+    }
+  }
   return {
     login,
     resume,
-    async perform(action) {
-      if (action === "reconnect") return login(true)
-      if (action === "logout" && !panel) {
-        expireSession()
-        void clearSession(base)
-        return
-      }
-      if (!credentials || performance.now() >= deadline) return login()
-      const token = credentials.token
-      const instance = await openWorkspace()
-      if (credentials?.token === token) return instance.perform(action)
-    },
+    perform,
     getOwnerAccess() {
       if (credentials && performance.now() >= deadline) expireSession()
       return credentials && performance.now() < deadline
@@ -217,6 +283,7 @@ export async function createMaintenance({
         : null
     },
     beforeNavigation() {
+      cancelOpening()
       panel?.beforeNavigation()
     },
     afterNavigation() {

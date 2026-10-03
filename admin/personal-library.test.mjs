@@ -143,6 +143,154 @@ function fixture() {
   return { client, git, rows, calls, jobs, files, publicArticle, publicSnapshot }
 }
 
+test("parallel private lists discover the runtime endpoint once without caching authenticated requests", async () => {
+  const { git, publicSnapshot } = fixture()
+  const configCalls = [],
+    personalCalls = []
+  let releaseConfig
+  const configReady = new Promise((resolve) => {
+    releaseConfig = resolve
+  })
+  const client = new PersonalLibrary(
+    "test-token",
+    async (url, options) => {
+      const parsed = new URL(url)
+      if (parsed.pathname.endsWith("runtime-config.json")) {
+        configCalls.push({ url: parsed.href, options })
+        await configReady
+        return Response.json({ enabled: true, apiBase: "https://notes.test/api/content/" })
+      }
+      personalCalls.push({ url: parsed.href, options })
+      const route = parsed.pathname.split("/personal/")[1]
+      if (route === "jobs") return Response.json({ jobs: [] })
+      return Response.json({
+        [route]: [],
+        total: 0,
+        page: Number(parsed.searchParams.get("page")),
+        pageSize: Number(parsed.searchParams.get("pageSize")),
+      })
+    },
+    { git, siteBase: "https://notes.test/howard-notes/", tokenExpiresAt: 123456789 },
+  )
+  const snapshot = client.snapshot()
+  assert.deepEqual(configCalls, [
+    {
+      url: "https://notes.test/howard-notes/runtime-config.json",
+      options: { cache: "no-store", credentials: "omit" },
+    },
+  ])
+  assert.equal(personalCalls.length, 0)
+  releaseConfig()
+  assert.equal((await snapshot).publicSnapshot, publicSnapshot)
+  assert.equal(personalCalls.length, 3)
+  assert.equal(await client.endpoint(), "https://notes.test/api/content")
+  assert.equal(configCalls.length, 1)
+  client.token = "refreshed-token"
+  await client.personalRequest("jobs")
+  assert.equal(personalCalls.length, 4)
+  assert.equal(personalCalls[3].options.headers.Authorization, "Bearer refreshed-token")
+  assert.equal(personalCalls[3].options.cache, "no-store")
+  assert.equal(client.tokenExpiresAt, 123456789)
+})
+
+test("an explicit API endpoint needs no runtime configuration request", async () => {
+  const client = new PersonalLibrary("test-token", () => assert.fail("unexpected config request"), {
+    git: { token: "test-token" },
+    apiBase: "https://notes.test/api/content",
+    siteBase: "https://notes.test/howard-notes/",
+  })
+  assert.deepEqual(await Promise.all([client.endpoint(), client.endpoint()]), [
+    "https://notes.test/api/content",
+    "https://notes.test/api/content",
+  ])
+})
+
+test("endpoint discovery remains isolated between clients and site origins", async () => {
+  const calls = []
+  const fetcher = async (url) => {
+    calls.push(new URL(url).origin)
+    return Response.json({ enabled: true, apiBase: "/api/content" })
+  }
+  const clients = ["https://notes.test/", "https://other-notes.test/"].map(
+    (siteBase) =>
+      new PersonalLibrary("test-token", fetcher, { git: { token: "test-token" }, siteBase }),
+  )
+  assert.deepEqual(
+    await Promise.all(clients.flatMap((client) => [client.endpoint(), client.endpoint()])),
+    [
+      "https://notes.test/api/content",
+      "https://notes.test/api/content",
+      "https://other-notes.test/api/content",
+      "https://other-notes.test/api/content",
+    ],
+  )
+  assert.deepEqual(calls, ["https://notes.test", "https://other-notes.test"])
+})
+
+test("failed endpoint discovery is shared only in flight and allows a later retry", async (t) => {
+  const cases = [
+    { name: "network unavailable", failure: new Error("offline"), error: /offline/ },
+    {
+      name: "content service disabled",
+      config: { enabled: false, apiBase: "/api/content" },
+      error: /需要内容服务/,
+    },
+    {
+      name: "configuration unavailable",
+      config: { enabled: true, apiBase: "/api/content" },
+      status: 503,
+      error: /需要内容服务/,
+    },
+    ...[
+      "http://other-notes.test/api/content",
+      "https://user:password@other-notes.test/api/content",
+      "https://other-notes.test/api/content?redirect=1",
+      "https://other-notes.test/api/content#fragment",
+      "https://other-notes.test/unrelated",
+    ].map((apiBase) => ({
+      name: `rejected URL: ${apiBase}`,
+      config: { enabled: true, apiBase },
+      error: /服务地址不正确/,
+    })),
+  ]
+  for (const scenario of cases) {
+    await t.test(scenario.name, async () => {
+      let calls = 0
+      const client = new PersonalLibrary(
+        "test-token",
+        async (url, options) => {
+          assert.equal(new URL(url).href, "https://notes.test/howard-notes/runtime-config.json")
+          assert.deepEqual(options, { cache: "no-store", credentials: "omit" })
+          if (++calls === 1) {
+            if (scenario.failure) throw scenario.failure
+            return Response.json(scenario.config, { status: scenario.status || 200 })
+          }
+          return Response.json({ enabled: true, apiBase: "/api/content/" })
+        },
+        { git: { token: "test-token" }, siteBase: "https://notes.test/howard-notes/" },
+      )
+      const results = await Promise.allSettled([
+        client.endpoint(),
+        client.endpoint(),
+        client.endpoint(),
+      ])
+      assert.equal(calls, 1)
+      for (const result of results) {
+        assert.equal(result.status, "rejected")
+        assert.match(result.reason.message, scenario.error)
+      }
+      assert.equal(client.apiBase, null)
+      assert.equal(client.endpointPromise, null)
+      assert.deepEqual(await Promise.all([client.endpoint(), client.endpoint()]), [
+        "https://notes.test/api/content",
+        "https://notes.test/api/content",
+      ])
+      assert.equal(calls, 2)
+      assert.equal(client.endpointPromise, null)
+    })
+  }
+})
+
 test("private originals retain exact bytes and never enter the public snapshot", async () => {
   const { client, rows, publicSnapshot, calls } = fixture()
   await client.snapshot()
