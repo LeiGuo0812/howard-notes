@@ -116,17 +116,32 @@ test("fresh-machine bootstrap retains root scripts and transitive lazy scripts a
 test("hashed sample previews retain their HTML and runtime dependencies without retaining content HTML", async () => {
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), "howard-sample-assets-"))
   try {
-    const { assets, fetcher } = fixture()
+    const { assets, fetcher } = fixture({ manifest: true })
     assets.set(
       `${site}admin/admin-AAA.js`,
       'const sample = "admin/site-preview-0123456789abcdef.html"; const note = "notes/removed.html"',
     )
     assets.set(
-      `${site}admin/site-preview-0123456789abcdef.html`,
+      `${site}admin/site-preview-0123456789abcdef`,
       '<link href="../index-old.css"><script src="./sample-AAA.js"></script>',
     )
     assets.set(`${site}admin/sample-AAA.js`, "export const sample = true")
-    await captureDeployedAssets({ site, api, destination: dir, fetcher })
+    const value = JSON.parse(assets.get(`${site}deployment-manifest.json`))
+    const sampleBody = assets.get(`${site}admin/site-preview-0123456789abcdef`)
+    value.files.push({
+      path: "admin/site-preview-0123456789abcdef.html",
+      bytes: Buffer.byteLength(sampleBody),
+      sha256: sha(sampleBody),
+    })
+    assets.set(`${site}deployment-manifest.json`, JSON.stringify(value))
+    const requests = []
+    const cleanFetcher = async (url, options) => {
+      requests.push(String(url))
+      return fetcher(url, options)
+    }
+    await captureDeployedAssets({ site, api, destination: dir, fetcher: cleanFetcher })
+    assert.ok(requests.includes(`${site}admin/site-preview-0123456789abcdef`))
+    assert.equal(requests.includes(`${site}admin/site-preview-0123456789abcdef.html`), false)
     for (const name of [
       "admin/site-preview-0123456789abcdef.html",
       "admin/sample-AAA.js",
@@ -150,6 +165,11 @@ test("hashed sample previews retain their HTML and runtime dependencies without 
         site,
       ).length,
       0,
+    )
+    assets.set(`${site}admin/site-preview-0123456789abcdef`, "changed preview bytes")
+    await assert.rejects(
+      captureDeployedAssets({ site, api, destination: dir, fetcher: cleanFetcher }),
+      /完整性不匹配/,
     )
   } finally {
     await fs.rm(dir, { recursive: true, force: true })

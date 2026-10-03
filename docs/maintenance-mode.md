@@ -138,7 +138,7 @@ GitHub Pages 备用域名不会跨域读取主站 Cookie，仍沿用原登录流
 设置预览使用同源独立 iframe 样稿，提供首页、专题、文章列表和阅读页四个场景。
 `scripts/build-site-preview.mjs` 将轻量渲染器和样稿 HTML/CSS 构建为哈希资源，
 样稿引用与该次主站构建一致的正式 CSS；维护清单通过 `sitePreviewEntry` 绑定
-对应 HTML，部署继续保留旧页面需要的递归依赖。场景切换只更新同一 iframe，
+对应 HTML，部署继续保留旧页面需要的递归依赖。浏览器和部署保留工具通过同源无后缀地址读取样稿，清单仍记录并校验原始哈希 HTML 文件，避免 HTML 规范化重定向破坏部署前缀或校验。场景切换只更新同一 iframe，
 隐藏时释放为 `about:blank`，再次打开按当前设置绘制。
 
 样稿只接收经过 `sitePreviewSettings()` 白名单投影的品牌、配色、字体和布局字段，

@@ -208,7 +208,13 @@ export async function captureDeployedAssets({
   let totalBytes = 0
   let history = { generations: [], historyLimited: false }
   const read = async (url, optional = false) => {
-    const response = await fetcher(url, {
+    const requestURL = new URL(url)
+    // Workers assets canonicalize HTML to extensionless URLs. Keep the hashed
+    // file identity in the inventory while reading its same-origin clean URL;
+    // do not permit redirects or rewrite ordinary content pages.
+    if (/(?:^|\/)admin\/site-preview-[a-f0-9]{8,64}\.html$/i.test(requestURL.pathname))
+      requestURL.pathname = requestURL.pathname.replace(/\.html$/i, "")
+    const response = await fetcher(requestURL, {
       cache: "no-store",
       redirect: "error",
       signal: AbortSignal.timeout(90000),
