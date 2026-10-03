@@ -19,7 +19,8 @@
       {
         "id": "featured",
         "title": "手气不错",
-        "enabled": true
+        "enabled": true,
+        "limit": 3
       },
       {
         "id": "recent",
@@ -170,16 +171,17 @@
     "body": "Howard 的笔记。\n\nEmail: leiguo0812@gmail.com"
   },
   "design": {
+    "palette": "modern-professional",
     "font": "sans",
-    "chineseFont": "source-han-serif",
+    "chineseFont": "sans",
     "englishFont": "system",
-    "fontSize": 14,
+    "fontSize": 16,
     "lineHeight": 1.95,
     "contentWidth": 1040,
     "cardGap": 22,
     "radius": 20,
-    "accentColor": "#365f8b",
-    "darkAccentColor": "#93bbdf"
+    "accentColor": "#234f82",
+    "darkAccentColor": "#a5c9f4"
   },
   "pages": {
     "homeTemplate": "classic",
