@@ -1,4 +1,5 @@
 import { createPanelWindow } from "./panel-window.mjs"
+import { createSettingsOutsideClose } from "./settings-outside-close.mjs"
 
 const captions = {
   edit: "编辑文章",
@@ -22,6 +23,7 @@ export function createMaintenanceOpening({ onHide = () => {}, onRetry = () => {}
     retry,
     reopen,
     windowState,
+    outsideClose,
     activeAction = "settings",
     visible = false,
     active = false,
@@ -50,6 +52,7 @@ export function createMaintenanceOpening({ onHide = () => {}, onRetry = () => {}
   function hide() {
     active = false
     visible = false
+    outsideClose?.stop()
     windowState?.detach()
     if (host) {
       host.hidden = true
@@ -116,6 +119,11 @@ export function createMaintenanceOpening({ onHide = () => {}, onRetry = () => {}
       toggle: maximize,
       onChange() {},
     })
+    outsideClose = createSettingsOutsideClose({
+      host,
+      isActive: () => visible && activeAction === "settings",
+      onClose: userHide,
+    })
     listen(minimize, "click", userHide)
     listen(retry, "click", () => onRetry(activeAction))
     listen(reopen, "click", () => (visible ? userHide() : onRetry(activeAction)))
@@ -145,6 +153,8 @@ export function createMaintenanceOpening({ onHide = () => {}, onRetry = () => {}
     if (host.parentNode !== document.body) document.body.append(host)
     windowState.sync(false)
     if (!wasVisible) windowState.center()
+    if (activeAction === "settings") outsideClose.start()
+    else outsideClose.stop()
     showProgress()
   }
   function afterPaint() {
@@ -202,6 +212,7 @@ export function createMaintenanceOpening({ onHide = () => {}, onRetry = () => {}
       disposed = true
       hide()
       listeners.abort()
+      outsideClose?.destroy()
       windowState?.destroy()
     },
   }

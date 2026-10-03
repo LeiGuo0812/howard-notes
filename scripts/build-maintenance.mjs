@@ -17,6 +17,7 @@ export async function buildMaintenance(
   mermaidViewerEntry,
   articleShareEntry,
   previewWorkerEntry,
+  sitePreviewEntry,
 ) {
   previewWorkerEntry ||= await buildPreviewWorker()
   workerEntry ||= await buildPublicationWorker()
@@ -82,6 +83,7 @@ export async function buildMaintenance(
       __HOWARD_WORKSPACE_TEMPLATE__: JSON.stringify(workspaceTemplate),
       __HOWARD_WORKSPACE_STYLE__: JSON.stringify(workspaceStyle),
       __HOWARD_PREVIEW_WORKER__: JSON.stringify(previewWorkerEntry),
+      __HOWARD_SITE_PREVIEW__: JSON.stringify(sitePreviewEntry || ""),
       __HOWARD_PUBLICATION_WORKER__: JSON.stringify(workerEntry),
       __HOWARD_PRIVATE_NOTES_WORKER__: JSON.stringify(privateWorkerEntry),
     },
@@ -118,6 +120,7 @@ export async function buildMaintenance(
         mermaidViewerEntry,
         articleShareEntry,
         previewWorkerEntry,
+        sitePreviewEntry,
         workspaceTemplate,
         workspaceStyle,
       }),

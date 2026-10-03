@@ -1,0 +1,53 @@
+/* Component material, typography and responsive rules come from the exact
+   built site stylesheet. These rules cover only the bounded sample content. */
+html.site-sample {
+  --bodyFont: var(--site-font);
+  --headerFont: var(--site-font);
+}
+.site-sample .page {
+  margin-inline: auto;
+}
+.site-sample .sample-start {
+  padding: 24px;
+  color: var(--gray);
+}
+.site-sample .sample-memories {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--site-card-gap);
+}
+.site-sample .sample-memory,
+.site-sample .sample-toc {
+  padding: 20px;
+}
+.site-sample .sample-memory time {
+  font-size: 12px;
+  color: var(--gray);
+}
+.site-sample .sample-memory p {
+  margin-bottom: 0;
+  font-size: 14px;
+}
+.site-sample .sample-toc {
+  font-size: 13px;
+}
+.site-sample .sample-toc ol {
+  padding-left: 18px;
+}
+.site-sample .sample-article pre {
+  overflow-x: auto;
+  padding: 20px;
+  border-radius: 12px;
+  background: var(--glass-code);
+}
+.site-sample .sample-article code {
+  white-space: pre;
+}
+.site-sample .sample-article table {
+  width: 100%;
+}
+@media (max-width: 600px) {
+  .site-sample .sample-memories {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}

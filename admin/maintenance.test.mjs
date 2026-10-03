@@ -13,7 +13,10 @@ function deferred() {
 
 const nextTurn = () => new Promise((resolve) => setImmediate(resolve))
 
-async function openingFixture(t, { paintGate, importGate, connectionGate, load } = {}) {
+async function openingFixture(
+  t,
+  { paintGate, importGate, connectionGate, prepareGate, prepare, libraryReady = true, load } = {},
+) {
   const names = [
     "document",
     "window",
@@ -47,6 +50,9 @@ async function openingFixture(t, { paintGate, importGate, connectionGate, load }
     imports: 0,
     factories: 0,
     connects: 0,
+    connectModes: [],
+    prepared: [],
+    libraryReady,
     logouts: 0,
     expirations: 0,
     visible: false,
@@ -105,8 +111,9 @@ async function openingFixture(t, { paintGate, importGate, connectionGate, load }
   for (const [key, value] of Object.entries(globals))
     Object.defineProperty(globalThis, key, { configurable: true, value })
   const instance = {
-    async connect(credentials) {
+    async connect(credentials, options) {
       state.connects++
+      state.connectModes.push(options?.mode)
       if (connectionGate) await connectionGate.promise
       state.access = { account: credentials.login, token: credentials.token }
       const accepted = onSession(
@@ -120,6 +127,13 @@ async function openingFixture(t, { paintGate, importGate, connectionGate, load }
       if (accepted === false) state.access = null
     },
     getOwnerAccess: () => state.access,
+    isReady: (action) => action === "settings" || state.libraryReady,
+    async prepare(action) {
+      state.prepared.push(action)
+      if (prepare) await prepare(action, state)
+      else if (prepareGate && action !== "settings") await prepareGate.promise
+      if (action !== "settings") state.libraryReady = true
+    },
     async perform(action, options) {
       state.performed.push({ action, options })
     },
@@ -413,6 +427,8 @@ test("a cold settings click displays its window before painting or importing the
   importGate.resolve(fixture.module)
   await opening
   assert.equal(fixture.state.connects, 1)
+  assert.deepEqual(fixture.state.connectModes, ["settings"])
+  assert.deepEqual(fixture.state.prepared, ["settings"])
   assert.deepEqual(
     fixture.state.performed.map(({ action }) => action),
     ["settings"],
@@ -649,4 +665,169 @@ test("the ready panel receives opening geometry, while warm actions skip the loa
     fixture.state.performed.map(({ action }) => action),
     ["settings", "drafts"],
   )
+})
+
+test("a settings connection does not wait for article preparation, while a later article window does", async (t) => {
+  const prepareGate = deferred()
+  const fixture = await openingFixture(t, { prepareGate, libraryReady: false })
+  await fixture.runtime.perform("settings")
+  assert.deepEqual(fixture.state.connectModes, ["settings"])
+  assert.deepEqual(fixture.state.prepared, ["settings"])
+  assert.deepEqual(
+    fixture.state.performed.map(({ action }) => action),
+    ["settings"],
+  )
+
+  const articles = fixture.runtime.perform("articles")
+  assert.deepEqual(fixture.state.shown, ["settings", "articles"])
+  assert.equal(fixture.state.visible, true, "the unready article window must respond immediately")
+  await nextTurn()
+  assert.deepEqual(fixture.state.prepared, ["settings", "articles"])
+  assert.equal(fixture.state.connects, 1, "article preparation must reuse the owner connection")
+  assert.equal(fixture.state.performed.length, 1)
+  prepareGate.resolve()
+  await articles
+  assert.equal(fixture.state.performed.at(-1).action, "articles")
+  assert.equal(fixture.state.performed.at(-1).options.openingLayout, fixture.layout)
+})
+
+test("a warm settings window remains available while a newer article request prepares the full library", async (t) => {
+  const prepareGate = deferred()
+  const fixture = await openingFixture(t, { prepareGate, libraryReady: false })
+  await fixture.runtime.perform("settings")
+  const article = fixture.runtime.perform("new")
+  await nextTurn()
+  assert.deepEqual(fixture.state.prepared, ["settings", "new"])
+  assert.equal(fixture.state.visible, true)
+
+  await fixture.runtime.perform("settings")
+  assert.equal(fixture.state.visible, false)
+  assert.deepEqual(fixture.state.shown, ["settings", "new"])
+  assert.deepEqual(fixture.state.prepared, ["settings", "new", "settings"])
+  assert.deepEqual(
+    fixture.state.performed.map(({ action }) => action),
+    ["settings", "settings"],
+  )
+  prepareGate.resolve()
+  await article
+  assert.deepEqual(
+    fixture.state.performed.map(({ action }) => action),
+    ["settings", "settings"],
+    "the old new-article request must not reopen after settings was selected",
+  )
+  assert.equal(fixture.state.connects, 1)
+  assert.equal(fixture.state.factories, 1)
+})
+
+test("a stale article preparation failure cannot replace the settings window or reject its superseded request", async (t) => {
+  const prepareGate = deferred()
+  const fixture = await openingFixture(t, { prepareGate, libraryReady: false })
+  await fixture.runtime.perform("settings")
+  const article = fixture.runtime.perform("drafts")
+  await nextTurn()
+  await fixture.runtime.perform("settings")
+  prepareGate.reject(new Error("synthetic stale library failure"))
+  await assert.doesNotReject(article)
+  assert.deepEqual(fixture.state.failures, [])
+  assert.equal(fixture.state.performed.at(-1).action, "settings")
+  assert.equal(fixture.runtime.getOwnerAccess()?.account, "owner")
+})
+
+test("closing during article preparation does not reopen its window when the library becomes ready", async (t) => {
+  const prepareGate = deferred()
+  const fixture = await openingFixture(t, { prepareGate, libraryReady: false })
+  await fixture.runtime.perform("settings")
+  const article = fixture.runtime.perform("new")
+  await nextTurn()
+  fixture.close()
+  prepareGate.resolve()
+  await article
+  assert.equal(fixture.state.visible, false)
+  assert.equal(fixture.state.status.at(-1), "维护界面已就绪，可重新打开。")
+  assert.deepEqual(
+    fixture.state.performed.map(({ action }) => action),
+    ["settings"],
+  )
+})
+
+test("logout does not wait for article preparation and late readiness cannot reopen or restore access", async (t) => {
+  const prepareGate = deferred()
+  const fixture = await openingFixture(t, { prepareGate, libraryReady: false })
+  await fixture.runtime.perform("settings")
+  const article = fixture.runtime.perform("new")
+  await nextTurn()
+  await fixture.runtime.perform("logout")
+  assert.equal(fixture.state.visible, false)
+  assert.equal(fixture.runtime.getOwnerAccess(), null)
+  assert.equal(fixture.state.logouts, 1)
+  prepareGate.resolve()
+  await article
+  assert.deepEqual(
+    fixture.state.performed.map(({ action }) => action),
+    ["settings"],
+  )
+  assert.equal(fixture.runtime.getOwnerAccess(), null)
+})
+
+test("session expiry during article preparation rejects the delayed opening intent", async (t) => {
+  const prepareGate = deferred()
+  const fixture = await openingFixture(t, { prepareGate, libraryReady: false })
+  await fixture.runtime.perform("settings")
+  const article = fixture.runtime.perform("articles")
+  await nextTurn()
+  fixture.expire()
+  assert.equal(fixture.state.visible, false)
+  assert.equal(fixture.runtime.getOwnerAccess(), null)
+  prepareGate.resolve()
+  await article
+  assert.deepEqual(
+    fixture.state.performed.map(({ action }) => action),
+    ["settings"],
+  )
+  assert.equal(fixture.runtime.getOwnerAccess(), null)
+})
+
+test("navigation during article preparation invalidates the opening without clearing owner access", async (t) => {
+  const prepareGate = deferred()
+  const fixture = await openingFixture(t, { prepareGate, libraryReady: false })
+  await fixture.runtime.perform("settings")
+  const article = fixture.runtime.perform("articles")
+  await nextTurn()
+  fixture.runtime.beforeNavigation()
+  assert.equal(fixture.state.visible, false)
+  prepareGate.resolve()
+  await article
+  fixture.runtime.afterNavigation()
+  assert.deepEqual(
+    fixture.state.performed.map(({ action }) => action),
+    ["settings"],
+  )
+  assert.equal(fixture.runtime.getOwnerAccess()?.account, "owner")
+})
+
+test("failed article preparation preserves warm settings and can retry without another module or login", async (t) => {
+  let attempts = 0
+  const fixture = await openingFixture(t, {
+    libraryReady: false,
+    async prepare(action) {
+      if (action !== "settings" && ++attempts === 1)
+        throw new Error("synthetic first library failure")
+    },
+  })
+  await fixture.runtime.perform("settings")
+  await assert.rejects(fixture.runtime.perform("new"), /synthetic first library failure/)
+  assert.equal(fixture.state.failures.length, 1)
+  assert.equal(fixture.state.libraryReady, false)
+
+  await fixture.runtime.perform("settings")
+  assert.equal(fixture.state.visible, false)
+  assert.deepEqual(fixture.state.shown, ["settings", "new"])
+  assert.equal(fixture.state.performed.at(-1).action, "settings")
+  await fixture.runtime.perform("new")
+  assert.equal(attempts, 2)
+  assert.equal(fixture.state.performed.at(-1).action, "new")
+  assert.equal(fixture.state.imports, 1)
+  assert.equal(fixture.state.factories, 1)
+  assert.equal(fixture.state.connects, 1)
+  assert.deepEqual(fixture.state.connectModes, ["settings"])
 })

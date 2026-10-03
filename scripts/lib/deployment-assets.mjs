@@ -2,7 +2,8 @@ import fs from "node:fs/promises"
 import path from "node:path"
 import { createHash } from "node:crypto"
 
-const code = /\.(?:js|mjs|css|wasm|woff2?|ttf|otf)$|(?:^|\/)workspace-[a-f0-9]{8,64}\.txt$/i
+const code =
+  /\.(?:js|mjs|css|wasm|woff2?|ttf|otf)$|(?:^|\/)workspace-[a-f0-9]{8,64}\.txt$|^admin\/site-preview-[a-f0-9]{8,64}\.html$/i
 export const retentionPolicy = Object.freeze({
   minimumGenerations: 3,
   maximumGenerations: 8,
@@ -16,13 +17,19 @@ export function assetReferences(text, parent, site) {
   const base = new URL(site)
   const found = new Set()
   for (const match of text.matchAll(
-    /["'(=]\s*([^\s"'<>`(){};,]+\.(?:m?js|css|wasm|woff2?|ttf|otf|txt)(?![\w.-])(?:\?[^\s"'<>`(){};,]*)?)/gi,
+    /["'(=]\s*([^\s"'<>`(){};,]+\.(?:m?js|css|wasm|woff2?|ttf|otf|txt|html)(?![\w.-])(?:\?[^\s"'<>`(){};,]*)?)/gi,
   )) {
     let value = match[1].replaceAll("&amp;", "&")
     if (!/^[A-Za-z0-9_./:@?=&%+-]+$/.test(value)) continue
     if (
       /\.txt(?:\?|$)/i.test(value) &&
       !/(?:^|\/)workspace-[a-f0-9]{8,64}\.txt(?:\?|$)/i.test(value)
+    )
+      continue
+    if (
+      /\.html(?:\?|$)/i.test(value) &&
+      !/(?:^|\/)admin\/site-preview-[a-f0-9]{8,64}\.html(?:\?|$)/i.test(value) &&
+      !/^\.?\/?site-preview-[a-f0-9]{8,64}\.html(?:\?|$)/i.test(value)
     )
       continue
     // Bundled libraries also contain filenames for optional, unused adapters.
@@ -291,7 +298,10 @@ export async function captureDeployedAssets({
         await fs.mkdir(path.dirname(path.join(destination, name)), { recursive: true })
         await fs.writeFile(path.join(destination, name), bytes)
         inventory.push({ path: name, bytes: bytes.length, sha256: digest(bytes), url })
-        if (/\.(?:js|mjs|css)$/i.test(name))
+        if (
+          /\.(?:js|mjs|css)$/i.test(name) ||
+          /^admin\/site-preview-[a-f0-9]{8,64}\.html$/i.test(name)
+        )
           for (const ref of assetReferences(bytes.toString(), url, base)) add(ref)
       }),
     )

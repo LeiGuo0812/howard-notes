@@ -92,6 +92,11 @@ if (
   )
 )
   failures.push("Private reading must have a data-free shell and a versioned private worker")
+if (
+  !/^admin\/site-preview-[a-f0-9]{16}\.html$/.test(maintenance.sitePreviewEntry || "") ||
+  !existing.has(path.join(publicDir, maintenance.sitePreviewEntry || ""))
+)
+  failures.push("Settings must load an existing immutable sample preview")
 const memories = JSON.parse(await fs.readFile("public/memory-assets/manifest.json", "utf8"))
 if (
   !/^memory-[A-Z0-9]+\.js$/.test(memories.entry) ||

@@ -26,6 +26,13 @@ function fixture() {
   const git = {
     token: "test-token",
     snapshot: async () => publicSnapshot,
+    settingsSnapshot: async () => ({
+      ...publicSnapshot,
+      tree: null,
+      entries: new Map([["library/site.json", { sha: "settings-baseline" }]]),
+      siteSha: "settings-baseline",
+      settingsOnly: true,
+    }),
     read: async () => ({ text: "公开原文\r\n", sha: "public-sha" }),
     save: () => assert.fail("private originals must never be committed to Git"),
   }
@@ -142,6 +149,157 @@ function fixture() {
   })
   return { client, git, rows, calls, jobs, files, publicArticle, publicSnapshot }
 }
+
+function deferred() {
+  let resolve
+  const promise = new Promise((done) => (resolve = done))
+  return { promise, resolve }
+}
+test("settings first-use reads no owner lists and leaves personal metadata explicitly pending", async () => {
+  const { client, git, calls } = fixture()
+  git.snapshot = () => assert.fail("settings must not fetch a complete library")
+  const opened = await client.settingsSnapshot()
+  assert.equal(opened.settingsOnly, true)
+  assert.equal(opened.tree, null)
+  assert.equal(opened.privateArticles.size, 0)
+  assert.equal(client.personalReady, false)
+  assert.deepEqual(calls, [])
+  assert.equal(client.currentSnapshot, opened)
+})
+test("personal initialization shares one pending read, preserves private entries and leaves later refreshes fresh", async () => {
+  const { client, git, calls, rows, publicSnapshot } = fixture(),
+    gate = deferred()
+  rows.set("private", {
+    article: article("private"),
+    raw: "私密原文",
+    version: 2,
+    sha: "pv:2",
+    status: "ACTIVE",
+  })
+  client.privateCache.set("private", { version: 1, raw: "旧原文" })
+  await client.settingsSnapshot()
+  let fullReads = 0
+  git.snapshot = async () => {
+    fullReads++
+    await gate.promise
+    return publicSnapshot
+  }
+  const first = client.ensureSnapshot(),
+    parallel = client.ensureSnapshot()
+  assert.equal(first, parallel)
+  await new Promise((resolve) => setImmediate(resolve))
+  assert.equal(fullReads, 1)
+  assert.equal(calls.length, 3)
+  assert.equal(client.personalReady, false)
+  gate.resolve()
+  const loaded = await first
+  assert.equal(client.personalReady, true)
+  assert.equal(loaded.publicSnapshot, publicSnapshot)
+  assert.equal(loaded.privateArticles.get("private").version, 2)
+  assert.equal(loaded.entries.get("library/notes/private.md").sha, "pv:2")
+  assert.equal(client.privateCache.has("private"), false)
+  assert.equal(await client.ensureSnapshot(), loaded)
+  assert.equal(fullReads, 1)
+  assert.equal(calls.length, 3)
+  await client.snapshot()
+  assert.equal(fullReads, 2)
+  assert.equal(calls.length, 6)
+})
+test("failed personal initialization preserves settings and retries instead of caching its error", async () => {
+  const { client, git, publicSnapshot } = fixture(),
+    opened = await client.settingsSnapshot()
+  let reads = 0
+  git.snapshot = async () => {
+    if (++reads === 1) throw new Error("temporary read failure")
+    return publicSnapshot
+  }
+  const first = client.ensureSnapshot()
+  assert.equal(client.ensureSnapshot(), first)
+  await assert.rejects(first, /temporary read failure/)
+  assert.equal(client.currentSnapshot, opened)
+  assert.equal(client.personalReady, false)
+  assert.equal(client.snapshotPromise, null)
+  assert.equal((await client.ensureSnapshot()).publicSnapshot, publicSnapshot)
+  assert.equal(client.personalReady, true)
+  assert.equal(reads, 2)
+})
+test("late personal or settings reads cannot restore data after their token is cleared or changed", async () => {
+  for (const token of ["", "new-token"]) {
+    const { client, git, publicSnapshot } = fixture(),
+      opened = await client.settingsSnapshot(),
+      gate = deferred()
+    git.snapshot = async () => {
+      await gate.promise
+      return publicSnapshot
+    }
+    const pending = client.ensureSnapshot()
+    client.token = token
+    gate.resolve()
+    await assert.rejects(pending, { name: "AbortError" })
+    assert.equal(client.currentSnapshot, opened)
+    assert.equal(client.personalReady, false)
+    assert.deepEqual(client.recoveries, [])
+    assert.deepEqual(client.jobs, [])
+  }
+  const { client, git, publicSnapshot } = fixture(),
+    gate = deferred()
+  git.settingsSnapshot = async () => {
+    await gate.promise
+    return publicSnapshot
+  }
+  const pending = client.settingsSnapshot()
+  client.token = ""
+  gate.resolve()
+  await assert.rejects(pending, { name: "AbortError" })
+  assert.equal(client.currentSnapshot, undefined)
+  assert.equal(client.personalReady, false)
+})
+test("a successful settings save during personal initialization keeps its newer public baseline", async () => {
+  const { client, git, rows, publicSnapshot } = fixture(),
+    gate = deferred()
+  await client.settingsSnapshot()
+  rows.set("private", {
+    article: article("private"),
+    raw: "私密原文",
+    version: 1,
+    sha: "pv:1",
+    status: "ACTIVE",
+  })
+  git.snapshot = async () => {
+    await gate.promise
+    return publicSnapshot
+  }
+  const pending = client.ensureSnapshot(),
+    savedPublic = {
+      ...publicSnapshot,
+      commit: "accepted-settings-commit",
+      tree: "complete-settings-tree",
+      siteSha: "accepted-settings-sha",
+      settings: { changed: true },
+    }
+  git.saveSettings = async () => ({ sha: savedPublic.commit, snapshot: savedPublic })
+  const saved = await client.saveSettings({ openedSha: "settings-baseline", settings: {} })
+  assert.equal(saved.snapshot.publicSnapshot, savedPublic)
+  assert.equal(client.personalReady, false)
+  assert.equal(saved.snapshot.settingsOnly, undefined)
+  assert.equal(client.currentSnapshot.privateArticles.size, 0)
+  gate.resolve()
+  const loaded = await pending
+  assert.equal(loaded.publicSnapshot, savedPublic)
+  assert.deepEqual(loaded.settings, { changed: true })
+  assert.equal(loaded.siteSha, savedPublic.siteSha)
+  assert.equal(loaded.privateArticles.get("private").version, 1)
+  assert.equal(client.personalReady, true)
+})
+test("an ordinary refresh remains fresh even after settings and owner initialization succeeded", async () => {
+  const { client, git, publicSnapshot } = fixture()
+  await client.settingsSnapshot()
+  await client.ensureSnapshot()
+  const nextPublic = { ...publicSnapshot, commit: "new-external-commit", settings: { next: true } }
+  git.snapshot = async () => nextPublic
+  assert.equal((await client.snapshot()).publicSnapshot, nextPublic)
+  assert.equal(client.personalReady, true)
+})
 
 test("parallel private lists discover the runtime endpoint once without caching authenticated requests", async () => {
   const { git, publicSnapshot } = fixture()

@@ -20,27 +20,30 @@
 
 ## 组件边界
 
-| 文件                                            | 职责                                           |
-| ----------------------------------------------- | ---------------------------------------------- |
-| `quartz/components/Blog.tsx`                    | 提供登录、维护操作、文章 ID 和编辑挂载位置     |
-| `admin/maintenance-loader.mjs`                  | 轻量入口、按需获取版本清单并加载维护组件       |
-| `admin/maintenance.mjs`                         | 主站会话、命令、面板挂载与 Quartz 导航生命周期 |
-| `admin/maintenance-opening.mjs`                 | 首次打开的轻量窗口、加载进度及失败重试         |
-| `admin/maintenance-workspace.mjs`               | 按需加载完整工作区、命令分派及原位/浮窗挂载    |
-| `admin/panel-window.mjs`                        | 浮窗位置、全屏切换及视口边界，不保存文章状态   |
-| `admin/workspace.mjs`                           | 文章、草稿、格式、图片、设置共用控制器         |
-| `admin/app.mjs`                                 | 独立后台启动及同一个工作区的登录接线           |
-| `admin/auth.mjs` / `auth-service/worker.mjs`    | GitHub 所有者登录、一次性结果领取及安全回跳    |
-| `admin/github.mjs`                              | 原 Markdown、原子提交、SHA 和目录冲突检查      |
-| `admin/personal-library.mjs`                    | 合并维护目录，分派公开 Git 与私密 D1 操作      |
-| `admin/private-notes.mjs`                       | 认证私密列表、完整阅读及退出清理               |
-| `admin/article-recovery.mjs`                    | 本机文章恢复稿及原始版本基线                   |
-| `admin/durable-drafts.mjs`                      | 云端恢复稿的版本保护、串行写入与幂等重试       |
-| `admin/settings.mjs` / `admin/site-preview.mjs` | 设置表单、布局草稿和真实页面预览               |
-| `admin/deployment.mjs`                          | 按本次提交读取 Pages 工作流状态                |
-| `content-service/publication-jobs.mjs`          | 服务端持久发布、撤下、同步及真实状态确认       |
-| `content-service/personal-notes.mjs`            | 认证 D1 原文、草稿、历史、回收站及私密文件接口 |
-| `scripts/build-maintenance.mjs`                 | 共用表单生成、Shadow DOM 样式及版本化入口      |
+| 文件                                                           | 职责                                           |
+| -------------------------------------------------------------- | ---------------------------------------------- |
+| `quartz/components/Blog.tsx`                                   | 提供登录、维护操作、文章 ID 和编辑挂载位置     |
+| `admin/maintenance-loader.mjs`                                 | 轻量入口、按需获取版本清单并加载维护组件       |
+| `admin/maintenance.mjs`                                        | 主站会话、命令、面板挂载与 Quartz 导航生命周期 |
+| `admin/maintenance-opening.mjs`                                | 首次打开的轻量窗口、加载进度及失败重试         |
+| `admin/maintenance-workspace.mjs`                              | 按需加载完整工作区、命令分派及原位/浮窗挂载    |
+| `admin/panel-window.mjs`                                       | 浮窗位置、全屏切换及视口边界，不保存文章状态   |
+| `admin/settings-outside-close.mjs`                             | 设置窗口外点击收起，保留草稿及其他页面操作     |
+| `admin/workspace.mjs`                                          | 文章、草稿、格式、图片、设置共用控制器         |
+| `admin/app.mjs`                                                | 独立后台启动及同一个工作区的登录接线           |
+| `admin/auth.mjs` / `auth-service/worker.mjs`                   | GitHub 所有者登录、一次性结果领取及安全回跳    |
+| `admin/github.mjs`                                             | 原 Markdown、原子提交、SHA 和目录冲突检查      |
+| `admin/personal-library.mjs`                                   | 合并维护目录，分派公开 Git 与私密 D1 操作      |
+| `admin/private-notes.mjs`                                      | 认证私密列表、完整阅读及退出清理               |
+| `admin/article-recovery.mjs`                                   | 本机文章恢复稿及原始版本基线                   |
+| `admin/durable-drafts.mjs`                                     | 云端恢复稿的版本保护、串行写入与幂等重试       |
+| `admin/settings.mjs` / `admin/site-preview.mjs`                | 设置表单、布局草稿和轻量样稿预览               |
+| `admin/site-preview-settings.mjs` / `site-preview-sample*.mjs` | 公开布局白名单、四场景合成样稿及隔离渲染       |
+| `scripts/build-site-preview.mjs`                               | 绑定正式主站 CSS 的独立哈希样稿页面            |
+| `admin/deployment.mjs`                                         | 按本次提交读取 Pages 工作流状态                |
+| `content-service/publication-jobs.mjs`                         | 服务端持久发布、撤下、同步及真实状态确认       |
+| `content-service/personal-notes.mjs`                           | 认证 D1 原文、草稿、历史、回收站及私密文件接口 |
+| `scripts/build-maintenance.mjs`                                | 共用表单生成、Shadow DOM 样式及版本化入口      |
 
 访客只加载轻量启动器。`maintenance.mjs` 只负责会话、权限状态、导航及命令入口；恢复登录不会加载完整目录与编辑器。第一次打开维护窗口时，才动态导入 `maintenance-workspace.mjs`、共享表单和样式。独立后台和主站分别构建入口，但使用同一套 `workspace.mjs` 和同一份 `admin/index.html` 表单。
 
@@ -101,16 +104,49 @@ GitHub Pages 备用域名不会跨域读取主站 Cookie，仍沿用原登录流
 轻量会话控制器，不加载完整编辑器和目录。
 
 首次点击页面设置等维护窗口入口，先同步创建带标题、窗口控件和占位内容的轻量
-窗口；等待两个动画帧，让浏览器先显示窗口，再导入完整工作区、读取模板、验证
-会话并取得目录和设置。加载期间仍可拖动、全屏、还原或收起，左下角显示进度和
+窗口；等待两个动画帧，让浏览器先显示窗口，再导入完整工作区和读取模板。
+页面设置首次连接时，身份与仓库写权限验证和必要的公开设置读取并行进行，
+全部成功后才启用表单；私密文库目录不再阻塞设置就绪。加载期间仍可拖动、全屏、还原或收起，左下角显示进度和
 重新打开入口。就绪后完整工作区承接当前拖动位置和全屏状态，不跳回中心。
 收起、导航、退出或会话到期使旧打开意图失效，晚到请求不能自行弹回窗口或恢复
 已失效的登录；失败可重试。
 
+`GitHubLibrary.settingsSnapshot()` 先读取当前分支的 commit，再在这个固定版本
+并行读取 `library/site.json` 和 `library/catalog.json`，保留准确的设置文件 SHA。
+它显式标记 `settingsOnly`，没有完整 Git tree 和文章文件基线，不能冒充完整文库。
+内容校验后只按不可变 blob SHA 复用字节，不缓存可变分支；保存设置仍重新取得
+完整 Git snapshot、检查设置 SHA 与专题占用，并以非强制提交保护并发写入。
+
+只查看设置时，不主动加载完整文库。首次进入文章维护功能或需要监测、重试发布任务时，
+个人文章、草稿和任务元数据才按需在后台分批加载。`PersonalLibrary.ensureSnapshot()`
+共享同一实例的在途初始化，失败可重试；`personalReady` 只在完整读取后成立。
+文章管理、草稿、私密文章、新建、编辑和回收站依赖该文库，先等待同一准备过程，
+不把尚未读取的私密条目当成空文库。补齐数据不会重新载入设置表单或替换工作中的
+布局草稿；期间已保存的新公开设置基线也不能被旧初始化结果覆盖。日常刷新仍读取
+权威当前版本，不把首开去重变成长期快照缓存。
+
 重复点击共享一次模块加载和连接，最后选择的窗口生效。已连接工作区的再次打开
 沿用原实例及编辑缓冲，不重新读取整个目录。`PersonalLibrary.endpoint()` 合并
-同一实例并发的运行配置请求；失败后允许重试，不缓存登录凭据或私密正文。连接
-期间只渲染一次文章列表，避免模式切换后重复构建列表。
+同一实例并发的运行配置请求；失败后允许重试，不缓存登录凭据或私密正文。后台
+补齐时按当前视图更新列表，避免在设置模式重复构建不可见的文章列表。
+
+页面设置作为普通浮窗时，点击窗口外的页面可收起；这不发布、不丢弃布局草稿，
+再次打开继续编辑。收起仍保留文章缓冲及版本基线。维护入口、搜索、分享和其他
+弹层不会被视作窗口外关闭，拖动或触屏滚动结束也不误收起；点击外部链接仍保留
+原有导航行为。加载窗口同样可收起，晚到结果只更新进度，不重新打开面板。
+
+设置预览使用同源独立 iframe 样稿，提供首页、专题、文章列表和阅读页四个场景。
+`scripts/build-site-preview.mjs` 将轻量渲染器和样稿 HTML/CSS 构建为哈希资源，
+样稿引用与该次主站构建一致的正式 CSS；维护清单通过 `sitePreviewEntry` 绑定
+对应 HTML，部署继续保留旧页面需要的递归依赖。场景切换只更新同一 iframe，
+隐藏时释放为 `about:blank`，再次打开按当前设置绘制。
+
+样稿只接收经过 `sitePreviewSettings()` 白名单投影的品牌、配色、字体和布局字段，
+固定使用有界合成文章、记忆卡、热图和正文，不读取真实文章目录或原文，也不发送
+图床配置、凭据或私密数据。双方检查消息 origin/source，子页 CSP 禁止内容网络请求。
+它用于比较明暗配色、字体、间距、圆角、模块顺序、专题和列表布局；图谱、搜索、
+登录、分页、真实活动数量及文章内容不是完整主站复刻。发布后的真实内容和完整
+页面交互仍需在主站检查，样稿不能代替文章编辑器预览或正式验收。
 
 发布、保存、撤下、删除、恢复和永久清理通过统一的任务回调立即收起。
 屏幕左下角统一显示非阻塞状态、重新打开和同步重试入口；异步写入的冲突检测不变。

@@ -108,9 +108,9 @@ export async function createMaintenance({
     scheduleExpiry()
     void rememberSession(base, credentials)
     changed()
-    if (panel) await openWorkspace()
+    if (panel) await openWorkspace("settings")
   }
-  async function openWorkspace() {
+  async function openWorkspace(action = "articles") {
     if (!panelPromise) {
       panelPromise = loadWorkspace()
         .then(async (module) => {
@@ -159,12 +159,13 @@ export async function createMaintenance({
     while (credentials && instance.getOwnerAccess()?.token !== credentials.token) {
       if (!connectionPromise) {
         const access = credentials
-        connectionPromise = instance.connect(access).finally(() => {
+        connectionPromise = instance.connect(access, { mode: action }).finally(() => {
           connectionPromise = null
         })
       }
       await connectionPromise
     }
+    if (credentials) await instance.prepare?.(action)
     return instance
   }
   async function login(reconnect = false) {
@@ -227,11 +228,12 @@ export async function createMaintenance({
     const token = credentials.token
     const serial = ++openSerial
     const loading =
-      WINDOW_ACTIONS.has(action) && (!panel || panel.getOwnerAccess()?.token !== token)
+      WINDOW_ACTIONS.has(action) &&
+      (!panel || panel.getOwnerAccess()?.token !== token || panel.isReady?.(action) === false)
     if (!loading) {
       opening?.destroy()
       opening = null
-      const instance = await openWorkspace()
+      const instance = await openWorkspace(action)
       if (currentOpening(serial, token)) return instance.perform(action)
       return
     }
@@ -253,7 +255,7 @@ export async function createMaintenance({
     }
     try {
       view.setStatus("正在加载维护界面和设置…")
-      const instance = await openWorkspace()
+      const instance = await openWorkspace(action)
       if (!currentOpening(serial, token) || !view.isVisible()) {
         if (hiddenOpening(view, token)) view.setStatus("维护界面已就绪，可重新打开。")
         return

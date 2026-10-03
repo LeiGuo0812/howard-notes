@@ -134,6 +134,51 @@ export class GitHubLibrary {
     if (!repository.permissions?.push) throw new Error("当前账号没有此仓库的写入权限。")
     return user.login
   }
+  async settingsSnapshot() {
+    // Resolve the mutable branch once, then read both files at that immutable
+    // commit. The settings editor needs these baselines, not the full Git tree.
+    const ref = await this.repo(`git/ref/heads/${this.branch}`)
+    const commit = ref?.object?.sha
+    if (!/^[a-f0-9]{40}$/.test(commit || "")) throw new Error("GitHub 版本信息不正确，请重试。")
+    const read = async (path) => {
+      const file = await this.repo(`contents/${path}?ref=${commit}`)
+      if (
+        file?.type !== "file" ||
+        file.path !== path ||
+        !/^[a-f0-9]{40}$/.test(file.sha || "") ||
+        !["base64", "none"].includes(file.encoding) ||
+        (file.encoding === "base64" && typeof file.content !== "string")
+      )
+        throw new Error("页面设置文件信息不完整，请重新载入。")
+      const text =
+        file.encoding === "base64" && typeof file.content === "string" && file.content
+          ? decodeBase64(file.content)
+          : await this.blobText(file.sha)
+      if ((await gitBlobSha(text)) !== file.sha)
+        throw new Error("页面设置文件版本不匹配，请重新载入。")
+      // Reuse only immutable blob bytes. Ref and Contents requests stay fresh.
+      this.textCache.delete(file.sha)
+      this.textCache.set(file.sha, Promise.resolve(text))
+      if (this.textCache.size > 64) this.textCache.delete(this.textCache.keys().next().value)
+      return {
+        entry: { path, type: "blob", mode: "100644", sha: file.sha },
+        value: JSON.parse(text),
+      }
+    }
+    const [catalogFile, siteFile] = await Promise.all([read(CATALOG_PATH), read(SITE_PATH)])
+    return {
+      commit,
+      tree: null,
+      entries: new Map([
+        [CATALOG_PATH, catalogFile.entry],
+        [SITE_PATH, siteFile.entry],
+      ]),
+      catalog: validateCatalog(catalogFile.value),
+      settings: validateSite(siteFile.value),
+      siteSha: siteFile.entry.sha,
+      settingsOnly: true,
+    }
+  }
   async snapshot() {
     const ref = await this.repo(`git/ref/heads/${this.branch}`)
     const head = await this.repo(`git/commits/${ref.object.sha}`)

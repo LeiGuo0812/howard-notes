@@ -2,6 +2,29 @@ import assert from "node:assert/strict"
 import test from "node:test"
 import { createSitePreview } from "./site-preview.mjs"
 
+const settingsFixture = () => ({
+  version: 1,
+  brand: { name: "Original", subtitle: "Notes", mark: "h." },
+  accent: "blue",
+  home: {
+    title: "知识空间",
+    description: "",
+    layout: "single",
+    density: "comfortable",
+    sections: [
+      { id: "featured", title: "试试手气", enabled: true },
+      { id: "recent", title: "最近文章", enabled: true },
+      { id: "topics", title: "专题", enabled: true },
+      { id: "activity", title: "笔记活动", enabled: true },
+    ],
+  },
+  topics: [],
+  collections: ["recent", "featured", "all"].map((id) => ({ id, title: id, enabled: true })),
+  navigation: ["notes", "topics", "about"].map((id) => ({ id, label: id, visible: true })),
+  footer: "Howard",
+  about: { title: "关于", body: "" },
+})
+
 function fixture({ merged = false } = {}) {
   const previous = {
     window: globalThis.window,
@@ -52,10 +75,12 @@ function fixture({ merged = false } = {}) {
       disconnected = true
     }
   }
-  let settings = { title: "Original" }
+  let settings = settingsFixture(),
+    snapshotReads = 0
   const preview = createSitePreview(
     () => settings,
     () => {
+      snapshotReads++
       const publicSnapshot = {
         catalog: { articles: [{ id: "note-a", title: "A", published: true }] },
       }
@@ -71,7 +96,11 @@ function fixture({ merged = false } = {}) {
           }
         : publicSnapshot
     },
-    { root, siteBase: "https://notes.example/howard-notes/" },
+    {
+      root,
+      siteBase: "https://notes.example/howard-notes/",
+      previewEntry: "admin/site-preview-0123456789abcdef.html",
+    },
   )
   const ready = () => {
     const event = new Event("message")
@@ -86,6 +115,7 @@ function fixture({ merged = false } = {}) {
     frame,
     stage,
     messages,
+    snapshotReads: () => snapshotReads,
     ready,
     setSettings(value) {
       settings = value
@@ -101,7 +131,7 @@ function fixture({ merged = false } = {}) {
   }
 }
 
-test("loading settings never mounts a hidden full-site iframe", () => {
+test("loading settings mounts its bounded sample only after the preview becomes visible", () => {
   const f = fixture()
   try {
     f.preview.load()
@@ -112,16 +142,20 @@ test("loading settings never mounts a hidden full-site iframe", () => {
     assert.equal(f.frame.src, "about:blank")
     f.stage.visible = true
     f.resize()
-    assert.equal(f.frame.src, "https://notes.example/howard-notes/?site-preview=1")
+    assert.equal(
+      f.frame.src,
+      "https://notes.example/howard-notes/admin/site-preview-0123456789abcdef",
+    )
     f.ready()
     assert.equal(f.messages.length, 1)
-    assert.equal(f.messages[0].settings.title, "Original")
+    assert.equal(f.messages[0].settings.brand.name, "Original")
+    assert.equal(f.messages[0].scene, "home")
   } finally {
     f.cleanup()
   }
 })
 
-test("layout preview selectors retain public articles and exclude private owner titles", () => {
+test("sample previews do not read owner or public catalogues and use one fixed article", () => {
   const f = fixture({ merged: true })
   try {
     f.preview.load()
@@ -129,9 +163,11 @@ test("layout preview selectors retain public articles and exclude private owner 
       f
         .control("preview-article")
         .options.map((option) => ({ text: option.text, value: option.value })),
-      [{ text: "A", value: "note-a" }],
+      [{ text: "固定阅读样稿", value: "sample" }],
     )
     assert.doesNotMatch(JSON.stringify(f.control("preview-article").options), /PRIVATE/)
+    assert.equal(f.control("preview-article").hidden, true)
+    assert.equal(f.snapshotReads(), 0)
   } finally {
     f.cleanup()
   }
@@ -151,16 +187,71 @@ test("suspending previews unloads scripts and restores route, device, theme and 
     f.control("preview-theme").value = "dark"
     f.preview.setActive(false)
     assert.equal(f.frame.src, "about:blank")
-    f.setSettings({ title: "Unsaved draft" })
+    f.setSettings({
+      ...settingsFixture(),
+      brand: { name: "Unsaved draft", subtitle: "Notes", mark: "h." },
+    })
     f.ready()
     f.preview.update()
-    assert.equal(f.messages.length, 1)
+    assert.equal(f.messages.length, 2)
     f.preview.setActive(true)
-    assert.equal(f.frame.src, "https://notes.example/howard-notes/notes/note-a?site-preview=1")
+    assert.equal(
+      f.frame.src,
+      "https://notes.example/howard-notes/admin/site-preview-0123456789abcdef",
+    )
     assert.equal(f.frame.style.width, "390px")
     f.ready()
-    assert.equal(f.messages.at(-1).settings.title, "Unsaved draft")
+    assert.equal(f.messages.at(-1).settings.brand.name, "Unsaved draft")
+    assert.equal(f.messages.at(-1).scene, "article")
     assert.equal(f.messages.at(-1).theme, "dark")
+  } finally {
+    f.cleanup()
+  }
+})
+
+test("scene changes reuse the same iframe and exchange only whitelisted layout fields", () => {
+  const f = fixture({ merged: true })
+  try {
+    f.stage.visible = true
+    f.preview.load()
+    f.preview.setActive(true)
+    const initial = f.frame.src
+    f.ready()
+    f.setSettings({
+      ...settingsFixture(),
+      token: "PRIVATE_TOKEN",
+      catalog: { secret: "PRIVATE_NOTE" },
+      imageHost: { repository: "PRIVATE_REPOSITORY" },
+      about: { title: "关于", body: "PRIVATE_ORIGINAL" },
+    })
+    f.control("preview-page").value = "topics"
+    f.control("preview-page").onchange()
+    assert.equal(f.frame.src, initial)
+    assert.equal(f.messages.at(-1).scene, "topics")
+    assert.doesNotMatch(JSON.stringify(f.messages), /PRIVATE/)
+    assert.equal(f.snapshotReads(), 0)
+  } finally {
+    f.cleanup()
+  }
+})
+
+test("a foreign frame or origin cannot mark the sample preview ready", () => {
+  const f = fixture()
+  try {
+    f.stage.visible = true
+    f.preview.load()
+    f.preview.setActive(true)
+    for (const [origin, source] of [
+      ["https://untrusted.example", f.frame.contentWindow],
+      [location.origin, {}],
+    ]) {
+      const event = new Event("message")
+      Object.assign(event, { origin, source, data: { type: "howard-preview-ready" } })
+      window.dispatchEvent(event)
+    }
+    assert.equal(f.messages.length, 0)
+    f.ready()
+    assert.equal(f.messages.length, 1)
   } finally {
     f.cleanup()
   }

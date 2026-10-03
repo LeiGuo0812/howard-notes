@@ -92,6 +92,177 @@ const article = {
   date: "2026-09-30",
   published: true,
 }
+async function settingsContentsFixture() {
+  const texts = new Map([
+    ["library/catalog.json", JSON.stringify({ version: 2, articles: [article] })],
+    ["library/site.json", JSON.stringify(settings)],
+  ])
+  const files = new Map()
+  for (const [path, text] of texts)
+    files.set(path, {
+      path,
+      type: "file",
+      encoding: "base64",
+      sha: await gitBlobSha(text),
+      content: Buffer.from(text).toString("base64"),
+    })
+  const client = new GitHubLibrary("test-not-a-token"),
+    calls = []
+  let commit = "1".repeat(40),
+    contentGate = Promise.resolve()
+  client.repo = async (endpoint) => {
+    calls.push(endpoint)
+    if (endpoint === "git/ref/heads/main") return { object: { sha: commit } }
+    if (endpoint.startsWith("contents/")) {
+      await contentGate
+      return structuredClone(files.get(endpoint.split("?")[0].slice("contents/".length)))
+    }
+    if (endpoint.startsWith("git/blobs/")) {
+      const file = [...files.values()].find((file) => endpoint.endsWith(file.sha))
+      return { content: Buffer.from(texts.get(file.path)).toString("base64") }
+    }
+    assert.fail(`unexpected GitHub request: ${endpoint}`)
+  }
+  return {
+    client,
+    calls,
+    files,
+    texts,
+    setCommit(value) {
+      commit = value
+    },
+    setContentGate(value) {
+      contentGate = value
+    },
+  }
+}
+test("settings initialization reads both files in parallel at one fixed commit without a full tree", async () => {
+  const f = await settingsContentsFixture()
+  let release
+  f.setContentGate(new Promise((resolve) => (release = resolve)))
+  const pending = f.client.settingsSnapshot()
+  await new Promise((resolve) => setImmediate(resolve))
+  assert.deepEqual(f.calls, [
+    "git/ref/heads/main",
+    `contents/library/catalog.json?ref=${"1".repeat(40)}`,
+    `contents/library/site.json?ref=${"1".repeat(40)}`,
+  ])
+  f.setCommit("2".repeat(40))
+  release()
+  const first = await pending
+  assert.equal(first.commit, "1".repeat(40))
+  assert.equal(first.tree, null)
+  assert.equal(first.settingsOnly, true)
+  assert.deepEqual([...first.entries.keys()], ["library/catalog.json", "library/site.json"])
+  assert.equal(first.entries.has(`library/${article.file}`), false)
+  assert.equal(first.siteSha, f.files.get("library/site.json").sha)
+  assert.deepEqual(first.settings, settings)
+  assert.deepEqual(first.catalog.articles, [article])
+  const second = await f.client.settingsSnapshot()
+  assert.equal(second.commit, "2".repeat(40))
+  assert.equal(f.calls.filter((call) => call === "git/ref/heads/main").length, 2)
+  assert.equal(f.calls.filter((call) => call.startsWith("contents/")).length, 4)
+})
+test("settings Contents reuse immutable decoded bytes and fall back to the pinned blob for large files", async () => {
+  const f = await settingsContentsFixture(),
+    site = f.files.get("library/site.json"),
+    catalog = f.files.get("library/catalog.json")
+  site.encoding = "none"
+  site.content = ""
+  catalog.content = ""
+  await f.client.settingsSnapshot()
+  assert.deepEqual(
+    f.calls.filter((call) => call.startsWith("git/blobs/")),
+    [`git/blobs/${catalog.sha}`, `git/blobs/${site.sha}`],
+  )
+  await f.client.settingsSnapshot()
+  assert.equal(f.calls.filter((call) => call.startsWith("git/blobs/")).length, 2)
+  assert.equal(
+    await f.client.blobText(f.files.get("library/catalog.json").sha),
+    f.texts.get("library/catalog.json"),
+  )
+  assert.equal(f.calls.filter((call) => call.startsWith("git/blobs/")).length, 2)
+  const inline = await settingsContentsFixture()
+  await inline.client.settingsSnapshot()
+  await inline.client.blobText(inline.files.get("library/site.json").sha)
+  assert.equal(inline.calls.filter((call) => call.startsWith("git/blobs/")).length, 0)
+})
+test("settings initialization rejects malformed file metadata, mismatched bytes and invalid JSON", async () => {
+  for (const change of [
+    { type: "dir" },
+    { path: "library/other.json" },
+    { sha: "invalid" },
+    { sha: "0".repeat(40) },
+    { encoding: "utf-8" },
+    { content: null },
+  ]) {
+    const f = await settingsContentsFixture()
+    Object.assign(f.files.get("library/site.json"), change)
+    await assert.rejects(f.client.settingsSnapshot(), /文件信息|文件版本/)
+  }
+  for (const text of ["broken-json", JSON.stringify({ brand: {} })]) {
+    const f = await settingsContentsFixture()
+    Object.assign(f.files.get("library/site.json"), {
+      sha: await gitBlobSha(text),
+      content: Buffer.from(text).toString("base64"),
+    })
+    await assert.rejects(f.client.settingsSnapshot())
+  }
+  const invalidCatalog = await settingsContentsFixture(),
+    text = JSON.stringify({ version: 2, articles: [{ ...article, file: "../site.json" }] })
+  Object.assign(invalidCatalog.files.get("library/catalog.json"), {
+    sha: await gitBlobSha(text),
+    content: Buffer.from(text).toString("base64"),
+  })
+  await assert.rejects(invalidCatalog.client.settingsSnapshot(), /原文文件路径/)
+  const f = await settingsContentsFixture()
+  f.setCommit("invalid")
+  await assert.rejects(f.client.settingsSnapshot(), /版本信息/)
+  assert.deepEqual(f.calls, ["git/ref/heads/main"])
+})
+test("settings bootstrap never bypasses fresh save conflict detection or writes from a partial tree", async () => {
+  const f = await settingsContentsFixture(),
+    opened = await f.client.settingsSnapshot()
+  let freshReads = 0
+  f.client.snapshot = async () => {
+    freshReads++
+    return {
+      ...opened,
+      tree: "complete-tree",
+      settingsOnly: false,
+      siteSha: "2".repeat(40),
+    }
+  }
+  f.client.repo = () => assert.fail("a conflict must not write the repository")
+  await assert.rejects(f.client.saveSettings({ openedSha: opened.siteSha, settings }), /另一端/)
+  assert.equal(freshReads, 1)
+})
+test("saving from settings initialization commits against a fresh full tree with no force update", async () => {
+  const f = await settingsContentsFixture(),
+    opened = await f.client.settingsSnapshot(),
+    latest = {
+      ...opened,
+      commit: "9".repeat(40),
+      tree: "fresh-complete-tree",
+      settingsOnly: false,
+      entries: new Map([
+        ...opened.entries,
+        [`library/${article.file}`, { path: `library/${article.file}`, sha: "original-sha" }],
+      ]),
+    }
+  const calls = recordWrites(f.client, latest),
+    edited = { ...settings, home: { ...settings.home, title: "修改后的主页" } },
+    result = await f.client.saveSettings({ openedSha: opened.siteSha, settings: edited })
+  assert.equal(calls[0].body.base_tree, latest.tree)
+  assert.deepEqual(
+    calls[0].body.tree.map((change) => change.path),
+    ["library/site.json"],
+  )
+  assert.deepEqual(calls[1].body.parents, [latest.commit])
+  assert.equal(calls[2].body.force, false)
+  assert.equal(result.snapshot.settingsOnly, false)
+  assert.equal(result.snapshot.entries.get(`library/${article.file}`).sha, "original-sha")
+})
 const snapshot = (sha = "original", articles = [article]) => ({
   commit: "head",
   tree: "tree",

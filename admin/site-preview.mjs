@@ -1,22 +1,28 @@
-import { publicLibrarySnapshot } from "./public-library.mjs"
+import { sitePreviewSettings } from "./site-preview-settings.mjs"
 export function createSitePreview(
   getSettings,
-  getSnapshot,
-  { root = document, siteBase = new URL("../", location.href) } = {},
+  _getSnapshot,
+  {
+    root = document,
+    siteBase = new URL("../", location.href),
+    previewEntry = typeof __HOWARD_SITE_PREVIEW__ !== "undefined"
+      ? __HOWARD_SITE_PREVIEW__
+      : "admin/site-preview.html",
+  } = {},
 ) {
-  const ownerSnapshot = getSnapshot
-  getSnapshot = () => publicLibrarySnapshot(ownerSnapshot())
   const $ = (id) => root.querySelector(`[data-admin-id="${id}"]`) || root.querySelector(`#${id}`)
   const listeners = new AbortController()
   let disposed = false
   const frame = $("site-preview-frame"),
     stage = $("site-preview-stage"),
     panel = $("site-preview-panel")
+  frame.title = "页面样稿预览"
   let ready = false,
+    mounted = false,
     timer,
     active = false,
     pendingOpen = false
-  const sizes = { desktop: [1440, 960], tablet: [820, 1000], mobile: [390, 844] }
+  const sizes = { desktop: [1440, 960], tablet: [768, 1000], mobile: [390, 844] }
   const resize = () => {
     const [width, height] = sizes[$("preview-device").value]
     const scale = Math.min(1, stage.clientWidth / width)
@@ -30,28 +36,27 @@ export function createSitePreview(
     if (disposed || !active || !ready || !getSettings()) return
     try {
       frame.contentWindow.postMessage(
-        { type: "howard-layout-preview", settings: getSettings(), theme: $("preview-theme").value },
+        {
+          type: "howard-layout-preview",
+          settings: sitePreviewSettings(getSettings()),
+          theme: $("preview-theme").value,
+          scene: $("preview-page").value,
+        },
         location.origin,
       )
     } catch {
       $("site-preview-state").textContent = "预览失败"
     }
   }
-  const open = () => {
+  const open = ({ reload = false } = {}) => {
     if (disposed) return
     pendingOpen = true
     if (!active || !stage.isConnected || !stage.getClientRects().length) return
     pendingOpen = false
-    const type = $("preview-page").value
-    $("preview-article").hidden = type !== "article"
-    const routes = {
-      home: "",
-      topics: "topics/",
-      notes: "notes/",
-      article: `notes/${$("preview-article").value}`,
-    }
-    if (type === "article" && !$("preview-article").value) {
-      $("site-preview-state").textContent = "暂无已发布文章"
+    $("preview-article").hidden = true
+    resize()
+    if (mounted && !reload) {
+      update()
       return
     }
     ready = false
@@ -60,18 +65,27 @@ export function createSitePreview(
     timer = setTimeout(() => {
       if (!ready) $("site-preview-state").textContent = "加载失败，可重试"
     }, 15000)
-    const url = new URL(routes[type], siteBase)
-    url.searchParams.set("site-preview", "1")
+    const url = new URL(previewEntry, siteBase)
+    if (
+      url.origin !== location.origin ||
+      !/\/admin\/site-preview(?:-[a-f0-9]{16})?\.html$/.test(url.pathname)
+    ) {
+      $("site-preview-state").textContent = "预览地址不正确"
+      clearTimeout(timer)
+      return
+    }
+    // Request the clean route directly. Static hosts may redirect .html to an
+    // extensionless path and otherwise discard a site's deployment prefix.
+    url.pathname = url.pathname.replace(/\.html$/, "")
     frame.src = url.href
-    resize()
+    mounted = true
   }
   const suspend = () => {
     clearTimeout(timer)
     ready = false
+    mounted = false
     pendingOpen = true
-    // Removing the browsing context releases the embedded site's graphs,
-    // observers, image surfaces and scripts while leaving layout edits and
-    // preview controls in the parent workspace intact.
+    // Release the sample document while keeping unsaved layout and selectors.
     frame.src = "about:blank"
   }
   window.addEventListener(
@@ -94,7 +108,7 @@ export function createSitePreview(
   $("preview-article").onchange = open
   $("preview-device").onchange = resize
   $("preview-theme").onchange = update
-  $("retry-site-preview").onclick = open
+  $("retry-site-preview").onclick = () => open({ reload: true })
   $("expand-site-preview").onclick = () => {
     panel.classList.toggle("expanded")
     $("expand-site-preview").textContent = panel.classList.contains("expanded")
@@ -133,11 +147,9 @@ export function createSitePreview(
       frame.src = "about:blank"
     },
     load() {
-      const articles = getSnapshot().catalog.articles.filter((article) => article.published)
-      const select = $("preview-article"),
-        previous = select.value
-      select.replaceChildren(...articles.map((article) => new Option(article.title, article.id)))
-      if (articles.some((article) => article.id === previous)) select.value = previous
+      const select = $("preview-article")
+      select.hidden = true
+      select.replaceChildren(new Option("固定阅读样稿", "sample"))
       open()
     },
   }

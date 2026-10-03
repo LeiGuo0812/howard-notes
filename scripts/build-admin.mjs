@@ -6,6 +6,7 @@ import { brandIconLinks } from "./lib/site-icon.mjs"
 import { brokerOrigin } from "../admin/auth.mjs"
 import { upgradeAdmin } from "./lib/admin-upgrade.mjs"
 import { buildPreviewWorker } from "./build-preview-worker.mjs"
+import { buildSitePreview } from "./build-site-preview.mjs"
 import { buildMaintenance } from "./build-maintenance.mjs"
 import { buildMemories } from "./build-memories.mjs"
 import { buildPublicationWorker } from "./build-publication-worker.mjs"
@@ -40,6 +41,7 @@ if (process.env.GITHUB_REF === "refs/heads/main" && !authConfig.brokerOrigin)
   throw new Error("Account login must be configured before deploying main.")
 await fs.mkdir("public/admin/katex", { recursive: true })
 const previewWorkerEntry = await buildPreviewWorker()
+const sitePreviewEntry = await buildSitePreview()
 const workerEntry = await buildPublicationWorker()
 const privateWorkerEntry = await buildPrivateNotesWorker()
 const mermaidViewerEntry = await buildMermaidViewer()
@@ -60,6 +62,7 @@ const bundle = await build({
   define: {
     __HOWARD_PUBLICATION_WORKER__: JSON.stringify(workerEntry),
     __HOWARD_PREVIEW_WORKER__: JSON.stringify(previewWorkerEntry),
+    __HOWARD_SITE_PREVIEW__: JSON.stringify(sitePreviewEntry),
   },
   plugins: runtimeBrowserPlugins(),
   loader: { ".scss": "empty" },
@@ -101,5 +104,6 @@ await buildMaintenance(
   mermaidViewerEntry,
   articleShareEntry,
   previewWorkerEntry,
+  sitePreviewEntry,
 )
 await buildMemories()

@@ -113,6 +113,49 @@ test("fresh-machine bootstrap retains root scripts and transitive lazy scripts a
   }
 })
 
+test("hashed sample previews retain their HTML and runtime dependencies without retaining content HTML", async () => {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), "howard-sample-assets-"))
+  try {
+    const { assets, fetcher } = fixture()
+    assets.set(
+      `${site}admin/admin-AAA.js`,
+      'const sample = "admin/site-preview-0123456789abcdef.html"; const note = "notes/removed.html"',
+    )
+    assets.set(
+      `${site}admin/site-preview-0123456789abcdef.html`,
+      '<link href="../index-old.css"><script src="./sample-AAA.js"></script>',
+    )
+    assets.set(`${site}admin/sample-AAA.js`, "export const sample = true")
+    await captureDeployedAssets({ site, api, destination: dir, fetcher })
+    for (const name of [
+      "admin/site-preview-0123456789abcdef.html",
+      "admin/sample-AAA.js",
+      "index-old.css",
+      "static/fonts/text.woff2",
+    ])
+      assert.ok((await fs.readFile(path.join(dir, name))).length)
+    await fs.writeFile(path.join(dir, "admin/ordinary.html"), "excluded")
+    const manifest = await localAssetManifest(dir)
+    assert.ok(
+      manifest.files.some((entry) => entry.path === "admin/site-preview-0123456789abcdef.html"),
+    )
+    assert.equal(
+      manifest.files.some((entry) => entry.path === "admin/ordinary.html"),
+      false,
+    )
+    assert.equal(
+      assetReferences(
+        '"notes/removed.html" "admin/ordinary.html"',
+        `${site}admin/admin-AAA.js`,
+        site,
+      ).length,
+      0,
+    )
+  } finally {
+    await fs.rm(dir, { recursive: true, force: true })
+  }
+})
+
 test("manifest retains lazy chunks and validates integrity rather than trusting local caches", async () => {
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), "howard-assets-"))
   try {

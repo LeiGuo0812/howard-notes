@@ -23,6 +23,8 @@ export class PersonalLibrary {
     this.privateCache = new Map()
     this.recoveries = []
     this.jobs = []
+    this.personalReady = false
+    this.snapshotPromise = null
   }
   get token() {
     return this.git.token
@@ -117,6 +119,28 @@ export class PersonalLibrary {
   async publicSnapshot() {
     return this.git.snapshot()
   }
+  assertReadToken(token) {
+    if (!token || this.token !== token)
+      throw new DOMException("登录状态已变化，已取消载入。", "AbortError")
+  }
+  async settingsSnapshot() {
+    const token = this.token
+    this.assertReadToken(token)
+    const publicSnapshot = await this.git.settingsSnapshot()
+    this.assertReadToken(token)
+    this.personalReady = false
+    return (this.currentSnapshot = this.mergeSnapshot(publicSnapshot, []))
+  }
+  ensureSnapshot() {
+    if (this.personalReady) return Promise.resolve(this.currentSnapshot)
+    if (!this.snapshotPromise) {
+      const pending = this.loadSnapshot(true).finally(() => {
+        if (this.snapshotPromise === pending) this.snapshotPromise = null
+      })
+      this.snapshotPromise = pending
+    }
+    return this.snapshotPromise
+  }
   personalList(path, options) {
     return readPersonalPages((page) => this.personalRequest(page), path, options)
   }
@@ -147,20 +171,41 @@ export class PersonalLibrary {
       jobs: this.jobs,
     }
   }
-  async snapshot() {
+  async loadSnapshot(preservePublicChanges = false) {
+    const token = this.token
+    this.assertReadToken(token)
+    const openedPublic = this.currentSnapshot?.publicSnapshot
     const [publicSnapshot, privateList, recoveries, jobs] = await Promise.all([
       this.git.snapshot(),
       this.personalList("articles"),
       this.personalList("drafts"),
       this.personalRequest("jobs"),
     ])
+    this.assertReadToken(token)
+    const currentPublic = this.currentSnapshot?.publicSnapshot
+    // A settings save can finish while private metadata is still loading. Its
+    // accepted full Git snapshot must not regress to the initialization read.
+    const publicBaseline =
+      preservePublicChanges &&
+      currentPublic &&
+      !currentPublic.settingsOnly &&
+      currentPublic.commit !== openedPublic?.commit
+        ? currentPublic
+        : publicSnapshot
     this.recoveries = recoveries.drafts || []
     this.jobs = jobs.jobs || []
     for (const row of privateList.articles) {
       const cached = this.privateCache.get(row.article.id)
       if (cached?.version !== row.version) this.privateCache.delete(row.article.id)
     }
-    return (this.currentSnapshot = this.mergeSnapshot(publicSnapshot, privateList.articles))
+    this.currentSnapshot = this.mergeSnapshot(publicBaseline, privateList.articles)
+    this.personalReady = true
+    return this.currentSnapshot
+  }
+  async snapshot() {
+    // Ordinary refreshes remain authoritative; only first-use initialization
+    // shares its request or preserves a concurrently accepted settings save.
+    return this.loadSnapshot()
   }
   async read(article, snapshot) {
     const row = snapshot.privateArticles?.get(article.id)

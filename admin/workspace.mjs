@@ -46,7 +46,8 @@ export function createWorkspace(root, options = {}) {
     backups,
     jobTimer
   let connectionEpoch = 0,
-    connecting = false
+    connecting = false,
+    libraryPromise = null
   const cloudKnown = new Set()
   let client,
     snapshot,
@@ -130,6 +131,7 @@ export function createWorkspace(root, options = {}) {
   retryPublication.onclick = retrySynchronization
   const synchronizedJobs = new Set()
   const completedJobs = new Set()
+  const queuedJobs = new Set()
   const dismissedJobs = new Set()
   try {
     for (const id of JSON.parse(storage?.getItem("howard-notes:dismissed-jobs:v1") || "[]"))
@@ -148,11 +150,18 @@ export function createWorkspace(root, options = {}) {
   function monitorJobs() {
     clearTimeout(jobTimer)
     if (!client || disposed) return
-    const connection = client
+    if (!client.personalReady) {
+      void prepareLibrary().catch((error) => message(error.message, true))
+      return
+    }
+    const connection = client,
+      epoch = connectionEpoch
+    const isCurrent = () =>
+      !disposed && client === connection && connectionEpoch === epoch && !!connection.token
     void connection
       .personalRequest("jobs")
       .then(async ({ jobs }) => {
-        if (disposed || client !== connection) return
+        if (!isCurrent()) return
         client.jobs = jobs
         const targetOf = (job) => job.publicArticleId || job.checkpoint?.articleId || job.articleId
         const pending = jobs.filter(
@@ -208,9 +217,12 @@ export function createWorkspace(root, options = {}) {
                 .catch(() => synchronizedJobs.delete(job.id))
           }
           if (job.status === "completed" && !completedJobs.has(job.id)) {
+            const epoch = connectionEpoch
+            const loaded = await connection.snapshot()
+            if (client !== connection || disposed || connectionEpoch !== epoch || !connection.token)
+              return
+            snapshot = loaded
             completedJobs.add(job.id)
-            snapshot = await connection.snapshot()
-            if (client !== connection || disposed) return
             const published = snapshot.publicSnapshot.catalog.articles.find(
               (article) => article.id === job.checkpoint.articleId,
             )
@@ -242,6 +254,7 @@ export function createWorkspace(root, options = {}) {
               })
               setScope("published")
               await loadArticle(published.id, false, snapshot, continuation)
+              if (!isCurrent()) return
               persistRecovery()
             }
             renderList()
@@ -263,11 +276,14 @@ export function createWorkspace(root, options = {}) {
             })
           }
         }
-        if (pending.some((job) => !["conflict", "awaiting_auth"].includes(job.status)))
+        if (
+          isCurrent() &&
+          pending.some((job) => !["conflict", "awaiting_auth"].includes(job.status))
+        )
           jobTimer = setTimeout(monitorJobs, 4000)
       })
       .catch((error) => {
-        if (!disposed && client === connection) {
+        if (isCurrent()) {
           if (error.status === 401) $("reconnect").hidden = false
           jobTimer = setTimeout(monitorJobs, 15000)
         }
@@ -285,6 +301,7 @@ export function createWorkspace(root, options = {}) {
       return { status: "private" }
     }
     if (result?.job) {
+      queuedJobs.add(result.job.id)
       const value = { ...info, job: result.job, sync: { status: "pending", jobId: result.job.id } }
       options.onSaved?.(value)
       monitorJobs()
@@ -310,8 +327,11 @@ export function createWorkspace(root, options = {}) {
       return publicLibrarySnapshot(snapshot)
     },
     onSaved: async (_snapshot, result) => {
-      snapshot = _snapshot
-      renderList()
+      snapshot =
+        client?.currentSnapshot?.publicSnapshot?.commit === _snapshot?.publicSnapshot?.commit
+          ? client.currentSnapshot
+          : _snapshot
+      if (client?.personalReady) renderList()
       renderCategories($("category").value)
       renderImageDestination()
       return reportSaved({ kind: "settings" }, result)
@@ -979,10 +999,56 @@ export function createWorkspace(root, options = {}) {
     $("focus-mode").setAttribute("aria-pressed", "false")
     $("focus-mode").textContent = "专注"
   }
-  async function connect(credentials) {
+  function cancelLibraryPreparation() {
+    libraryPromise = null
+  }
+  function trackReadyLibrary() {
+    publisher.restore()
+    for (const job of client.jobs || [])
+      if (job.status === "completed" && !queuedJobs.has(job.id)) completedJobs.add(job.id)
+    monitorJobs()
+  }
+  async function prepareLibrary() {
+    if (!client || disposed) throw new Error("请登录后再打开文章文库。")
+    if (client.personalReady) {
+      if (snapshot !== client.currentSnapshot) {
+        snapshot = client.currentSnapshot
+        if (!$("workspace").hidden) renderList()
+        trackReadyLibrary()
+      }
+      return
+    }
+    if (!libraryPromise) {
+      const connection = client,
+        epoch = connectionEpoch
+      const pending = (async () => {
+        const loaded = await connection.ensureSnapshot()
+        if (disposed || client !== connection || connectionEpoch !== epoch || !connection.token)
+          throw new Error("登录状态已变化，已取消文库载入。")
+        snapshot = loaded
+        // Completing owner metadata must never reset the working layout or its
+        // original SHA. Hidden article lists need no eager DOM rebuild.
+        if (!$("workspace").hidden) renderList()
+        if (current) renderCategories($("category").value)
+        trackReadyLibrary()
+      })()
+      libraryPromise = pending
+      void pending
+        .finally(() => {
+          if (libraryPromise === pending) libraryPromise = null
+        })
+        .catch(() => {})
+    }
+    await libraryPromise
+  }
+  async function prepare(mode) {
+    if (mode !== "settings") await prepareLibrary()
+  }
+  async function connect(credentials, { mode = "articles" } = {}) {
     if (!credentials) return
     if (busy || disposed) throw new Error("操作正在进行，请稍后重新登录。")
     const epoch = ++connectionEpoch
+    cancelLibraryPreparation()
     connecting = true
     const assertCurrent = () => {
       if (disposed || connectionEpoch !== epoch) throw new Error("登录状态已变化，已取消载入。")
@@ -993,15 +1059,16 @@ export function createWorkspace(root, options = {}) {
       tokenExpiresAt: credentials.expiresAt,
     })
     try {
-      const account = await connection.authenticate()
+      const [account, loaded] = await Promise.all([
+        connection.authenticate(),
+        client ? null : mode === "settings" ? connection.settingsSnapshot() : connection.snapshot(),
+      ])
       assertCurrent()
       if (credentials.login && credentials.login !== account) {
         connection.token = ""
         throw new Error("登录账号与授权返回不一致，请重新登录。")
       }
       if (!client) {
-        const loaded = await connection.snapshot()
-        assertCurrent()
         snapshot = loaded
         client = connection
         backups = createBackupManager({
@@ -1034,10 +1101,15 @@ export function createWorkspace(root, options = {}) {
                         : $("save-state").textContent
           },
         })
-        showMode("articles")
         settings.load(snapshot)
+        showMode(mode === "settings" ? "settings" : "articles")
       } else {
         // Reauthentication preserves unsaved text/settings and their original conflict baselines.
+        connection.currentSnapshot = client.currentSnapshot || snapshot
+        connection.personalReady = client.personalReady
+        connection.recoveries = client.recoveries
+        connection.jobs = client.jobs
+        if (snapshot.settingsOnly && connection.personalReady) snapshot = connection.currentSnapshot
         client.token = ""
         client = connection
       }
@@ -1050,9 +1122,7 @@ export function createWorkspace(root, options = {}) {
       $("login-panel").hidden = true
       $("admin-tabs").hidden = false
       $("status").hidden = true
-      publisher.restore()
-      for (const job of client.jobs || []) if (job.status === "completed") completedJobs.add(job.id)
-      monitorJobs()
+      if (client.personalReady) trackReadyLibrary()
     } catch (error) {
       connection.token = ""
       throw error
@@ -1066,6 +1136,8 @@ export function createWorkspace(root, options = {}) {
   }
   function logout() {
     connectionEpoch++
+    cancelLibraryPreparation()
+    queuedJobs.clear()
     void clearSession(siteBase)
     persistRecovery()
     clearTimeout(cloudTimer)
@@ -1100,15 +1172,33 @@ export function createWorkspace(root, options = {}) {
       options.onLogout?.()
     }
   }
-  $("tab-articles").onclick = () => showMode("articles")
-  $("tab-drafts").onclick = () => showMode("drafts")
-  $("tab-private").onclick = () => showMode("private")
-  $("tab-settings").onclick = () => showMode("settings")
-  $("tab-trash").onclick = () => showMode("trash")
+  let modeSerial = 0
+  const selectMode = (mode) => {
+    const serial = ++modeSerial
+    if (!client || busy) return
+    if (mode === "settings" || client.personalReady) return showMode(mode)
+    const connection = client,
+      epoch = connectionEpoch
+    return action(() => prepareLibrary(), { label: "正在读取文章文库…" }).then(() => {
+      if (
+        serial === modeSerial &&
+        client === connection &&
+        epoch === connectionEpoch &&
+        client?.personalReady &&
+        !busy
+      )
+        return showMode(mode)
+    })
+  }
+  $("tab-articles").onclick = () => selectMode("articles")
+  $("tab-drafts").onclick = () => selectMode("drafts")
+  $("tab-private").onclick = () => selectMode("private")
+  $("tab-settings").onclick = () => selectMode("settings")
+  $("tab-trash").onclick = () => selectMode("trash")
   $("reload-trash").onclick = () => action(refreshTrash, { label: "正在读取回收站…" })
   $("search").oninput = renderList
   function newArticle() {
-    if (!client || busy || !mayLeaveArticle()) return false
+    if (!client?.personalReady || busy || !mayLeaveArticle()) return false
     closeEditor(true)
     showMode("articles")
     openedSha = null
@@ -1633,6 +1723,15 @@ export function createWorkspace(root, options = {}) {
       message("操作正在后台进行，请稍后切换文章。")
       return false
     }
+    if (!client.personalReady) {
+      try {
+        await prepareLibrary()
+      } catch (error) {
+        message(error.message, true)
+        return false
+      }
+      return requestArticle(id)
+    }
     if (current && (current.id === id || current.draftOf === id)) {
       $("workspace").hidden = false
       $("settings-workspace").hidden = true
@@ -1667,8 +1766,11 @@ export function createWorkspace(root, options = {}) {
   })
   return {
     connect,
+    prepare,
+    isLibraryReady: () => !!client?.personalReady && !snapshot?.settingsOnly,
     openArticle: requestArticle,
-    showMode: (mode) => !busy && client && showMode(mode),
+    showMode: (mode) =>
+      !busy && client && (mode === "settings" || client.personalReady) && showMode(mode),
     newArticle,
     dirty,
     isBusy: () => busy,
@@ -1677,6 +1779,9 @@ export function createWorkspace(root, options = {}) {
     logout: () => (!busy || connecting) && logout(),
     cancelConnection() {
       connectionEpoch++
+      cancelLibraryPreparation()
+      if (client) client.token = ""
+      clearTimeout(jobTimer)
     },
     getSession: () => session && { ...session },
     getOwnerAccess: () =>
@@ -1684,6 +1789,7 @@ export function createWorkspace(root, options = {}) {
     currentArticle: () => current && structuredClone(current),
     retrySynchronization,
     setVisible(value) {
+      if (!value) modeSerial++
       visible = !!value
       settings.setVisible(visible && !$("settings-workspace").hidden)
     },
@@ -1692,6 +1798,7 @@ export function createWorkspace(root, options = {}) {
       persistRecovery()
       disposed = true
       connectionEpoch++
+      cancelLibraryPreparation()
       clearTimeout(previewTimer)
       clearTimeout(cloudTimer)
       clearTimeout(jobTimer)

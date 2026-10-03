@@ -6,6 +6,7 @@ import { trackDeployment } from "./deployment.mjs"
 import { createPanelWindow } from "./panel-window.mjs"
 import { setupPrivateNotes } from "./private-notes.mjs"
 import { syncSitePalette } from "./theme.mjs"
+import { createSettingsOutsideClose } from "./settings-outside-close.mjs"
 
 const INTENT_KEY = "howard-maintenance-return"
 
@@ -126,7 +127,8 @@ export async function createMaintenanceWorkspace({ siteBase, version, onSession 
     stopDeployment = () => {},
     noticeTimer,
     pendingSynchronization = null
-  let pendingOpeningLayout = null
+  let pendingOpeningLayout = null,
+    actionSerial = 0
   const operationLabels = {
     article: "正在发布文章…",
     draft: "正在保存草稿…",
@@ -300,6 +302,11 @@ export async function createMaintenanceWorkspace({ siteBase, version, onSession 
     toggle: maximize,
     onChange: attach,
   })
+  const outsideClose = createSettingsOutsideClose({
+    host,
+    isActive: () => visible && mode === "panel" && activeAction === "settings",
+    onClose: hide,
+  })
   mountFrostedSpotlight(container)
   const theme = () => {
     syncSitePalette(document.documentElement, host)
@@ -343,6 +350,7 @@ export async function createMaintenanceWorkspace({ siteBase, version, onSession 
   function attach() {
     resetReading()
     if (!account || !visible) {
+      outsideClose.stop()
       workspace.setVisible(false)
       host.hidden = true
       host.remove()
@@ -374,9 +382,13 @@ export async function createMaintenanceWorkspace({ siteBase, version, onSession 
     } else if (host.parentNode !== document.body) document.body.append(host)
     workspace.setVisible(true)
     windowState.sync(inline)
+    if (activeAction === "settings" && !inline) outsideClose.start()
+    else outsideClose.stop()
     fitMenu()
   }
   function hide() {
+    actionSerial++
+    outsideClose.stop()
     windowState.detach()
     visible = false
     workspace.setVisible(false)
@@ -479,10 +491,11 @@ export async function createMaintenanceWorkspace({ siteBase, version, onSession 
   const commands = new Map([
     [
       "edit",
-      async () => {
+      async (isCurrent = () => true) => {
         const id = currentRouteId()
         if (!id) return
-        await workspace.openArticle(id)
+        const opened = await workspace.openArticle(id)
+        if (!isCurrent() || opened === false) return
         const article = workspace.currentArticle()
         if ((article?.draftOf || article?.id) === id) mode = "inline"
         activeAction = "edit"
@@ -543,15 +556,24 @@ export async function createMaintenanceWorkspace({ siteBase, version, onSession 
       container.querySelector('button[data-view="edit"]')?.click()
   }
   async function perform(action, { openingLayout } = {}) {
+    if (action === "logout") return workspace.logout()
+    if (action === "reconnect") return reconnect()
     if (!account) return login()
+    const serial = ++actionSerial
     if (workspace.isBusy()) {
       showCurrentWindow()
       showProgress("操作正在后台进行，可以收起窗口继续阅读。")
       return
     }
+    if (action !== "settings" && !workspace.isLibraryReady())
+      showProgress("正在读取文章文库，页面设置仍可使用…")
+    await workspace.prepare(action)
+    if (serial !== actionSerial || !account || performance.now() >= sessionDeadline) return
     pendingOpeningLayout = openingLayout || null
     try {
-      await commands.get(action)?.()
+      await commands.get(action)?.(
+        () => serial === actionSerial && !!account && performance.now() < sessionDeadline,
+      )
     } finally {
       pendingOpeningLayout = null
     }
@@ -567,6 +589,20 @@ export async function createMaintenanceWorkspace({ siteBase, version, onSession 
       status.textContent = error.message || "操作失败，请重试。"
     })
   })
+  container.addEventListener(
+    "click",
+    (event) => {
+      const control = event.target.closest(
+        "#tab-articles,#tab-private,#tab-drafts,#tab-trash,#new-article",
+      )
+      if (!control || workspace.isLibraryReady()) return
+      event.preventDefault()
+      event.stopPropagation()
+      const requested = control.id === "new-article" ? "new" : control.id.replace("tab-", "")
+      void perform(requested).catch((error) => showProgress(error.message, "error"))
+    },
+    { capture: true },
+  )
   container.addEventListener("click", (event) => {
     const control = event.target.closest(
       "#tab-articles,#tab-private,#tab-drafts,#tab-trash,#tab-settings,#new-article",
@@ -583,7 +619,9 @@ export async function createMaintenanceWorkspace({ siteBase, version, onSession 
     })
   })
   return {
-    connect: (credentials) => workspace.connect(credentials),
+    connect: (credentials, options) => workspace.connect(credentials, options),
+    prepare: (action) => workspace.prepare(action),
+    isReady: (action) => action === "settings" || workspace.isLibraryReady(),
     // Preserve an unsaved editor while withholding expired-session controls.
     expireSession() {
       workspace.cancelConnection()
@@ -600,8 +638,10 @@ export async function createMaintenanceWorkspace({ siteBase, version, onSession 
       return account && performance.now() < sessionDeadline ? workspace.getOwnerAccess() : null
     },
     beforeNavigation() {
+      actionSerial++
       // micromorph replaces body children. Keep the same ShadowRoot, editor and listeners alive.
       windowState.detach()
+      outsideClose.stop()
       workspace.setVisible(false)
       host.remove()
       deployment.remove()
