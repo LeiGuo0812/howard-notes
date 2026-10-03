@@ -171,17 +171,17 @@
     "body": "Howard 的笔记。\n\nEmail: leiguo0812@gmail.com"
   },
   "design": {
-    "palette": "modern-professional",
+    "palette": "lively-reliable",
     "font": "sans",
     "chineseFont": "sans",
     "englishFont": "system",
-    "fontSize": 16,
+    "fontSize": 15,
     "lineHeight": 1.95,
     "contentWidth": 1040,
     "cardGap": 22,
     "radius": 20,
-    "accentColor": "#234f82",
-    "darkAccentColor": "#a5c9f4"
+    "accentColor": "#9a481e",
+    "darkAccentColor": "#ffb78e"
   },
   "pages": {
     "homeTemplate": "classic",
