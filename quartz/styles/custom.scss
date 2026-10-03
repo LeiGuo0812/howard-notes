@@ -1874,6 +1874,7 @@ a.article-row.internal {
     }
     &:hover {
       background: var(--site-theme-signal-hover);
+      border-color: var(--site-theme-signal-hover);
       color: var(--site-theme-on-signal);
     }
   }

@@ -23,6 +23,63 @@ export function paginationTarget(value, pages) {
   return Math.max(1, Math.min(positiveInteger(pages), number))
 }
 
+// Runtime lists use the same controls and data attributes as the server-rendered
+// Pagination component. Build nodes directly so labels cannot become markup.
+export function createPagination({ prefix, label, document: ownerDocument = document }) {
+  const node = (tag, className, text) => {
+    const element = ownerDocument.createElement(tag)
+    if (className) element.className = className
+    if (text !== undefined) element.textContent = text
+    return element
+  }
+  const nav = node("nav", "pagination site-pagination")
+  nav.id = `${prefix}-pagination`
+  nav.setAttribute("aria-label", label)
+  const main = node("div", "pagination-main")
+  for (const [action, text] of [
+    ["previous", "上一页"],
+    ["next", "下一页"],
+  ]) {
+    const control = node("button", "", text)
+    control.type = "button"
+    control.id = `${prefix}-${action}`
+    control.dataset.paginationAction = action
+    main.append(control)
+  }
+  const pages = node("span", "pagination-pages")
+  pages.id = `${prefix}-pages`
+  pages.dataset.paginationPages = ""
+  main.insertBefore(pages, main.lastChild)
+  const status = node("span", "pagination-state")
+  status.id = `${prefix}-page-state`
+  status.dataset.paginationState = ""
+  status.setAttribute("role", "status")
+  status.setAttribute("aria-live", "polite")
+  status.setAttribute("aria-atomic", "true")
+  const form = node("form", "pagination-jump")
+  form.dataset.paginationJump = ""
+  form.noValidate = true
+  const jumpLabel = node("label", "", "跳至")
+  jumpLabel.htmlFor = `${prefix}-page-input`
+  const input = node("input")
+  input.id = jumpLabel.htmlFor
+  input.dataset.paginationInput = ""
+  input.type = "number"
+  input.inputMode = "numeric"
+  input.min = "1"
+  input.max = "1"
+  input.step = "1"
+  input.value = "1"
+  input.autocomplete = "off"
+  input.setAttribute("aria-label", "跳转页码")
+  const submit = node("button", "", "跳转")
+  submit.type = "submit"
+  submit.title = "跳转到输入的页码"
+  form.append(jumpLabel, input, node("span", "", "页"), submit)
+  nav.append(main, status, form)
+  return nav
+}
+
 export function mountPagination(nav, { onPageChange }) {
   mountedPaginations.get(nav)?.destroy()
   const get = (selector) => nav.querySelector(selector)

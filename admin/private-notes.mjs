@@ -9,6 +9,7 @@ import {
   privateReadingAnchor,
 } from "./private-notes-core.mjs"
 import { loadMermaidViewer } from "./mermaid-loader.mjs"
+import { createPagination, mountPagination } from "../scripts/lib/pagination.mjs"
 import runtimeConfig from "../runtime/config.json" with { type: "json" }
 
 let mountedRoot, mounted
@@ -138,6 +139,7 @@ export function mountPrivateNotes(
     denied = false,
     currentId = null,
     exportReading = null,
+    pager,
     diagrams,
     searchTimer,
     requests = new AbortController()
@@ -145,6 +147,8 @@ export function mountPrivateNotes(
   const on = (target, name, callback) =>
     target.addEventListener(name, callback, { signal: listeners.signal })
   const clearResources = () => {
+    pager?.destroy()
+    pager = null
     exportReading = null
     readSerial++
     requests.abort()
@@ -176,6 +180,8 @@ export function mountPrivateNotes(
     root.replaceChildren()
   }
   const message = (text, retry = false) => {
+    pager?.destroy()
+    pager = null
     root.removeAttribute("data-maintenance-article")
     document.querySelector(".maintenance-toolbar")?.classList.remove("is-reading")
     const panel = node("section", "private-message")
@@ -321,16 +327,16 @@ export function mountPrivateNotes(
     }
     if (!page.rows.length) list.append(node("p", "private-empty", "暂无匹配文章"))
     content.append(list)
-    if (page.pages > 1) {
-      const pagination = node("nav", "private-pagination")
-      pagination.setAttribute("aria-label", "私密文章分页")
-      const previous = button("上一页", "page", page.page - 1),
-        next = button("下一页", "page", page.page + 1)
-      previous.disabled = page.page === 1
-      next.disabled = page.page === page.pages
-      pagination.append(previous, node("span", "", `${page.page} / ${page.pages}`), next)
-      content.append(pagination)
-    }
+    const pagination = createPagination({ prefix: "private", label: "私密文章分页" })
+    pager = mountPagination(pagination, {
+      onPageChange(value) {
+        filters.page = value
+        renderList()
+        root.querySelector(".private-article-list")?.scrollIntoView({ block: "start" })
+      },
+    })
+    pager.update({ page: page.page, pages: page.pages, hidden: page.pages === 1 })
+    content.append(pagination)
     layout.append(sidebar, content)
     root.replaceChildren(header, tools, layout)
   }
@@ -695,7 +701,6 @@ export function mountPrivateNotes(
       filters.category = ""
       filters.page = 1
     }
-    if (action === "page") filters.page = Number(value)
     renderList()
   })
   on(root, "input", (event) => {

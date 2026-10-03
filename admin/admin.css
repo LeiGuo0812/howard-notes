@@ -68,6 +68,7 @@ button:disabled {
 }
 .primary:hover {
   background: var(--site-theme-signal-hover, var(--accent-hover));
+  border-color: var(--site-theme-signal-hover, var(--accent-hover));
 }
 .danger {
   color: var(--danger);

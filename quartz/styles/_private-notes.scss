@@ -4,8 +4,8 @@
   color: var(--darkgray);
   padding-bottom: 2rem;
 
-  button,
-  input,
+  button:not(:where(.site-pagination *)),
+  input:not(:where(.site-pagination *)),
   select {
     font: inherit;
   }
@@ -15,9 +15,9 @@
   select {
     -webkit-tap-highlight-color: transparent;
   }
-  button:focus-visible,
+  button:focus-visible:not(:where(.site-pagination *)),
   a:focus-visible,
-  input:focus-visible,
+  input:focus-visible:not(:where(.site-pagination *)),
   select:focus-visible {
     outline: 2px solid var(--secondary);
     outline-offset: 3px;
@@ -175,17 +175,6 @@
     color: var(--secondary);
     max-width: 100%;
     overflow-wrap: anywhere;
-  }
-  .private-pagination {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    gap: 1rem;
-    margin-top: 2rem;
-  }
-  .private-pagination span {
-    color: var(--gray);
-    font-size: 0.85rem;
   }
   .private-reading-heading {
     margin-bottom: 1.8rem;

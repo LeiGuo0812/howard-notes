@@ -39,11 +39,15 @@ nav.site-pagination {
       color: var(--secondary);
     }
     &[aria-current="page"] {
-      background: var(--secondary);
+      background: var(--site-theme-signal, var(--secondary));
       background-clip: border-box;
-      border-color: var(--secondary);
-      color: var(--light);
+      border-color: var(--site-theme-signal, var(--secondary));
+      color: var(--site-theme-on-signal, var(--light));
       box-shadow: none;
+      &:hover {
+        background: var(--site-theme-signal-hover, var(--tertiary));
+        border-color: var(--site-theme-signal-hover, var(--tertiary));
+      }
     }
     &:disabled {
       opacity: 0.4;

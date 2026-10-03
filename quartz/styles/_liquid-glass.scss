@@ -130,8 +130,11 @@
   border: 1px solid var(--glass-edge);
   border-radius: var(--glass-radius-control);
   background: var(--glass-card);
+  background-clip: border-box;
   color: var(--darkgray);
-  box-shadow: inset 0 1px 0 var(--glass-highlight);
+  // A bright inner stroke separates tinted fills from their outer border.
+  // Small controls use one continuous edge; panel highlights stay separate.
+  box-shadow: none;
   font: inherit;
   cursor: pointer;
   transition:
