@@ -11,6 +11,7 @@ import { createBackupManager } from "./backup-manager.mjs"
 import { createArticleHistory } from "./article-history.mjs"
 import { publicLibrarySnapshot } from "./public-library.mjs"
 import { prepareImage } from "./images.mjs"
+import { createTagSuggestions } from "./tag-input.mjs"
 import { createRuntimePublisher, publicChange } from "./runtime-publish.mjs"
 import {
   RECOVERY_FIELDS,
@@ -66,6 +67,14 @@ export function createWorkspace(root, options = {}) {
     linkSelection = [0, 0],
     imageSelection = null
   const history = new TextHistory()
+  const tagSuggestions = createTagSuggestions($("tags"), {
+    multiple: true,
+    preventSubmit: true,
+    getSuggestions: () =>
+      !disposed && visible && client?.token && client.personalReady && !snapshot?.settingsOnly
+        ? (snapshot?.catalog.articles || []).flatMap((article) => article.tags || [])
+        : [],
+  })
   const date = () =>
     new Intl.DateTimeFormat("sv-SE", { timeZone: "Asia/Shanghai" }).format(new Date())
   const formKeys = RECOVERY_FIELDS
@@ -731,6 +740,7 @@ export function createWorkspace(root, options = {}) {
     viewer.clear()
   }
   function showEditor(article, text, continuation) {
+    tagSuggestions.hide()
     const sameArticle =
       article &&
       current &&
@@ -951,6 +961,7 @@ export function createWorkspace(root, options = {}) {
     }
   }
   function closeEditor(discard = false) {
+    tagSuggestions.hide()
     if (discard) {
       if (savedForm) discardRecovery()
     } else persistRecovery()
@@ -980,6 +991,7 @@ export function createWorkspace(root, options = {}) {
     renderList()
   }
   function showMode(mode) {
+    tagSuggestions.hide()
     const scope = mode === "drafts" ? "draft" : mode === "private" ? "private" : "published"
     if (mode !== "settings" && scope !== articleScope) {
       if (!mayLeaveArticle()) return false
@@ -1788,6 +1800,7 @@ export function createWorkspace(root, options = {}) {
     closeEditor: () => !busy && closeEditor(),
     logout: () => (!busy || connecting) && logout(),
     cancelConnection() {
+      tagSuggestions.hide()
       connectionEpoch++
       cancelLibraryPreparation()
       if (client) client.token = ""
@@ -1799,6 +1812,7 @@ export function createWorkspace(root, options = {}) {
     currentArticle: () => current && structuredClone(current),
     retrySynchronization,
     setVisible(value) {
+      if (!value) tagSuggestions.hide()
       if (!value) modeSerial++
       visible = !!value
       settings.setVisible(visible && !$("settings-workspace").hidden)
@@ -1807,6 +1821,7 @@ export function createWorkspace(root, options = {}) {
       if (disposed) return
       persistRecovery()
       disposed = true
+      tagSuggestions.destroy()
       connectionEpoch++
       cancelLibraryPreparation()
       clearTimeout(previewTimer)

@@ -321,6 +321,47 @@ li {
 .wide {
   grid-column: 1/-1;
 }
+.tag-autocomplete {
+  display: block;
+  position: relative;
+}
+.tag-suggestions {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  right: 0;
+  z-index: 40;
+  display: grid;
+  gap: 3px;
+  padding: 5px;
+  max-height: 240px;
+  overflow: auto;
+  overscroll-behavior: contain;
+  border: 1px solid var(--line);
+  border-radius: 11px;
+  background: var(--surface);
+  color: var(--ink);
+  box-shadow: 0 8px 24px rgb(0 0 0 / 12%);
+}
+.tag-suggestion {
+  width: 100%;
+  min-width: 0;
+  min-height: 36px;
+  padding: 7px 10px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--ink);
+  text-align: left;
+  overflow-wrap: anywhere;
+  font-size: 13px;
+  line-height: 1.5;
+}
+.tag-suggestion:hover,
+.tag-suggestion[aria-selected="true"] {
+  background: var(--wash);
+  color: var(--accent);
+}
 .checkbox {
   display: flex;
   align-items: center;

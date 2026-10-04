@@ -4,6 +4,8 @@
 
 数据库结构通过 `migrations/` 中的编号 SQL 和 Wrangler migration 记录管理；`0001_initial.sql` 是五套现有幂等 schema 的冻结基线，不删除既有数据。后续结构变化新增迁移文件，不改写已应用迁移。绑定两个私有 R2 bucket，并配置独立 `BACKUP_SECRET`。恢复密钥单独保存，不重置既有备份密钥，不部署无实际绑定的登录模板。日常公开发布由持久任务与 GitHub Actions 继续，关页不取消；网页/Actions token 长度不能按短个人令牌格式假定。
 
+`SESSION_SECRET` 同时加密主站会话 Cookie 和 `publication_jobs.token_cipher` 中的短期任务授权。轮换会使既有会话和任务授权失效；重新登录后恢复原任务以重新封装授权，保留已有检查点，不重新创建同一发布任务。普通功能或文档维护不轮换密钥；同步、备份及离站导出密钥仍有各自独立权限。
+
 主站：<https://howard-notes.howard-notes-login.workers.dev/howard-notes/>
 
 Worker Static Assets 保存前端和编辑器资源，独立 D1 `howard-notes-content` 保存当前公开文库、预生成页面、搜索索引、页面设置和同步暂存。公开原始 Markdown 和 Git 历史由 GitHub 保存，已公开文章图片使用 GitHub 图床；私密内容使用上文的认证 D1/R2 域。记忆卡使用同一个 D1 的独立表，保存内容、可见性和附件关联；正文不进入公开 Git 仓库、文章索引或 RSS。经维护者选择公开的迁入附件，原文件托管于独立图片仓库，D1 仅保留链接和校验信息。现有 `howard-notes-login` 和登录数据库独立保留。

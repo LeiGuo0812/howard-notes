@@ -107,7 +107,12 @@
               <div class="fields">
                 <label>网址<input id="slug" required pattern="[a-z0-9]+(-[a-z0-9]+)*" /></label
                 ><label>创建日期<input id="date" type="date" required /></label>
-                <label>标签<input id="tags" placeholder="逗号分隔" /></label
+                <label
+                  >标签<span class="tag-autocomplete"
+                    ><input
+                      id="tags"
+                      placeholder="输入标签，逗号分隔"
+                      autocomplete="off" /></span></label
                 ><label>摘要<input id="description" maxlength="500" /></label>
               </div>
               <button id="unpublish" type="button" hidden>改为私密</button>

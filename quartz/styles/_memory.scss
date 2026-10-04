@@ -752,6 +752,17 @@
     height: 30px;
     font-size: 12px;
   }
+  > .memory-editor-image {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--secondary);
+    background: var(--highlight);
+    border: 1px solid color-mix(in srgb, var(--secondary) 20%, transparent);
+    &[aria-busy="true"] {
+      border-style: dashed;
+    }
+  }
 }
 .memory-editor-views {
   display: flex;
@@ -817,6 +828,7 @@
     font-size: 12px;
   }
   .memory-editor-tag-label {
+    position: relative;
     flex: 1;
     min-width: 140px;
     display: flex;
@@ -839,9 +851,46 @@
       color: var(--light);
       background: var(--tertiary);
     }
+    &[aria-disabled="true"] {
+      opacity: 0.65;
+    }
   }
   .memory-editor-delete {
     color: #ad5e56;
+  }
+}
+.memory-editor-tag-label > .tag-suggestions {
+  position: absolute;
+  // The editor footer is at the window bottom; open upward within its bounds.
+  bottom: calc(100% + 6px);
+  left: 0;
+  right: 0;
+  z-index: 20;
+  display: grid;
+  gap: 2px;
+  max-height: min(230px, 35dvh);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 5px;
+  border: 1px solid var(--memory-card-border);
+  border-radius: 11px;
+  background: var(--light);
+  color: var(--darkgray);
+  box-shadow: 0 7px 25px rgb(10 25 45 / 0.12);
+  &[hidden] {
+    display: none;
+  }
+  > .tag-suggestion {
+    text-align: left;
+    padding: 8px 10px;
+    min-height: 34px;
+    white-space: normal;
+    overflow-wrap: anywhere;
+    font-size: 12px;
+    &[aria-selected="true"] {
+      background: var(--highlight);
+      color: var(--secondary);
+    }
   }
 }
 .memory-editor-tag-input {

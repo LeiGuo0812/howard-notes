@@ -9,6 +9,12 @@ import { githubMemoryAttachmentUrl } from "../scripts/lib/memory-attachment-stor
 import { createDurableDraftController } from "./durable-drafts.mjs"
 import { memoryRecoveryRecord, validatedMemoryRecovery } from "./memory-recovery.mjs"
 import { readPersonalPages } from "./personal-pages.mjs"
+import {
+  clipboardMemoryImages,
+  createMemoryImageUploader,
+  loadMemoryImageHostSettings,
+  moveMemoryImageAnchor,
+} from "./memory-image-upload.mjs"
 
 const PAGE_SIZE = 20
 const timelineMonth = new Intl.DateTimeFormat("en-CA", {
@@ -54,6 +60,9 @@ const icon = (path) =>
 const editIcon = icon('<path d="m16 3 5 5-12 12-6 1 1-6ZM14 5l5 5"/>')
 const trashIcon = icon('<path d="M3 6h18M9 6V3h6v3M5 6l1 15h12l1-15M10 10v7M14 10v7"/>')
 const restoreIcon = icon('<path d="M4 10a8 8 0 1 1 0 5M4 4v6h6"/>')
+const imageIcon = icon(
+  '<rect x="3" y="3" width="18" height="18" rx="3"/><circle cx="8" cy="8" r="1.5"/><path d="m3 17 5-5 4 4 3-3 6 6"/>',
+)
 
 function createElement(tag, className, text) {
   const element = document.createElement(tag)
@@ -113,6 +122,90 @@ export function mountMemories(hub, { siteBase }) {
   const records = new Map(),
     listeners = []
   let pageCount = 1
+  let tagSuggestions = [],
+    tagSuggestionsRequest,
+    tagSuggestionsSerial = 0,
+    imageHostState,
+    ownerAccount
+  const accessIdentity = (access) =>
+    access?.token && !access.loggedOut ? `${access.account || ""}\0${access.token}` : null
+  const clearImageHost = () => {
+    imageHostState?.controller.abort()
+    imageHostState = null
+  }
+  const invalidateTagSuggestions = () => {
+    tagSuggestionsSerial++
+    tagSuggestionsRequest = null
+    tagSuggestions = []
+    editor?.refreshTagSuggestions()
+  }
+  const loadTagSuggestions = () => {
+    if (!alive || !owner || forcePublic) return Promise.resolve([])
+    if (tagSuggestionsRequest) return tagSuggestionsRequest
+    const epoch = authEpoch,
+      serial = tagSuggestionsSerial,
+      identity = accessIdentity(requestOwnerAccess())
+    tagSuggestionsRequest = requestJson("/tags?status=ALL")
+      .then((result) => {
+        if (
+          !alive ||
+          !owner ||
+          forcePublic ||
+          epoch !== authEpoch ||
+          serial !== tagSuggestionsSerial ||
+          identity !== accessIdentity(requestOwnerAccess()) ||
+          result.owner !== true
+        )
+          return []
+        tagSuggestions = (result.tags || [])
+          .map((tag) => tag.name)
+          .filter((tag) => typeof tag === "string")
+        return tagSuggestions
+      })
+      .catch(() => {
+        if (epoch === authEpoch && serial === tagSuggestionsSerial) tagSuggestionsRequest = null
+        return []
+      })
+    return tagSuggestionsRequest
+  }
+  const imageHostFor = async (signal) => {
+    const access = requestOwnerAccess(),
+      identity = accessIdentity(access),
+      epoch = authEpoch
+    const stillAuthorized = () =>
+      alive &&
+      owner &&
+      !forcePublic &&
+      epoch === authEpoch &&
+      identity === accessIdentity(requestOwnerAccess())
+    if (!identity || !stillAuthorized()) throw new Error("请重新登录后上传图片。")
+    const [{ GitHubLibrary }, { GitHubImageHost }] = await Promise.all([
+      import("./github.mjs"),
+      import("./images.mjs"),
+    ])
+    if (!stillAuthorized() || signal.aborted) throw new Error("图片上传已停止。")
+    if (!imageHostState || imageHostState.identity !== identity) {
+      clearImageHost()
+      const controller = new AbortController()
+      const state = { identity, controller, promise: null }
+      state.promise = loadMemoryImageHostSettings(
+        new GitHubLibrary(access.token, undefined, { signal: controller.signal }),
+      ).catch((error) => {
+        if (imageHostState === state) imageHostState = null
+        throw error
+      })
+      imageHostState = state
+    }
+    const settings = await imageHostState.promise
+    if (!stillAuthorized() || signal.aborted) throw new Error("图片上传已停止。")
+    const client = new GitHubLibrary(access.token, undefined, { signal })
+    const request = client.request.bind(client)
+    client.request = (...args) => {
+      if (!stillAuthorized() || signal.aborted) throw new Error("登录状态已变化，图片上传已停止。")
+      return request(...args)
+    }
+    return new GitHubImageHost(client, settings)
+  }
   const pager = mountPagination(pagination, {
     onPageChange(page) {
       state.page = page
@@ -416,6 +509,9 @@ export function mountMemories(hub, { siteBase }) {
     )
   const purgePrivateState = () => {
     authEpoch++
+    ownerAccount = null
+    clearImageHost()
+    invalidateTagSuggestions()
     cloudRequest++
     cloudController?.dispose()
     cloudController = null
@@ -729,6 +825,7 @@ export function mountMemories(hub, { siteBase }) {
         return load()
       }
       owner = result.owner === true
+      if (owner) ownerAccount = requestOwnerAccess()?.account || null
       if (owner) void loadCloudRecoveries()
       if (!owner && state.status !== "NORMAL") {
         state.status = "NORMAL"
@@ -803,12 +900,14 @@ export function mountMemories(hub, { siteBase }) {
   }
   const act = (memory, action) => {
     if (!owner || !memory) return
+    if (action === "delete") editor?.cancelUploadsFor(memory.id)
     const epoch = authEpoch
     const label = action === "restore" ? "正在恢复记忆卡…" : "正在移入回收站…"
     notify(label)
     void mutate(memory, action, { version: memory.version })
       .then(() => {
         if (!alive || !owner || epoch !== authEpoch) return
+        invalidateTagSuggestions()
         notify(action === "restore" ? "记忆卡已恢复。" : "已移入回收站，保留 30 天。", "done")
         void load({ quiet: true })
       })
@@ -828,7 +927,7 @@ export function mountMemories(hub, { siteBase }) {
     host.setAttribute("role", "dialog")
     host.setAttribute("aria-modal", "false")
     host.setAttribute("aria-labelledby", "memory-editor-heading")
-    host.innerHTML = `<header class="memory-editor-heading"><span id="memory-editor-heading" tabindex="0">新建记忆卡</span><div><button type="button" data-editor-window="maximize" title="全屏显示" aria-label="全屏显示">↗</button><button type="button" data-editor-window="close" title="收起窗口" aria-label="收起窗口">${icon('<path d="m5 5 14 14M5 19 19 5"/>')}</button></div></header><div class="memory-editor-toolbar"><button type="button" data-memory-format="bold" title="加粗"><strong>B</strong></button><button type="button" data-memory-format="italic" title="斜体"><i>I</i></button><button type="button" data-memory-format="h2" title="二级标题">H2</button><button type="button" data-memory-format="quote" title="引用">❝</button><button type="button" data-memory-format="unordered" title="列表">☷</button><button type="button" data-memory-format="task" title="任务列表">☑</button><button type="button" data-memory-format="inline-code" title="行内代码">&lt;/&gt;</button><button type="button" data-memory-format="link" title="插入链接">↗</button><div class="memory-editor-views"><button type="button" data-editor-view="edit" aria-pressed="false" title="编辑">编辑</button><button type="button" data-editor-view="split" aria-pressed="true" title="编辑并预览">双栏</button><button type="button" data-editor-view="preview" aria-pressed="false" title="实时预览">预览</button></div></div><div class="memory-editor-content" data-editor-view="split"><label class="sr-only" for="memory-editor-text">记忆卡内容 Markdown</label><textarea id="memory-editor-text" spellcheck="false" placeholder="记下一件事… #标签"></textarea><div class="memory-editor-preview memory-card-body" aria-label="实时预览"></div></div><footer class="memory-editor-footer"><label>可见性 <select id="memory-editor-visibility"><option value="PRIVATE">私密</option><option value="PROTECTED">未公开</option><option value="PUBLIC">公开</option></select></label><div class="memory-editor-tag-label"><label for="memory-editor-tags">标签</label><div class="memory-editor-tag-input" role="group" aria-label="记忆卡标签"><div class="memory-editor-tag-chips"></div><input id="memory-editor-tags" placeholder="输入标签，按回车添加" autocomplete="off" /></div></div><button type="button" class="memory-editor-delete" hidden title="移入回收站，保留 30 天">删除</button><button type="button" class="memory-editor-save">发布</button></footer>`
+    host.innerHTML = `<header class="memory-editor-heading"><span id="memory-editor-heading" tabindex="0">新建记忆卡</span><div><button type="button" data-editor-window="maximize" title="全屏显示" aria-label="全屏显示">↗</button><button type="button" data-editor-window="close" title="收起窗口" aria-label="收起窗口">${icon('<path d="m5 5 14 14M5 19 19 5"/>')}</button></div></header><div class="memory-editor-toolbar"><button type="button" data-memory-format="bold" title="加粗"><strong>B</strong></button><button type="button" data-memory-format="italic" title="斜体"><i>I</i></button><button type="button" data-memory-format="h2" title="二级标题">H2</button><button type="button" data-memory-format="quote" title="引用">❝</button><button type="button" data-memory-format="unordered" title="列表">☷</button><button type="button" data-memory-format="task" title="任务列表">☑</button><button type="button" data-memory-format="inline-code" title="行内代码">&lt;/&gt;</button><button type="button" data-memory-format="link" title="插入链接">↗</button><button type="button" class="memory-editor-image" title="上传或粘贴图片（公开图床）" aria-label="上传图片到公开图床">${imageIcon}</button><input class="memory-editor-image-input" type="file" accept="image/png,image/jpeg,image/webp,image/gif,image/avif" multiple hidden /><div class="memory-editor-views"><button type="button" data-editor-view="edit" aria-pressed="false" title="编辑">编辑</button><button type="button" data-editor-view="split" aria-pressed="true" title="编辑并预览">双栏</button><button type="button" data-editor-view="preview" aria-pressed="false" title="实时预览">预览</button></div></div><div class="memory-editor-content" data-editor-view="split"><label class="sr-only" for="memory-editor-text">记忆卡内容 Markdown</label><textarea id="memory-editor-text" spellcheck="false" placeholder="记下一件事… #标签"></textarea><div class="memory-editor-preview memory-card-body" aria-label="实时预览"></div></div><footer class="memory-editor-footer"><label>可见性 <select id="memory-editor-visibility"><option value="PRIVATE">私密</option><option value="PROTECTED">未公开</option><option value="PUBLIC">公开</option></select></label><div class="memory-editor-tag-label"><label for="memory-editor-tags">标签</label><div class="memory-editor-tag-input" role="group" aria-label="记忆卡标签"><div class="memory-editor-tag-chips"></div><input id="memory-editor-tags" placeholder="输入标签，按回车添加" autocomplete="off" /></div></div><button type="button" class="memory-editor-delete" hidden title="移入回收站，保留 30 天">删除</button><button type="button" class="memory-editor-save">发布</button></footer>`
     const heading = host.querySelector(".memory-editor-heading"),
       caption = host.querySelector("#memory-editor-heading")
     const textarea = host.querySelector("textarea"),
@@ -836,6 +935,7 @@ export function mountMemories(hub, { siteBase }) {
     const visibility = host.querySelector("#memory-editor-visibility")
     const tagControl = createMemoryTagInput(host.querySelector(".memory-editor-tag-input"), {
       onError: (text) => notify(text, "error"),
+      getSuggestions: () => tagSuggestions,
     })
     const save = host.querySelector(".memory-editor-save"),
       remove = host.querySelector(".memory-editor-delete")
@@ -859,6 +959,32 @@ export function mountMemories(hub, { siteBase }) {
       recoveryDirty = false,
       availableRecovery,
       editorSerial = 0
+    const uploadButton = host.querySelector(".memory-editor-image"),
+      imageInput = host.querySelector(".memory-editor-image-input")
+    let imageSelection
+    const imageUploads = createMemoryImageUploader({
+      textarea,
+      getHost: imageHostFor,
+      isCurrent: () => alive && owner && !forcePublic && !locked && !!draftId,
+      scope: () => `${authEpoch}\0${accessIdentity(requestOwnerAccess())}\0${editorSerial}`,
+      notify,
+      onChange: () => {
+        renderPreview()
+        dirty()
+      },
+      onPending: (count) => {
+        save.setAttribute("aria-disabled", String(count > 0))
+        save.setAttribute("aria-busy", String(count > 0))
+        save.title = count ? "图片上传完成后即可发布" : ""
+        uploadButton.setAttribute("aria-busy", String(count > 0))
+      },
+    })
+    const refreshTagSuggestions = () => {
+      tagControl.refreshSuggestions()
+      void loadTagSuggestions().then(() => {
+        if (alive && owner) tagControl.refreshSuggestions()
+      })
+    }
     const recoveryRecord = () =>
       memoryRecoveryRecord(
         current,
@@ -913,6 +1039,7 @@ export function mountMemories(hub, { siteBase }) {
     }
     const hide = () => {
       void saveRecovery().catch(() => {})
+      tagControl.hideSuggestions()
       editorWindow.detach()
       host.hidden = true
     }
@@ -933,6 +1060,9 @@ export function mountMemories(hub, { siteBase }) {
       clearTimeout(recoveryTimer)
       const serial = ++editorSerial,
         epoch = authEpoch
+      imageUploads.reset()
+      imageSelection = null
+      imageInput.value = ""
       current = memory || null
       draftId = id || (memory ? `memory-${memory.id}` : `new-memory-${crypto.randomUUID()}`)
       newRequestId = recovery?.newRequestId || crypto.randomUUID()
@@ -955,6 +1085,9 @@ export function mountMemories(hub, { siteBase }) {
         tagControl.setTags(recovery.tags)
         host.querySelector("#memory-editor-tags").value = recovery.pendingTag || ""
       }
+      imageUploads.observe()
+      uploadButton.hidden = false
+      refreshTagSuggestions()
       host.querySelector('[data-editor-view="edit"]').click()
       if (!matchMedia("(max-width: 800px)").matches)
         host.querySelector('[data-editor-view="split"]').click()
@@ -982,6 +1115,7 @@ export function mountMemories(hub, { siteBase }) {
       caption.textContent = "云端恢复稿"
       save.hidden = true
       remove.hidden = true
+      uploadButton.hidden = true
       host.querySelector('[data-editor-view="preview"]').click()
       preview.replaceChildren()
       for (const draft of cloudRecords.values()) {
@@ -998,6 +1132,10 @@ export function mountMemories(hub, { siteBase }) {
     }
     const submit = () => {
       if (locked) return
+      if (imageUploads.pending) {
+        notify("图片正在上传，完成后即可发布。")
+        return
+      }
       if (!textarea.value.trim()) {
         textarea.focus()
         notify("请输入记忆卡内容。", "error")
@@ -1040,6 +1178,7 @@ export function mountMemories(hub, { siteBase }) {
           const result = await mutate(current, "", body)
           if (!alive || !owner || epoch !== authEpoch) return
           current = result.memory || current
+          invalidateTagSuggestions()
           lastContent = body.content
           recoveryDirty = false
           clearTimeout(recoveryTimer)
@@ -1082,9 +1221,49 @@ export function mountMemories(hub, { siteBase }) {
       void run()
     }
     on(textarea, "input", () => {
+      imageUploads.observe()
       renderPreview()
       dirty()
     })
+    on(uploadButton, "click", () => {
+      if (locked || !draftId || save.hidden) return
+      imageSelection = {
+        position: textarea.selectionStart,
+        text: textarea.value,
+        serial: editorSerial,
+        epoch: authEpoch,
+      }
+      imageInput.click()
+    })
+    on(imageInput, "change", () => {
+      const files = [...imageInput.files]
+      imageInput.value = ""
+      const selection = imageSelection
+      imageSelection = null
+      if (
+        files.length &&
+        selection &&
+        selection.serial === editorSerial &&
+        selection.epoch === authEpoch &&
+        !locked &&
+        !save.hidden
+      )
+        void imageUploads.enqueue(
+          files,
+          moveMemoryImageAnchor(selection.position, selection.text, textarea.value),
+        )
+    })
+    on(textarea, "paste", (event) => {
+      const files = clipboardMemoryImages(event.clipboardData)
+      if (!files.length) return
+      event.preventDefault()
+      if (locked || save.hidden) {
+        notify("当前记忆卡正在保存，请稍后再上传图片。")
+        return
+      }
+      void imageUploads.enqueue(files)
+    })
+    on(host.querySelector("#memory-editor-tags"), "focus", refreshTagSuggestions)
     on(visibility, "change", dirty)
     on(host.querySelector(".memory-editor-tag-input"), "input", dirty)
     on(host.querySelector(".memory-editor-tag-input"), "keydown", () => queueMicrotask(dirty))
@@ -1122,6 +1301,7 @@ export function mountMemories(hub, { siteBase }) {
             extra,
           )
           textarea.value = next.text
+          imageUploads.observe()
           textarea.focus()
           textarea.setSelectionRange(next.start, next.end)
           renderPreview()
@@ -1194,6 +1374,7 @@ export function mountMemories(hub, { siteBase }) {
       }
       if (event.target.closest(".memory-editor-save")) submit()
       if (event.target.closest(".memory-editor-delete") && current) {
+        imageUploads.reset()
         hide()
         act(current, "delete")
       }
@@ -1210,6 +1391,20 @@ export function mountMemories(hub, { siteBase }) {
       show,
       showRecoveries,
       hide,
+      refreshTagSuggestions,
+      cancelUploads() {
+        const uploading = imageUploads.pending > 0
+        imageUploads.reset()
+        imageSelection = null
+        if (uploading) notify("登录状态已更新，请重新上传图片。", "done")
+      },
+      cancelUploadsFor(id) {
+        if (current && String(current.id) === String(id)) {
+          imageUploads.reset()
+          imageSelection = null
+          hide()
+        }
+      },
       flush: saveRecovery,
       recoveryState(value) {
         if (value.editorId !== draftId) return
@@ -1225,6 +1420,7 @@ export function mountMemories(hub, { siteBase }) {
       },
       destroy() {
         editorSerial++
+        imageUploads.destroy()
         clearTimeout(recoveryTimer)
         if (previewFrame) cancelAnimationFrame(previewFrame)
         for (const remove of editorListeners) remove()
@@ -1349,7 +1545,11 @@ export function mountMemories(hub, { siteBase }) {
       sidebar.querySelector("summary").focus()
     }
   })
-  on(document, "howard:content-updated", () => void load({ quiet: true }))
+  on(document, "howard:content-updated", () => {
+    clearImageHost()
+    invalidateTagSuggestions()
+    void load({ quiet: true })
+  })
   on(window, "focus", () => void load({ quiet: true }))
   on(document, "howard-owner-statechange", (event) => {
     // A logout removes private DOM and pending replies immediately, before a
@@ -1357,9 +1557,18 @@ export function mountMemories(hub, { siteBase }) {
     forcePublic = event.detail?.loggedIn === false
     request++
     pendingFetch?.abort()
-    if (forcePublic) {
+    const account = requestOwnerAccess()?.account
+    if (forcePublic || (ownerAccount && account && account !== ownerAccount)) {
       owner = false
       purgePrivateState()
+    } else {
+      // Reauthentication by the same owner keeps the current editing buffer.
+      // Pending work cannot keep using the old token or late-insert its links.
+      authEpoch++
+      cloudRequest++
+      editor?.cancelUploads()
+      clearImageHost()
+      invalidateTagSuggestions()
     }
     updateControls()
     void load()
@@ -1389,6 +1598,11 @@ export function mountMemories(hub, { siteBase }) {
         void pendingRecovery.catch(() => {}).finally(() => cloudController?.dispose())
       else cloudController?.dispose()
       alive = false
+      clearImageHost()
+      tagSuggestionsSerial++
+      tagSuggestionsRequest = null
+      tagSuggestions = []
+      ownerAccount = null
       request++
       pendingFetch?.abort()
       clearTimeout(searchTimer)
