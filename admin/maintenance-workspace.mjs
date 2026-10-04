@@ -6,11 +6,17 @@ import { trackDeployment } from "./deployment.mjs"
 import { createPanelWindow } from "./panel-window.mjs"
 import { setupPrivateNotes } from "./private-notes.mjs"
 import { syncSitePalette } from "./theme.mjs"
-import { createSettingsOutsideClose } from "./settings-outside-close.mjs"
+import { createPanelOutsideClose } from "./panel-outside-close.mjs"
+import { keepMaintenanceTaskWindowOpen } from "./maintenance-task-policy.mjs"
 
 const INTENT_KEY = "howard-maintenance-return"
 
-export async function createMaintenanceWorkspace({ siteBase, version, onSession }) {
+export async function createMaintenanceWorkspace({
+  siteBase,
+  version,
+  onSession,
+  templatePromise,
+}) {
   const base = new URL(siteBase)
   const configUrl = new URL("admin/auth-config.json", base).href
   const templateFile =
@@ -21,8 +27,14 @@ export async function createMaintenanceWorkspace({ siteBase, version, onSession 
     typeof __HOWARD_WORKSPACE_STYLE__ !== "undefined"
       ? __HOWARD_WORKSPACE_STYLE__
       : "maintenance-assets/workspace.css"
-  const template = await fetch(new URL(templateFile, base))
-  if (!template.ok)
+  const templateText = await (templatePromise ||
+    (async () => {
+      const template = await fetch(new URL(templateFile, base))
+      if (!template.ok)
+        throw new Error("维护界面未能加载，请重试；若仍失败，请先保存当前草稿再刷新页面。")
+      return template.text()
+    })())
+  if (typeof templateText !== "string")
     throw new Error("维护界面未能加载，请重试；若仍失败，请先保存当前草稿再刷新页面。")
   const host = document.createElement("section")
   host.id = "maintenance-host"
@@ -40,7 +52,7 @@ export async function createMaintenanceWorkspace({ siteBase, version, onSession 
   }
   const container = document.createElement("div")
   container.className = "workspace-body"
-  container.innerHTML = await template.text()
+  container.innerHTML = templateText
   shadow.append(container)
   const heading = document.createElement("div")
   heading.className = "maintenance-heading"
@@ -220,7 +232,7 @@ export async function createMaintenanceWorkspace({ siteBase, version, onSession 
     },
     onAccepted(result) {
       stopDeployment()
-      hide()
+      if (!keepMaintenanceTaskWindowOpen(result)) hide()
       showProgress(
         result?.scope === "local"
           ? "正在删除未保存的文章…"
@@ -302,9 +314,9 @@ export async function createMaintenanceWorkspace({ siteBase, version, onSession 
     toggle: maximize,
     onChange: attach,
   })
-  const outsideClose = createSettingsOutsideClose({
+  const outsideClose = createPanelOutsideClose({
     host,
-    isActive: () => visible && mode === "panel" && activeAction === "settings",
+    isActive: () => visible && host.dataset.mode === "panel",
     onClose: hide,
   })
   mountFrostedSpotlight(container)
@@ -382,7 +394,7 @@ export async function createMaintenanceWorkspace({ siteBase, version, onSession 
     } else if (host.parentNode !== document.body) document.body.append(host)
     workspace.setVisible(true)
     windowState.sync(inline)
-    if (activeAction === "settings" && !inline) outsideClose.start()
+    if (!inline) outsideClose.start()
     else outsideClose.stop()
     fitMenu()
   }

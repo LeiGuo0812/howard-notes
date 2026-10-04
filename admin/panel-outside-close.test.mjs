@@ -1,15 +1,15 @@
 import test from "node:test"
 import assert from "node:assert/strict"
-import { createSettingsOutsideClose } from "./settings-outside-close.mjs"
+import { createPanelOutsideClose } from "./panel-outside-close.mjs"
 
 function fixture() {
   const target = new EventTarget()
   const host = { isConnected: true, hidden: false, contains: (node) => node?.inside === true }
   const state = { visible: true, action: "settings", mode: "panel", closed: 0 }
-  const controller = createSettingsOutsideClose({
+  const controller = createPanelOutsideClose({
     host,
     target,
-    isActive: () => state.visible && state.action === "settings" && state.mode === "panel",
+    isActive: () => state.visible && state.mode === "panel",
     onClose() {
       state.closed++
       state.visible = false
@@ -40,7 +40,7 @@ function fixture() {
   return { target, host, state, controller, emit, outside, protectedControl }
 }
 
-test("an outside click tucks away settings and leaves its original page action untouched", (t) => {
+test("an outside click tucks away a floating panel and leaves its page action untouched", (t) => {
   const f = fixture()
   t.after(() => f.controller.destroy())
   let pageClicks = 0
@@ -54,7 +54,7 @@ test("an outside click tucks away settings and leaves its original page action u
   assert.equal(f.state.closed, 1)
 })
 
-test("a settings input in Shadow DOM is recognized through its composed path", (t) => {
+test("a draft input in Shadow DOM is recognized through its composed path", (t) => {
   const f = fixture()
   t.after(() => f.controller.destroy())
   const shadowInput = { value: "unsaved layout draft" }
@@ -73,14 +73,13 @@ test("without composedPath, a light-DOM descendant is still inside the window", 
   assert.equal(f.state.closed, 0)
 })
 
-test("only visible settings panels respond, including a fullscreen settings panel", (t) => {
+test("only visible floating panels respond, including their fullscreen form", (t) => {
   const f = fixture()
   t.after(() => f.controller.destroy())
   for (const change of [
     { visible: false },
-    { action: "articles" },
-    { action: "new" },
     { action: "settings", mode: "inline" },
+    { action: "edit", mode: "inline" },
   ]) {
     Object.assign(f.state, { visible: true, action: "settings", mode: "panel" }, change)
     f.emit("click")
@@ -92,6 +91,51 @@ test("only visible settings panels respond, including a fullscreen settings pane
   assert.equal(f.state.closed, 0)
   f.emit("click")
   assert.equal(f.state.closed, 1)
+})
+
+test("article, private, draft, trash and settings tabs share outside dismissal in panel mode", (t) => {
+  const f = fixture()
+  t.after(() => f.controller.destroy())
+  for (const action of ["articles", "private", "new", "drafts", "trash", "settings", "edit"]) {
+    Object.assign(f.state, { visible: true, action, mode: "panel" })
+    const previous = f.state.closed
+    f.emit("pointerdown")
+    f.emit("click")
+    assert.equal(f.state.closed, previous + 1, action)
+    assert.equal(f.state.visible, false, action)
+  }
+})
+
+test("an inline article editor stays visible even when its window is fullscreen", (t) => {
+  const f = fixture()
+  t.after(() => f.controller.destroy())
+  Object.assign(f.state, { action: "edit", mode: "inline" })
+  for (const fullscreen of [false, true]) {
+    f.host.fullscreen = fullscreen
+    f.emit("pointerdown")
+    f.emit("click")
+    assert.equal(f.state.closed, 0)
+    assert.equal(f.state.visible, true)
+  }
+  // The same editor becomes a floating panel after leaving its original route.
+  f.state.mode = "panel"
+  f.emit("pointerdown")
+  f.emit("click")
+  assert.equal(f.state.closed, 1)
+})
+
+test("switching a loading window's label preserves outside dismissal and control exemptions", (t) => {
+  const f = fixture()
+  t.after(() => f.controller.destroy())
+  for (const action of ["articles", "private", "new", "drafts", "trash", "settings"]) {
+    Object.assign(f.state, { visible: true, action })
+    f.controller.start()
+    const previous = f.state.closed
+    f.emit("click", { path: [f.protectedControl("[data-maintenance-action]")] })
+    assert.equal(f.state.closed, previous, action)
+    f.emit("click")
+    assert.equal(f.state.closed, previous + 1, action)
+  }
 })
 
 test("detached and hidden hosts cannot react to reading-page clicks", (t) => {
@@ -125,7 +169,7 @@ test("maintenance controls and background progress keep their switching/reopenin
   assert.equal(f.state.closed, 1)
 })
 
-test("search, graph and other dialog layers can be used without dismissing settings", (t) => {
+test("search, graph and other dialog layers can be used without dismissing a floating panel", (t) => {
   const f = fixture()
   t.after(() => f.controller.destroy())
   for (const selector of [
@@ -174,7 +218,7 @@ test("scrolling, selection and cancelled pointer gestures are not outside clicks
   assert.equal(f.state.closed, 1)
 })
 
-test("the click that opens a hidden settings window does not immediately dismiss it", (t) => {
+test("the click that opens a hidden floating window does not immediately dismiss it", (t) => {
   const f = fixture()
   t.after(() => f.controller.destroy())
   f.state.visible = false
@@ -196,7 +240,7 @@ test("a keyboard outside activation is not mistaken for an old pointer drag", (t
   assert.equal(f.state.closed, 1)
 })
 
-test("secondary buttons and already cancelled clicks do not tuck away settings", (t) => {
+test("secondary buttons and already cancelled clicks do not tuck away a floating panel", (t) => {
   const f = fixture()
   t.after(() => f.controller.destroy())
   f.emit("click", { button: 2 })

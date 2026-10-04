@@ -72,6 +72,7 @@ export class GitHubLibrary {
     this.trashId = options.trashId || (() => crypto.randomUUID())
     this.trashCache = new Map()
     this.textCache = new Map()
+    this.snapshotCache = new Map()
   }
   async request(endpoint, method = "GET", body) {
     const controller = new AbortController()
@@ -180,8 +181,32 @@ export class GitHubLibrary {
     }
   }
   async snapshot() {
+    // Always authorize and resolve the mutable ref afresh. Only metadata tied
+    // to its exact immutable commit is shared, never the branch or credentials.
     const ref = await this.repo(`git/ref/heads/${this.branch}`)
-    const head = await this.repo(`git/commits/${ref.object.sha}`)
+    const commit = ref.object.sha
+    const key = `${this.repository}\0${commit}`
+    let pending = this.snapshotCache.get(key)
+    if (pending) {
+      this.snapshotCache.delete(key)
+      this.snapshotCache.set(key, pending)
+    } else {
+      pending = this.#readSnapshotAt(commit)
+      this.snapshotCache.set(key, pending)
+      if (this.snapshotCache.size > 3)
+        this.snapshotCache.delete(this.snapshotCache.keys().next().value)
+    }
+    try {
+      // Callers may update their Maps and editing models. Keep cached metadata
+      // private so these changes cannot become another caller's Git baseline.
+      return structuredClone(await pending)
+    } catch (error) {
+      if (this.snapshotCache.get(key) === pending) this.snapshotCache.delete(key)
+      throw error
+    }
+  }
+  async #readSnapshotAt(commit) {
+    const head = await this.repo(`git/commits/${commit}`)
     const tree = await this.repo(`git/trees/${head.tree.sha}?recursive=1`)
     if (tree.truncated) throw new Error("仓库目录过大，未能取得完整文件列表。")
     const entries = new Map(
@@ -198,7 +223,7 @@ export class GitHubLibrary {
     const catalog = validateCatalog(JSON.parse(catalogText))
     const settings = validateSite(JSON.parse(siteText))
     return {
-      commit: ref.object.sha,
+      commit,
       tree: head.tree.sha,
       entries,
       catalog,
@@ -214,8 +239,8 @@ export class GitHubLibrary {
     return { text: await this.blobText(entry.sha), sha: entry.sha }
   }
   async blobText(sha) {
-    // Blob IDs are immutable. Cache/coalesce only those reads; branch/ref/tree reads always
-    // remain fresh so save, delete and restore retain their existing conflict detection.
+    // Blob IDs are immutable. Reuse their bytes, while each snapshot resolves
+    // its branch afresh so save, delete and restore keep conflict detection.
     let pending = this.textCache.get(sha)
     if (pending) {
       this.textCache.delete(sha)

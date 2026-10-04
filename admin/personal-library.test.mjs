@@ -118,11 +118,15 @@ function fixture() {
       if (!row) return response({ error: "missing" }, 404)
       if (note[2]) {
         if (body.version !== row.version) return response({ error: "version conflict" }, 409)
+        if (note[2] === "purge") {
+          if (row.status !== "TRASH") return response({ error: "not trashed" }, 409)
+          rows.delete(note[1])
+          return response({ id: note[1], purged: true })
+        }
         row.version++
         row.sha = `pv:${row.version}`
         row.status = note[2] === "delete" ? "TRASH" : "ACTIVE"
         row.deletedAt = new Date().toISOString()
-        if (note[2] === "purge") rows.delete(note[1])
       }
       return response(row)
     }
@@ -578,6 +582,193 @@ test("private deletion and restoration remain version guarded and retain a 30-da
   assert.equal(rows.get("private").raw, "recover me")
   assert.equal(rows.get("private").status, "ACTIVE")
   await assert.rejects(client.removeDraft({ opened, openedSha: "pv:1" }), { status: 409 })
+})
+
+test("accepted private purges need no follow-up reads and allow another deletion from the same snapshot", async () => {
+  const { client, git, rows, calls } = fixture()
+  for (const id of ["first", "second", "active"])
+    rows.set(id, {
+      article: article(id),
+      raw: `原文 ${id}`,
+      version: 2,
+      sha: "pv:2",
+      status: id === "active" ? "ACTIVE" : "TRASH",
+      deletedAt: new Date().toISOString(),
+    })
+  const opened = await client.snapshot(),
+    fetcher = client.fetcher,
+    start = calls.length
+  client.privateCache.set("first", structuredClone(rows.get("first")))
+  client.privateCache.set("active", structuredClone(rows.get("active")))
+  git.snapshot = () => assert.fail("an accepted purge must not refresh Git")
+  client.fetcher = async (url, options) => {
+    if (options.method === "GET") throw new Error("metadata service unavailable")
+    return fetcher(url, options)
+  }
+  let snapshot = opened
+  for (const id of ["first", "second"]) {
+    const result = await client.purgeTrash(client.trashRecord(rows.get(id)), snapshot)
+    snapshot = result.snapshot
+    assert.equal(snapshot, opened)
+    assert.equal(rows.has(id), false)
+    assert.ok(snapshot.privateArticles.has("active"))
+    assert.equal(client.personalReady, true)
+  }
+  assert.equal(client.privateCache.has("first"), false)
+  assert.equal(client.privateCache.has("active"), true)
+  const mutations = calls.slice(start)
+  assert.deepEqual(
+    mutations.map(({ route }) => route),
+    ["articles/first/purge", "articles/second/purge"],
+  )
+  assert.ok(
+    mutations.every(({ body }) => body.version === 2 && /^[a-f0-9-]{36}$/.test(body.requestId)),
+  )
+  assert.notEqual(mutations[0].body.requestId, mutations[1].body.requestId)
+})
+
+test("an interrupted purge acknowledgement retries the same version and operation key without a metadata refresh", async () => {
+  const { client, git } = fixture(),
+    opened = await client.snapshot(),
+    mutations = []
+  git.snapshot = () => assert.fail("an acknowledged purge must not reload metadata")
+  client.fetcher = async (url, options) => {
+    assert.equal(new URL(url).pathname, "/api/content/personal/articles/trash/purge")
+    assert.equal(options.method, "POST")
+    mutations.push(JSON.parse(options.body))
+    if (mutations.length === 1) throw new Error("response lost after deletion")
+    return Response.json({ id: "trash", purged: true, replayed: true })
+  }
+  const result = await client.purgeTrash({ private: true, articleId: "trash", version: 7 }, opened)
+  assert.equal(result.snapshot, opened)
+  assert.equal(mutations.length, 2)
+  assert.deepEqual(mutations[0], mutations[1])
+  assert.equal(mutations[0].version, 7)
+  assert.match(mutations[0].requestId, /^[a-f0-9-]{36}$/)
+})
+
+test("accepted cloud recovery purges remove only the named editor and keep partial readiness pending", async () => {
+  const { client, git } = fixture(),
+    opened = await client.settingsSnapshot(),
+    recoveries = [
+      { editorId: "article:first", id: "same-original", version: 2 },
+      { editorId: "article:second", id: "same-original", version: 3 },
+    ],
+    calls = []
+  client.recoveries = recoveries
+  opened.cloudRecoveries = recoveries
+  git.snapshot = () => assert.fail("a recovery purge must not fetch the whole library")
+  client.personalRequest = async (path, method, body) => {
+    calls.push({ path, method, body })
+    assert.equal(method, "POST")
+    assert.equal(body.version, 2)
+    return { editorId: "article:first", purged: true }
+  }
+  const result = await client.purgeTrash(
+    { cloudDraft: true, editorId: "article:first", version: 2 },
+    opened,
+  )
+  assert.deepEqual(client.recoveries, [recoveries[1]])
+  assert.deepEqual(result.snapshot.cloudRecoveries, [recoveries[1]])
+  assert.equal(result.snapshot.settingsOnly, true)
+  assert.equal(result.snapshot.publicSnapshot, opened.publicSnapshot)
+  assert.equal(client.personalReady, false)
+  assert.equal(calls[0].path, "drafts/article%3Afirst/purge")
+  assert.match(calls[0].body.requestId, /^[a-f0-9-]{36}$/)
+})
+
+test("accepted Git archive purges carry their exact committed baseline without private or Git rereads", async () => {
+  const { client, git, rows, publicSnapshot } = fixture()
+  rows.set("active", { article: article("active"), version: 4, sha: "pv:4", status: "ACTIVE" })
+  publicSnapshot.entries.set("library/trash/first/source.md", { sha: "first-source" })
+  publicSnapshot.entries.set("library/trash/second/source.md", { sha: "second-source" })
+  let snapshot = await client.snapshot()
+  const recoveries = [{ editorId: "keep-recovery", version: 1 }],
+    baselines = []
+  client.recoveries = recoveries
+  git.snapshot = () => assert.fail("purge acknowledgement must not wait for another Git read")
+  client.personalRequest = () =>
+    assert.fail("purge acknowledgement must not depend on owner list availability")
+  git.purgeTrash = async (record, baseline) => {
+    baselines.push(baseline.commit)
+    const committed = {
+      ...baseline,
+      commit: `purged-${record.id}`,
+      entries: new Map(baseline.entries),
+    }
+    committed.entries.delete(`library/trash/${record.id}/source.md`)
+    return { sha: committed.commit, snapshot: committed, trashId: record.id }
+  }
+  for (const id of ["first", "second"]) {
+    const result = await client.purgeTrash({ id }, snapshot)
+    snapshot = result.snapshot
+    assert.equal(result.sha, `purged-${id}`)
+    assert.equal(snapshot.publicSnapshot, result.publicSnapshot)
+    assert.equal(snapshot.commit, result.sha)
+    assert.equal(snapshot.entries.has(`library/trash/${id}/source.md`), false)
+    assert.equal(snapshot.privateArticles.get("active").version, 4)
+    assert.equal(snapshot.entries.get("library/notes/active.md").sha, "pv:4")
+    assert.deepEqual(snapshot.cloudRecoveries, recoveries)
+    assert.equal(client.personalReady, true)
+  }
+  assert.deepEqual(baselines, ["git-commit", "purged-first"])
+})
+
+test("rejected purge versions preserve the current snapshot and recovery records", async () => {
+  const { client, rows } = fixture()
+  rows.set("trash", { article: article("trash"), version: 3, sha: "pv:3", status: "TRASH" })
+  const opened = await client.snapshot(),
+    cached = { version: 3, raw: "保留缓存" }
+  client.privateCache.set("trash", cached)
+  await assert.rejects(
+    client.purgeTrash({ private: true, articleId: "trash", version: 2 }, opened),
+    { status: 409 },
+  )
+  assert.equal(client.currentSnapshot, opened)
+  assert.equal(client.privateCache.get("trash"), cached)
+  assert.equal(rows.has("trash"), true)
+  const recoveries = [{ editorId: "article:trash", version: 3 }]
+  client.recoveries = recoveries
+  client.personalRequest = async () => {
+    throw Object.assign(new Error("version conflict"), { status: 409 })
+  }
+  await assert.rejects(
+    client.purgeTrash({ cloudDraft: true, editorId: "article:trash", version: 2 }, opened),
+    { status: 409 },
+  )
+  assert.equal(client.recoveries, recoveries)
+  assert.equal(client.currentSnapshot, opened)
+})
+
+test("late purge acknowledgements cannot update metadata after logout or account change", async () => {
+  for (const record of [
+    { private: true, articleId: "trash", version: 2 },
+    { cloudDraft: true, editorId: "article:trash", version: 2 },
+    { id: "git-trash" },
+  ]) {
+    const { client, git, publicSnapshot } = fixture(),
+      opened = await client.snapshot(),
+      gate = deferred(),
+      recoveries = [{ editorId: "article:trash", version: 2 }],
+      cached = { version: 2, raw: "保留缓存" }
+    client.recoveries = recoveries
+    client.privateCache.set("trash", cached)
+    client.personalRequest = async () => {
+      await gate.promise
+      return { purged: true }
+    }
+    git.purgeTrash = async () => {
+      await gate.promise
+      return { snapshot: { ...publicSnapshot, commit: "late-purge" } }
+    }
+    const pending = client.purgeTrash(record, opened)
+    client.token = record.cloudDraft ? "new-token" : ""
+    gate.resolve()
+    await assert.rejects(pending, { name: "AbortError" })
+    assert.equal(client.currentSnapshot, opened)
+    assert.equal(client.recoveries, recoveries)
+    assert.equal(client.privateCache.get("trash"), cached)
+  }
 })
 
 test("repeated public/private changes reuse archived D1 versions without trusting an obsolete archive SHA", async () => {

@@ -1,5 +1,5 @@
-// Settings remain a draft when the floating window is tucked away. Capture the
-// outside click without consuming it, so links and page controls still work.
+// A floating window can be tucked away without closing its editor or replacing
+// its draft/version baseline. Do not consume the original outside page click.
 const ignoredControls = [
   "[data-maintenance-login]",
   "[data-maintenance-action]",
@@ -17,7 +17,7 @@ const ignoredControls = [
   "dialog",
 ].join(",")
 
-export function createSettingsOutsideClose({ host, isActive, onClose, target = document }) {
+export function createPanelOutsideClose({ host, isActive, onClose, target = document }) {
   let controller = null,
     gesture = null,
     disposed = false

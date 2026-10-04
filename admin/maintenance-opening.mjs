@@ -1,5 +1,5 @@
 import { createPanelWindow } from "./panel-window.mjs"
-import { createSettingsOutsideClose } from "./settings-outside-close.mjs"
+import { createPanelOutsideClose } from "./panel-outside-close.mjs"
 
 const captions = {
   edit: "编辑文章",
@@ -119,9 +119,9 @@ export function createMaintenanceOpening({ onHide = () => {}, onRetry = () => {}
       toggle: maximize,
       onChange() {},
     })
-    outsideClose = createSettingsOutsideClose({
+    outsideClose = createPanelOutsideClose({
       host,
-      isActive: () => visible && activeAction === "settings",
+      isActive: () => visible,
       onClose: userHide,
     })
     listen(minimize, "click", userHide)
@@ -153,8 +153,7 @@ export function createMaintenanceOpening({ onHide = () => {}, onRetry = () => {}
     if (host.parentNode !== document.body) document.body.append(host)
     windowState.sync(false)
     if (!wasVisible) windowState.center()
-    if (activeAction === "settings") outsideClose.start()
-    else outsideClose.stop()
+    outsideClose.start()
     showProgress()
   }
   function afterPaint() {

@@ -674,6 +674,7 @@ export function createWorkspace(root, options = {}) {
           {
             completion: {
               kind: "restore",
+              panel: "trash",
               articleId: record.articleId,
               scope: record.published ? "published" : "draft",
             },
@@ -693,7 +694,7 @@ export function createWorkspace(root, options = {}) {
             message("回收站存档已永久删除。")
             await reportSaved({ kind: "purge", scope: "draft" })
           },
-          { completion: { kind: "purge", scope: "draft" } },
+          { completion: { kind: "purge", panel: "trash", scope: "draft" } },
         )
       }
       restore.disabled = purge.disabled = busy
@@ -710,8 +711,17 @@ export function createWorkspace(root, options = {}) {
   }
   async function refreshTrash() {
     message("正在读取回收站…")
-    snapshot = await client.snapshot()
-    trashRecords = await client.listTrash(snapshot)
+    const activeClient = client
+    const epoch = connectionEpoch
+    const isCurrent = () =>
+      !disposed && activeClient === client && epoch === connectionEpoch && !!activeClient.token
+    // The bin has its own private/draft queries. Refresh only the Git metadata
+    // it needs instead of also reloading all active notes, recoveries and jobs.
+    const publicSnapshot = await activeClient.publicSnapshot()
+    if (!isCurrent()) return
+    const records = await activeClient.listTrash(publicSnapshot)
+    if (!isCurrent()) return
+    trashRecords = records
     renderTrash()
     $("status").hidden = true
   }

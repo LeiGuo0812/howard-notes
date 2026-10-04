@@ -1,6 +1,7 @@
 import { restoreSession, rememberSession, clearSession } from "./session.mjs"
 import { signIn, resumeSignIn } from "./auth.mjs"
 import { createMaintenanceOpening } from "./maintenance-opening.mjs"
+import { createMaintenanceAssetLoader } from "./maintenance-assets.mjs"
 
 const INTENT_KEY = "howard-maintenance-return"
 const WINDOW_ACTIONS = new Set(["settings", "articles", "new", "drafts", "trash", "private"])
@@ -11,9 +12,11 @@ export async function createMaintenance({
   version,
   loadWorkspace = () => import("./maintenance-workspace.mjs"),
   createOpeningView = createMaintenanceOpening,
+  createAssetLoader = createMaintenanceAssetLoader,
 }) {
   const base = new URL(siteBase)
   const configUrl = new URL("admin/auth-config.json", base).href
+  const assets = createAssetLoader({ siteBase: base.href, version })
   let credentials = null,
     deadline = 0,
     panel = null,
@@ -112,11 +115,15 @@ export async function createMaintenance({
   }
   async function openWorkspace(action = "articles") {
     if (!panelPromise) {
+      // Begin immutable template and stylesheet requests with the module,
+      // rather than adding another network round trip after it has arrived.
+      const { templatePromise } = assets.prepare()
       panelPromise = loadWorkspace()
         .then(async (module) => {
           const instance = await module.createMaintenanceWorkspace({
             siteBase: base.href,
             version,
+            templatePromise,
             onSession(session, access) {
               // A slow catalogue request must not restore a session that
               // expired or was logged out while the editor was connecting.

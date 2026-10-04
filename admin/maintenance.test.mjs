@@ -15,7 +15,16 @@ const nextTurn = () => new Promise((resolve) => setImmediate(resolve))
 
 async function openingFixture(
   t,
-  { paintGate, importGate, connectionGate, prepareGate, prepare, libraryReady = true, load } = {},
+  {
+    paintGate,
+    importGate,
+    connectionGate,
+    prepareGate,
+    prepare,
+    libraryReady = true,
+    load,
+    prepareAssets,
+  } = {},
 ) {
   const names = [
     "document",
@@ -66,6 +75,7 @@ async function openingFixture(
     requests: [],
     destroyed: 0,
     layouts: [],
+    templates: [],
   }
   const layout = { left: 120, top: 80, width: 900, height: 640, maximized: false }
   let openingCallbacks, onSession
@@ -153,6 +163,7 @@ async function openingFixture(
   const module = {
     async createMaintenanceWorkspace(options) {
       state.factories++
+      state.templates.push(await options.templatePromise)
       onSession = options.onSession
       return instance
     },
@@ -160,6 +171,9 @@ async function openingFixture(
   const runtime = await createMaintenance({
     siteBase: "https://notes.test/site/",
     version: "opening-fixture",
+    createAssetLoader() {
+      return { prepare: prepareAssets || (() => ({ templatePromise: Promise.resolve("fixture") })) }
+    },
     createOpeningView(callbacks) {
       openingCallbacks = callbacks
       return {
@@ -306,6 +320,7 @@ test("session restoration exposes owner controls without fetching editor templat
     const runtime = await createMaintenance({
       siteBase: "https://notes.test/site/",
       version: "fixture",
+      createAssetLoader: () => ({ prepare: () => ({ templatePromise: Promise.resolve("") }) }),
       createOpeningView: () => ({
         show() {},
         hide() {},
@@ -830,4 +845,34 @@ test("failed article preparation preserves warm settings and can retry without a
   assert.equal(fixture.state.factories, 1)
   assert.equal(fixture.state.connects, 1)
   assert.deepEqual(fixture.state.connectModes, ["settings"])
+})
+
+test("template starts with module after shell paint and is reused by the factory", async (t) => {
+  const paintGate = deferred(),
+    importGate = deferred(),
+    templateGate = deferred()
+  let preparations = 0
+  const fixture = await openingFixture(t, {
+    paintGate,
+    importGate,
+    prepareAssets() {
+      preparations++
+      return { templatePromise: templateGate.promise }
+    },
+  })
+  assert.equal(preparations, 0, "session restoration must not prepare editor assets")
+  const pending = fixture.runtime.perform("settings")
+  await nextTurn()
+  assert.equal(fixture.state.visible, true)
+  assert.equal(preparations, 0, "the opening shell must paint first")
+  paintGate.resolve()
+  await nextTurn()
+  assert.equal(preparations, 1, "template starts while module is still pending")
+  assert.equal(fixture.state.imports, 1)
+  templateGate.resolve("parallel-template")
+  importGate.resolve(fixture.module)
+  await pending
+  assert.deepEqual(fixture.state.templates, ["parallel-template"])
+  await fixture.runtime.perform("settings")
+  assert.equal(preparations, 1, "warm reopen reuses the workspace and prepared assets")
 })

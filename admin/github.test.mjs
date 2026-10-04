@@ -1154,6 +1154,202 @@ test("snapshot reads immutable catalog and settings blobs in parallel from one c
   assert.deepEqual(second.catalog.articles, [article])
 })
 
+async function immutableSnapshotFixture() {
+  const versions = new Map(),
+    blobs = new Map(),
+    calls = [],
+    client = new GitHubLibrary("test-not-a-token")
+  for (let number = 1; number <= 4; number++) {
+    const commit = String(number).repeat(40),
+      tree = `tree-${number}`,
+      site = structuredClone(settings),
+      catalog = { version: 2, articles: [{ ...article, title: `版本 ${number}` }] }
+    site.home.title = `首页 ${number}`
+    const entries = []
+    for (const [path, value] of [
+      ["library/catalog.json", JSON.stringify(catalog)],
+      ["library/site.json", JSON.stringify(site)],
+      ["library/notes/a.md", `版本 ${number} 原文`],
+    ]) {
+      const sha = await gitBlobSha(value)
+      blobs.set(sha, value)
+      entries.push({ path, mode: "100644", type: "blob", sha })
+    }
+    versions.set(commit, { commit, tree, entries, catalog, settings: site })
+  }
+  let head = "1".repeat(40)
+  client.repo = async (endpoint, method, body) => {
+    calls.push({ endpoint, method, body, repository: client.repository })
+    if (method) assert.fail(`unexpected GitHub write: ${endpoint}`)
+    if (endpoint === "git/ref/heads/main") return { object: { sha: head } }
+    if (endpoint.startsWith("git/commits/"))
+      return { tree: { sha: versions.get(endpoint.slice("git/commits/".length)).tree } }
+    if (endpoint.startsWith("git/trees/"))
+      return {
+        tree: structuredClone(
+          [...versions.values()].find(
+            (version) => endpoint === `git/trees/${version.tree}?recursive=1`,
+          ).entries,
+        ),
+      }
+    if (endpoint.startsWith("git/blobs/"))
+      return {
+        content: Buffer.from(blobs.get(endpoint.slice("git/blobs/".length))).toString("base64"),
+      }
+    assert.fail(`unexpected GitHub request: ${endpoint}`)
+  }
+  return {
+    client,
+    calls,
+    versions,
+    setHead(number) {
+      head = String(number).repeat(40)
+    },
+  }
+}
+
+test("full snapshots share only immutable metadata and return independent editable copies", async () => {
+  const f = await immutableSnapshotFixture(),
+    request = f.client.repo
+  let release
+  const gate = new Promise((resolve) => (release = resolve))
+  f.client.repo = async (endpoint, method, body) => {
+    const result = await request(endpoint, method, body)
+    if (endpoint.startsWith("git/commits/")) await gate
+    return result
+  }
+  const first = f.client.snapshot(),
+    concurrent = f.client.snapshot()
+  await new Promise((resolve) => setImmediate(resolve))
+  assert.equal(f.calls.filter(({ endpoint }) => endpoint === "git/ref/heads/main").length, 2)
+  assert.equal(f.calls.filter(({ endpoint }) => endpoint.startsWith("git/commits/")).length, 1)
+  release()
+  const [opened, parallel] = await Promise.all([first, concurrent])
+  opened.catalog.articles[0].title = "未保存的修改"
+  opened.settings.home.title = "未保存的首页"
+  opened.entries.get("library/site.json").sha = "edited-sha"
+  opened.entries.delete("library/notes/a.md")
+  const later = await f.client.snapshot()
+  for (const snapshot of [parallel, later]) {
+    assert.equal(snapshot.catalog.articles[0].title, "版本 1")
+    assert.equal(snapshot.settings.home.title, "首页 1")
+    assert.notEqual(snapshot.entries.get("library/site.json").sha, "edited-sha")
+    assert.ok(snapshot.entries.has("library/notes/a.md"))
+    assert.notEqual(snapshot.entries, opened.entries)
+  }
+  assert.equal(f.calls.filter(({ endpoint }) => endpoint === "git/ref/heads/main").length, 3)
+  assert.equal(f.calls.filter(({ endpoint }) => endpoint.startsWith("git/trees/")).length, 1)
+  assert.equal(f.calls.filter(({ endpoint }) => endpoint.startsWith("git/blobs/")).length, 2)
+})
+
+test("warm metadata never bypasses fresh ref authorization or newer branch content", async () => {
+  const f = await immutableSnapshotFixture(),
+    request = f.client.repo,
+    first = await f.client.snapshot()
+  f.client.repo = async (endpoint, method, body) => {
+    if (endpoint === "git/ref/heads/main") throw new Error("登录凭据无效或已过期")
+    return request(endpoint, method, body)
+  }
+  await assert.rejects(f.client.snapshot(), /登录凭据/)
+  f.client.repo = request
+  f.setHead(2)
+  const next = await f.client.snapshot()
+  assert.equal(next.commit, "2".repeat(40))
+  assert.equal(next.catalog.articles[0].title, "版本 2")
+  assert.equal(next.settings.home.title, "首页 2")
+  assert.notEqual(next.siteSha, first.siteSha)
+  assert.notEqual(
+    next.entries.get("library/notes/a.md").sha,
+    first.entries.get("library/notes/a.md").sha,
+  )
+  assert.equal(f.calls.filter(({ endpoint }) => endpoint.startsWith("git/commits/")).length, 2)
+})
+
+test("incomplete immutable metadata is not retained and can be retried at the same ref", async () => {
+  const f = await immutableSnapshotFixture(),
+    request = f.client.repo
+  let fail = true
+  f.client.repo = async (endpoint, method, body) => {
+    const result = await request(endpoint, method, body)
+    if (fail && endpoint.startsWith("git/trees/")) {
+      fail = false
+      return { ...result, truncated: true }
+    }
+    return result
+  }
+  await assert.rejects(f.client.snapshot(), /完整文件列表/)
+  assert.equal(f.client.snapshotCache.size, 0)
+  assert.equal((await f.client.snapshot()).catalog.articles[0].title, "版本 1")
+  assert.equal(f.calls.filter(({ endpoint }) => endpoint.startsWith("git/commits/")).length, 2)
+  assert.equal(f.calls.filter(({ endpoint }) => endpoint.startsWith("git/trees/")).length, 2)
+})
+
+test("immutable full metadata is bounded, evicts the least recently used commit, and is repository scoped", async () => {
+  const f = await immutableSnapshotFixture()
+  for (const head of [1, 2, 3, 1, 4, 3, 2]) {
+    f.setHead(head)
+    await f.client.snapshot()
+    assert.ok(f.client.snapshotCache.size <= 3)
+  }
+  const commitReads = (head) =>
+    f.calls.filter(({ endpoint }) => endpoint === `git/commits/${String(head).repeat(40)}`).length
+  assert.equal(commitReads(1), 1)
+  assert.equal(commitReads(2), 2)
+  assert.equal(commitReads(3), 1)
+  assert.equal(commitReads(4), 1)
+  f.client.repository = "fixture/other-library"
+  await f.client.snapshot()
+  assert.equal(commitReads(2), 3)
+  assert.equal(f.calls.at(-1).repository, "fixture/other-library")
+  assert.equal(f.client.snapshotCache.size, 3)
+})
+
+test("settings saves from warm metadata still detect changed baselines before making any writes", async () => {
+  const f = await immutableSnapshotFixture(),
+    opened = await f.client.snapshot(),
+    edited = structuredClone(opened.settings)
+  edited.home.title = "本地设置"
+  f.setHead(2)
+  await assert.rejects(
+    f.client.saveSettings({ openedSha: opened.siteSha, settings: edited }),
+    /另一端/,
+  )
+  assert.equal(f.calls.filter(({ method }) => method).length, 0)
+  assert.equal(f.calls.filter(({ endpoint }) => endpoint === "git/ref/heads/main").length, 2)
+})
+
+test("settings saves sharing warm metadata still reject a racing branch without forced writes or retries", async () => {
+  const f = await immutableSnapshotFixture(),
+    opened = await f.client.snapshot(),
+    request = f.client.repo,
+    writes = [],
+    edited = structuredClone(opened.settings)
+  edited.home.title = "本地设置"
+  f.client.repo = async (endpoint, method, body) => {
+    if (!method) return request(endpoint, method, body)
+    writes.push({ endpoint, method, body })
+    if (method === "PATCH") {
+      f.setHead(2)
+      throw new Error("branch advanced")
+    }
+    return { sha: "written-object" }
+  }
+  await assert.rejects(
+    f.client.saveSettings({ openedSha: opened.siteSha, settings: edited }),
+    /branch advanced/,
+  )
+  assert.equal(writes.length, 3)
+  assert.deepEqual(
+    writes[0].body.tree.map(({ path }) => path),
+    ["library/site.json"],
+  )
+  assert.deepEqual(writes[1].body.parents, [opened.commit])
+  assert.equal(writes[2].body.force, false)
+  assert.equal(f.calls.filter(({ endpoint }) => endpoint === "git/ref/heads/main").length, 2)
+  assert.equal(f.calls.filter(({ endpoint }) => endpoint.startsWith("git/commits/")).length, 1)
+  assert.equal((await f.client.snapshot()).commit, "2".repeat(40))
+})
+
 test("article reads coalesce immutable SHA requests while newer versions and failed reads remain fresh", async () => {
   const client = new GitHubLibrary("test-not-a-token")
   const source = "\uFEFF原文字节\r\n"

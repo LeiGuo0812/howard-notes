@@ -509,22 +509,38 @@ export class PersonalLibrary {
     }
   }
   async purgeTrash(record, snapshot) {
+    const token = this.token
+    this.assertReadToken(token)
     if (record.cloudDraft) {
       await this.personalRequest(`drafts/${encodeURIComponent(record.editorId)}/purge`, "POST", {
         version: record.version,
         requestId: crypto.randomUUID(),
       })
-      return { private: true, snapshot: await this.snapshot() }
+      this.assertReadToken(token)
+      this.recoveries = this.recoveries.filter((row) => row.editorId !== record.editorId)
+      const current = this.currentSnapshot || snapshot
+      if (current) this.currentSnapshot = { ...current, cloudRecoveries: this.recoveries }
+      return { private: true, snapshot: this.currentSnapshot || snapshot }
     }
     if (!record.private) {
       const result = await this.git.purgeTrash(record, snapshot?.publicSnapshot || snapshot)
-      return { ...result, publicSnapshot: result.snapshot, snapshot: await this.snapshot() }
+      this.assertReadToken(token)
+      const current = this.currentSnapshot || snapshot
+      this.currentSnapshot = this.mergeSnapshot(result.snapshot, [
+        ...(current?.privateArticles?.values() || []),
+      ])
+      return { ...result, publicSnapshot: result.snapshot, snapshot: this.currentSnapshot }
     }
     await this.personalRequest(`articles/${record.articleId}/purge`, "POST", {
       version: record.version,
       requestId: crypto.randomUUID(),
     })
-    return { private: true, snapshot: await this.snapshot() }
+    this.assertReadToken(token)
+    this.privateCache.delete(record.articleId)
+    // Purge only removes an already trashed original. Its accepted response
+    // cannot require another whole-library read, or a read outage would turn
+    // successful deletion into a reported failure. Preserve current readiness.
+    return { private: true, snapshot: this.currentSnapshot || snapshot }
   }
   async pruneExpiredTrash(snapshot) {
     return this.git.pruneExpiredTrash(snapshot?.publicSnapshot || snapshot)
