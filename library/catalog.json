@@ -3124,6 +3124,20 @@
       "featured": false,
       "published": true,
       "attachments": []
+    },
+    {
+      "id": "note-ce11863a-a3d1-409e-a921-8063832c25b0",
+      "file": "notes/网页新建/note-ce11863a-a3d1-409e-a921-8063832c25b0.md",
+      "title": "投稿检查清单",
+      "description": "",
+      "category": "学术写作",
+      "date": "2026-10-05",
+      "created": "2026-10-05",
+      "modified": "2026-10-05",
+      "tags": [],
+      "featured": false,
+      "published": true,
+      "attachments": []
     }
   ]
 }
