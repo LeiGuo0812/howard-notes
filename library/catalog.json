@@ -3110,6 +3110,20 @@
       "featured": false,
       "published": true,
       "attachments": []
+    },
+    {
+      "id": "note-f11f7907-608f-42f1-8d43-618cec899437",
+      "file": "notes/网页新建/note-f11f7907-608f-42f1-8d43-618cec899437.md",
+      "title": "论文写作 checklist",
+      "description": "",
+      "category": "学术写作",
+      "date": "2026-10-05",
+      "created": "2026-10-05",
+      "modified": "2026-10-05",
+      "tags": [],
+      "featured": false,
+      "published": true,
+      "attachments": []
     }
   ]
 }
