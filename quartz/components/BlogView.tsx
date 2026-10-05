@@ -245,6 +245,7 @@ function NotePreview({
       class={`internal note-preview${compact ? " compact-preview" : ""}${frosted ? " frosted-panel" : ""}`}
       data-spotlight={frosted ? "" : undefined}
       data-palette-category={paletteCategory(row.categoryKey || row.category)}
+      data-note-id={row.id}
       hidden={hidden}
       data-no-popover="true"
       href={href(props, `notes/${row.id}`)}
@@ -493,7 +494,6 @@ function Heatmap({ props }: { props: QuartzComponentProps }) {
 export const BlogHome: QuartzComponent = (props) => {
   if (props.fileData.slug !== "index") return null
   const { settings, total } = data(props)
-  // Keep activity last even when older saved settings used another order.
   const sections = orderedSections(settings)
   return (
     <div
@@ -524,6 +524,7 @@ export const BlogHome: QuartzComponent = (props) => {
             noteBase: href(props, "notes/"),
             listing: href(props, "notes/index"),
             asOf: data(props).activity.periods.find((period) => period.id === "recent")?.asOf,
+            featuredIds: data(props).featured.map((row) => row.id),
             notes: data(props).articles.map((row) => [
               row.id,
               row.title,
@@ -547,12 +548,14 @@ export const BlogHome: QuartzComponent = (props) => {
             <div class="module-heading">
               <div class="module-title">
                 <h2 id={`section-${section.id}`}>{section.title}</h2>
-                {section.id === "featured" && (
+                {["featured", "curated"].includes(section.id) && (
                   <button
                     type="button"
-                    id="refresh-random-notes"
-                    aria-label="换一组文章"
+                    class="refresh-home-notes"
+                    id={section.id === "curated" ? "refresh-curated-notes" : "refresh-random-notes"}
+                    aria-label={section.id === "curated" ? "换一组精选文章" : "换一组文章"}
                     title="换一组"
+                    disabled={section.id === "curated" && data(props).featured.length < 2}
                   >
                     <svg
                       viewBox="0 0 24 24"
@@ -568,7 +571,7 @@ export const BlogHome: QuartzComponent = (props) => {
                   </button>
                 )}
               </div>
-              {["featured", "recent", "memories"].includes(section.id) && (
+              {["featured", "curated", "recent", "memories"].includes(section.id) && (
                 <a
                   class="internal"
                   data-no-popover="true"
@@ -578,25 +581,30 @@ export const BlogHome: QuartzComponent = (props) => {
                       ? "memory/index"
                       : section.id === "featured"
                         ? "notes/index"
-                        : `collections/${section.id}`,
+                        : section.id === "curated"
+                          ? "collections/featured"
+                          : `collections/${section.id}`,
                   )}
                 >
                   全部 <span aria-hidden="true">↗</span>
                 </a>
               )}
             </div>
-            {section.id === "featured" ? (
+            {["featured", "curated"].includes(section.id) ? (
               <>
                 <div
-                  class="home-note-previews lucky-previews"
-                  id="random-notes"
+                  class={`home-note-previews lucky-previews${section.id === "curated" ? " curated-previews" : ""}`}
+                  id={section.id === "curated" ? "curated-notes" : "random-notes"}
                   data-count={sectionLimit(section)}
+                  aria-live="polite"
                 >
-                  {data(props)
-                    .articles.slice(0, sectionLimit(section))
-                    .map((row) => (
-                      <NotePreview props={props} row={row} frosted />
-                    ))}
+                  {section.id === "curated" && !data(props).featured.length ? (
+                    <p class="empty-list">暂无精选文章</p>
+                  ) : (
+                    (section.id === "curated" ? data(props).featured : data(props).articles)
+                      .slice(0, sectionLimit(section))
+                      .map((row) => <NotePreview props={props} row={row} frosted />)
+                  )}
                 </div>
               </>
             ) : section.id === "recent" ? (

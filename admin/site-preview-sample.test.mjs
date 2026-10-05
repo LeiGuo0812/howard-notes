@@ -104,6 +104,21 @@ test("sample sections preserve enabled state, ordering, templates and responsive
   assert.match(renderSitePreviewSample(source, "topics"), /topic-layout-cards topic-card-grid/)
   assert.match(renderSitePreviewSample(source, "article"), /data-article-layout="centered"/)
 })
+test("curated preview follows visibility, count and order without loading real articles", () => {
+  const source = settings()
+  source.home.activityPinned = false
+  source.home.sections.unshift({ id: "curated", title: "精选文章", enabled: true, limit: 4 })
+  let home = renderSitePreviewSample(source, "home")
+  const curated = home.match(/<section class="home-module module-curated"[\s\S]*?<\/section>/)?.[0]
+  assert.ok(curated)
+  assert.equal((curated.match(/class="internal note-preview/g) || []).length, 4)
+  assert.match(curated, /curated-previews/)
+  assert.match(curated, /id="refresh-curated-notes"/)
+  assert.equal([...home.matchAll(/data-section-id="([^"]+)"/g)][0][1], "curated")
+  source.home.sections[0].enabled = false
+  home = renderSitePreviewSample(source, "home")
+  assert.doesNotMatch(home, /module-curated/)
+})
 
 test("editable labels are escaped rather than treated as HTML or navigation", () => {
   const source = settings()

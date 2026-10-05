@@ -267,7 +267,36 @@ test("home embeds compact public previews without hidden full-card pools", () =>
   )![1]
   const data = JSON.parse(payload)
   assert.equal(data.notes.length, projection.blogData.articles.length)
+  assert.deepEqual(data.featuredIds, ["fresh-note"])
   assert.equal(data.notes[0][1], "新文章 <script>")
   assert.ok(!payload.includes("<script>"))
   assert.ok(data.notes.every((row: unknown[]) => row.length === 7))
+  assert.match(home, /data-section-id="curated" hidden/)
+  assert.match(home, /id="curated-notes" data-count="4"/)
+})
+
+test("curated home cards respect module visibility, saved order, size, and empty pools", () => {
+  const projection = fixture()
+  projection.settings.home.activityPinned = false
+  projection.settings.home.sections.unshift({
+    id: "curated",
+    title: "精选文章",
+    enabled: true,
+    limit: 8,
+  })
+  const home = () => renderPages(projection, shell).find((page) => page.path === "index")!.html
+  const html = home()
+  assert.ok(html.indexOf('data-section-id="curated"') < html.indexOf('data-section-id="featured"'))
+  const curated = html.match(/<section[^>]*data-section-id="curated"[^>]*>[\s\S]*?<\/section>/)![0]
+  assert.doesNotMatch(curated, /data-section-id="curated" hidden/)
+  assert.match(curated, /id="curated-notes" data-count="8"/)
+  assert.match(curated, /href="[^\"]*collections\/featured"/)
+  assert.equal(curated.match(/data-note-id=/g)?.length, 1)
+  assert.match(curated, /data-note-id="fresh-note"/)
+  assert.doesNotMatch(curated, /data-note-id="related-note"/)
+  projection.blogData.featured = []
+  const empty = home().match(/<section[^>]*data-section-id="curated"[^>]*>[\s\S]*?<\/section>/)![0]
+  assert.match(empty, /暂无精选文章/)
+  assert.match(empty, /id="refresh-curated-notes"[^>]* disabled/)
+  assert.doesNotMatch(empty, /data-note-id=/)
 })

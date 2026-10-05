@@ -280,6 +280,17 @@
     display: block;
     max-width: 100%;
     overflow-x: auto;
+    border-collapse: collapse;
+  }
+  .private-reading-body tbody tr:nth-child(odd) > td {
+    background: var(--site-theme-reader, var(--glass-reading));
+  }
+  .private-reading-body tbody tr:nth-child(even) > td {
+    background: color-mix(
+      in srgb,
+      var(--site-theme-text, var(--darkgray)) 6%,
+      var(--site-theme-reader, var(--glass-reading))
+    );
   }
   .private-reading-body .katex-display {
     max-width: 100%;

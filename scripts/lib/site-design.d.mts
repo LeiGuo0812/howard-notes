@@ -35,6 +35,11 @@ export function normalizeSite<T extends { home: { sections: unknown[] } }>(
   settings: T,
 ): T & { design: DesignSettings; pages: PageSettings }
 export function sectionLimit(section: unknown): number
+export function moveHomeSection(
+  settings: { home: { sections: unknown[]; activityPinned?: boolean } },
+  id: string,
+  targetIndex: number,
+): boolean
 export function orderedSections<T extends { home: { sections: unknown[] } }>(
   settings: T,
 ): T["home"]["sections"]

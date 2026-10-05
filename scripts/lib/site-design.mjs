@@ -193,7 +193,9 @@ export function normalizeSite(settings) {
   return result
 }
 export function sectionLimit(section) {
-  return section?.id === "memories" ? 4 : (section?.limit ?? (section?.id === "featured" ? 3 : 6))
+  return section?.id === "memories"
+    ? 4
+    : (section?.limit ?? (section?.id === "curated" ? 4 : section?.id === "featured" ? 3 : 6))
 }
 export function orderedSections(settings) {
   // Older published settings and local layout drafts keep their other choices.
@@ -216,17 +218,45 @@ export function orderedSections(settings) {
       limit: 4,
     })
   }
+  // `featured` is the legacy all-article lottery. Curated uses the article's
+  // explicit featured flag and is opt-in, preserving existing visible layouts.
+  if (!sections.some((section) => section.id === "curated")) {
+    const lotteryIndex = sections.findIndex((section) => section.id === "featured")
+    sections.splice(lotteryIndex < 0 ? 0 : lotteryIndex + 1, 0, {
+      id: "curated",
+      title: "精选文章",
+      enabled: false,
+      limit: 4,
+    })
+  }
   return settings.home.activityPinned !== false
     ? sections.sort((a, b) => Number(a.id === "activity") - Number(b.id === "activity"))
     : sections
+}
+export function moveHomeSection(settings, id, targetIndex) {
+  const sections = orderedSections(settings)
+  const sourceIndex = sections.findIndex((section) => section.id === id)
+  if (
+    sourceIndex < 0 ||
+    !Number.isInteger(targetIndex) ||
+    targetIndex < 0 ||
+    targetIndex >= sections.length ||
+    sourceIndex === targetIndex
+  )
+    return false
+  sections.splice(targetIndex, 0, sections.splice(sourceIndex, 1)[0])
+  settings.home.sections.splice(0, settings.home.sections.length, ...sections)
+  // A direct arrangement takes priority over the legacy bottom-pin setting.
+  settings.home.activityPinned = false
+  return true
 }
 export function applyHomeTemplate(settings, template) {
   const result = normalizeSite(settings)
   result.pages.homeTemplate = template
   const orders = {
-    classic: ["featured", "recent", "topics", "memories", "activity"],
-    articles: ["featured", "recent", "memories", "topics", "activity"],
-    knowledge: ["topics", "memories", "featured", "recent", "activity"],
+    classic: ["featured", "curated", "recent", "topics", "memories", "activity"],
+    articles: ["curated", "featured", "recent", "memories", "topics", "activity"],
+    knowledge: ["topics", "memories", "curated", "featured", "recent", "activity"],
   }
   if (!orders[template]) throw new Error("首页模板不正确。")
   result.home.sections.sort(
@@ -328,8 +358,13 @@ export function validateDesign(settings) {
       section.limit !== undefined &&
       ((section.id === "memories" && section.limit !== 4) ||
         (section.id !== "memories" &&
-          (!["featured", "recent"].includes(section.id) ||
-            !number(section.limit, 1, section.id === "featured" ? 6 : 20, true))))
+          (!["featured", "curated", "recent"].includes(section.id) ||
+            !number(
+              section.limit,
+              1,
+              section.id === "curated" ? 8 : section.id === "featured" ? 6 : 20,
+              true,
+            ))))
     )
       throw new Error("文章展示数量不正确。")
 }

@@ -404,6 +404,16 @@
     padding: 7px 9px;
     border: 1px solid var(--memory-card-border);
   }
+  tbody tr:nth-child(odd) > td {
+    background: var(--site-theme-surface, var(--glass-solid));
+  }
+  tbody tr:nth-child(even) > td {
+    background: color-mix(
+      in srgb,
+      var(--site-theme-text, var(--darkgray)) 6%,
+      var(--site-theme-surface, var(--glass-solid))
+    );
+  }
   img {
     display: block;
     max-width: 100%;

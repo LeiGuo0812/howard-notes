@@ -174,9 +174,7 @@ export function generateSitePages(
       }),
       tags: tags.map(({ articleIds, ...tag }) => tag),
       articles: all.map((article) => rows.get(article.id)),
-      featured: collectionArticles("featured", published)
-        .slice(0, 6)
-        .map((a) => rows.get(a.id)),
+      featured: collectionArticles("featured", published).map((a) => rows.get(a.id)),
       recent: collectionArticles("recent", published)
         .slice(0, sectionLimit(settings.home.sections.find((section) => section.id === "recent")))
         .map((a) => rows.get(a.id)),

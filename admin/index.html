@@ -100,7 +100,9 @@
               <label>专题<select id="category" required></select></label
               ><input id="published" type="hidden" value="false" />
               <span id="publication-state" class="publication-state">未发布</span>
-              <label class="checkbox"><input id="featured" type="checkbox" />精选</label>
+              <label class="checkbox" title="在首页精选文章模块与精选列表中展示"
+                ><input id="featured" type="checkbox" />精选</label
+              >
             </div>
             <details class="article-options">
               <summary>文章设置</summary>
@@ -290,7 +292,7 @@
                     </select></label
                   >
                 </div>
-                <label class="inline-check"
+                <label class="inline-check" title="手动调整模块顺序时自动取消固定"
                   ><input type="checkbox" data-setting="home.activityPinned" />热图固定在底部</label
                 >
                 <div id="section-settings" class="ordered-settings"></div>

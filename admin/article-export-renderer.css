@@ -221,6 +221,9 @@ body::after {
 .article-export-body td {
   background: #ffffff !important;
 }
+.article-export-body tbody tr:nth-child(even) > td {
+  background: #f2f4f6 !important;
+}
 .article-export-body .table-container,
 .article-export-body .katex-display,
 .article-export-body .katex-display > .katex {

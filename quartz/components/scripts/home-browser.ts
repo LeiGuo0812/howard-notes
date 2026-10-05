@@ -1,9 +1,16 @@
 // @ts-expect-error Shared browser-safe activity helper is implemented in JavaScript.
 import { buildActivity } from "../../../scripts/lib/activity.mjs"
 import { paletteCategory } from "../../../scripts/lib/site-palettes.mjs"
+import { sampleItems } from "./browsing"
 
 export type HomeNote = [string, string, string, string, string, string, string]
-type HomeData = { noteBase: string; listing: string; asOf: string; notes: HomeNote[] }
+type HomeData = {
+  noteBase: string
+  listing: string
+  asOf: string
+  notes: HomeNote[]
+  featuredIds?: string[]
+}
 const cache = new WeakMap<Element, HomeData>()
 export function homeData(): HomeData | null {
   const element = document.getElementById("home-browse-data")
@@ -32,6 +39,7 @@ export function homePreview(row: HomeNote, { compact = false, frosted = false } 
   ) as HTMLAnchorElement
   card.href = `${data.noteBase}${id}`
   card.dataset.noPopover = "true"
+  card.dataset.noteId = id
   card.dataset.paletteCategory = paletteCategory(categoryKey || category)
   const heading = node("div", "preview-note-heading")
   const time = node("time", "", modified) as HTMLTimeElement
@@ -51,6 +59,77 @@ export function homePreview(row: HomeNote, { compact = false, frosted = false } 
   surface.dataset.paletteCategory = card.dataset.paletteCategory
   surface.append(card)
   return surface
+}
+export function curatedNotes(data: HomeData): HomeNote[] {
+  const ids = new Set(data.featuredIds || [])
+  return data.notes.filter(([id]) => ids.has(id))
+}
+
+export function sampleHomeNotes(
+  notes: HomeNote[],
+  count: number,
+  previous: string[] = [],
+  random = Math.random,
+) {
+  let chosen = sampleItems(notes, count, random)
+  const previousIds = new Set(previous)
+  if (notes.length > chosen.length && chosen.every(([id]) => previousIds.has(id))) {
+    // Refresh must change an article whenever the pool can supply a new one.
+    chosen = [
+      sampleItems(
+        notes.filter(([id]) => !previousIds.has(id)),
+        1,
+        random,
+      )[0],
+      ...chosen.slice(1),
+    ]
+  } else if (
+    chosen.length > 1 &&
+    chosen.length === previous.length &&
+    chosen.every(([id], index) => previous[index] === id)
+  ) {
+    // A small pool can still visibly refresh without inventing duplicate cards.
+    chosen = [...chosen.slice(1), chosen[0]]
+  }
+  return chosen
+}
+
+export function mountHomeRecommendations(addCleanup: (cleanup: () => void) => void) {
+  const data = homeData()
+  if (!data) return () => {}
+  const draws: (() => void)[] = []
+  for (const [selector, refreshSelector, curated] of [
+    ["#random-notes", "#refresh-random-notes", false],
+    ["#curated-notes", "#refresh-curated-notes", true],
+  ] as const) {
+    const container = document.querySelector<HTMLElement>(selector)
+    if (!container) continue
+    const notes = curated ? curatedNotes(data) : data.notes
+    const draw = () => {
+      const previous = [...container.querySelectorAll<HTMLElement>(".note-preview")].map(
+        (card) => card.dataset.noteId || "",
+      )
+      const count = Math.max(
+        1,
+        Math.min(curated ? 8 : 6, Number(container.dataset.count) || (curated ? 4 : 3)),
+      )
+      const chosen = sampleHomeNotes(notes, count, previous)
+      container.replaceChildren(
+        ...(chosen.length
+          ? chosen.map((note) => homePreview(note, { frosted: true }))
+          : [node("p", "empty-list", curated ? "暂无精选文章" : "暂无文章")]),
+      )
+    }
+    const refresh = document.querySelector<HTMLButtonElement>(refreshSelector)
+    if (refresh) {
+      refresh.disabled = notes.length < 2
+      refresh.addEventListener("click", draw)
+      addCleanup(() => refresh.removeEventListener("click", draw))
+    }
+    draws.push(draw)
+    draw()
+  }
+  return () => draws.forEach((draw) => draw())
 }
 export function selectActivity(year: string) {
   const data = homeData(),

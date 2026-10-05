@@ -426,6 +426,19 @@ li {
   padding: 7px;
   border: 1px solid var(--line);
 }
+.preview th {
+  background: var(--site-theme-table-fill, var(--wash));
+}
+.preview tbody tr:nth-child(odd) > td {
+  background: var(--site-theme-reader, var(--surface));
+}
+.preview tbody tr:nth-child(even) > td {
+  background: color-mix(
+    in srgb,
+    var(--site-theme-text, var(--ink)) 6%,
+    var(--site-theme-reader, var(--surface))
+  );
+}
 #status {
   position: sticky;
   bottom: 0;

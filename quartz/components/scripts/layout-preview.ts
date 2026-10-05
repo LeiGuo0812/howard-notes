@@ -1,4 +1,4 @@
-import { homeData, homePreview } from "./home-browser"
+import { curatedNotes, homeData, homePreview } from "./home-browser"
 import { validateSite } from "../../../scripts/lib/site-settings.mjs"
 import {
   applyDesignVariables,
@@ -58,10 +58,10 @@ function applyPreview() {
       module.hidden = !section.enabled
       module.querySelector(".module-heading h2")!.textContent = section.title
       modules.append(module)
-      if (section.id === "featured") {
-        module.querySelector<HTMLElement>("#random-notes")!.dataset.count = String(
-          sectionLimit(section),
-        )
+      if (["featured", "curated"].includes(section.id)) {
+        module.querySelector<HTMLElement>(
+          section.id === "curated" ? "#curated-notes" : "#random-notes",
+        )!.dataset.count = String(sectionLimit(section))
       }
       if (section.id === "recent") {
         const pool = homeData()
@@ -75,13 +75,19 @@ function applyPreview() {
         }
       }
     }
-    const recommendations = home.querySelector<HTMLElement>("#random-notes")
-    const poolSize = homeData()?.notes.length || 0
-    if (
-      recommendations &&
-      recommendations.children.length !== Math.min(Number(recommendations.dataset.count), poolSize)
-    )
-      refreshRecommendations()
+    const pool = homeData()
+    const changed = ["#random-notes", "#curated-notes"].some((selector) => {
+      const recommendations = home.querySelector<HTMLElement>(selector)
+      const poolSize = pool
+        ? (selector === "#curated-notes" ? curatedNotes(pool) : pool.notes).length
+        : 0
+      return (
+        recommendations &&
+        recommendations.querySelectorAll(".note-preview").length !==
+          Math.min(Number(recommendations.dataset.count), poolSize)
+      )
+    })
+    if (changed) refreshRecommendations()
   }
   const directory = document.querySelector<HTMLElement>(".topic-directory")
   const topicCards = sitePages(draft).topicLayout === "cards"

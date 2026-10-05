@@ -8,6 +8,7 @@ import {
   applyHomeTemplate,
   sectionLimit,
   orderedSections,
+  moveHomeSection,
   applySitePalette,
   applyDesignVariables,
 } from "../scripts/lib/site-design.mjs"
@@ -151,12 +152,16 @@ export function createSettings({
         titleKey = kind === "navigation" ? "label" : "title"
       const handle = node("button", "⠿", "drag-handle")
       handle.type = "button"
-      const pinned = kind === "section" && working.home.activityPinned
-      const locked = pinned && item.id === "activity"
-      handle.disabled = locked
-      handle.dataset.boundary = String(locked)
+      handle.dataset.boundary = "false"
       handle.setAttribute("aria-label", `拖动${item[titleKey]}`)
       handle.title = "拖动排序"
+      const moveItem = (from, to) => {
+        if (kind === "section") {
+          moveHomeSection(working, item.id, to)
+          $("site-form").querySelector('[data-setting="home.activityPinned"]').checked =
+            working.home.activityPinned
+        } else items.splice(to, 0, items.splice(from, 1)[0])
+      }
       handle.onpointerdown = (event) => {
         if (event.button !== 0 || handle.disabled) return
         event.preventDefault()
@@ -183,15 +188,10 @@ export function createSettings({
                     event.clientY <= bounds.bottom
                   )
                 })
-          if (
-            target &&
-            target.parentElement === root &&
-            target !== row &&
-            !(pinned && target.dataset.itemId === "activity")
-          ) {
+          if (target && target.parentElement === root && target !== row) {
             const from = items.findIndex((entry) => entry.id === item.id),
               to = items.findIndex((entry) => entry.id === target.dataset.itemId)
-            items.splice(to, 0, items.splice(from, 1)[0])
+            moveItem(from, to)
             const rows = new Map([...root.children].map((child) => [child.dataset.itemId, child]))
             root.append(...items.map((entry) => rows.get(entry.id)))
             changed()
@@ -231,6 +231,7 @@ export function createSettings({
       check.type = "checkbox"
       check.checked = item[visibility]
       check.setAttribute("aria-label", `显示${item[titleKey]}`)
+      check.title = `显示${item[titleKey]}`
       check.onchange = () => {
         item[visibility] = check.checked
         changed()
@@ -248,13 +249,14 @@ export function createSettings({
         changed()
       }
       row.append(handle, check, title)
-      if (kind === "section" && ["featured", "recent"].includes(item.id)) {
+      if (kind === "section" && ["featured", "curated", "recent"].includes(item.id)) {
         const count = node("input", undefined, "module-count")
         count.type = "number"
         count.min = 1
-        count.max = item.id === "featured" ? 6 : 20
+        count.max = item.id === "curated" ? 8 : item.id === "featured" ? 6 : 20
         count.value = sectionLimit(item)
         count.setAttribute("aria-label", `${item[titleKey]}展示篇数`)
+        count.title = `${item[titleKey]}展示篇数`
         count.oninput = () => {
           item.limit = Number(count.value)
           changed()
@@ -276,17 +278,14 @@ export function createSettings({
       ]) {
         const button = node("button", symbol)
         button.type = "button"
-        button.disabled =
-          locked ||
-          index + delta < 0 ||
-          index + delta >= items.length ||
-          (pinned && items[index + delta]?.id === "activity")
+        button.disabled = index + delta < 0 || index + delta >= items.length
         button.dataset.boundary = String(button.disabled)
         button.setAttribute("aria-label", `${label}${item[titleKey]}`)
+        button.title = label
         button.onclick = () => {
           const target = index + delta
           if (target < 0 || target >= items.length) return
-          ;[items[index], items[target]] = [items[target], items[index]]
+          moveItem(index, target)
           renderRows()
           changed()
         }

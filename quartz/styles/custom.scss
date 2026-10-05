@@ -437,7 +437,7 @@ a.blog-brand.internal {
   gap: 12px;
   min-width: 0;
 }
-#refresh-random-notes {
+:is(#refresh-random-notes, #refresh-curated-notes) {
   @include material.control;
   display: inline-flex;
   align-items: center;
@@ -507,6 +507,9 @@ a.note-preview.internal {
 .lucky-previews {
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: var(--site-card-gap);
+}
+.lucky-previews.curated-previews {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 .lucky-previews a.note-preview.internal {
   display: flex;
@@ -591,6 +594,7 @@ a.compact-preview.internal {
   grid-template-columns: 1.35fr 1fr;
   gap: 32px var(--site-card-gap);
   .module-featured,
+  .module-curated,
   .module-activity {
     grid-column: 1 / -1;
   }
@@ -1186,8 +1190,16 @@ a.article-row.internal {
       color: var(--dark);
       font-weight: 600;
     }
-    tr:nth-child(even) {
-      background: color-mix(in srgb, var(--glass-code) 50%, var(--glass-reading));
+    tbody tr:nth-child(odd) > td {
+      background: var(--site-theme-reader, var(--glass-reading));
+    }
+    tbody tr:nth-child(even) > td {
+      // Neutral foreground tint stays legible across every light/dark palette.
+      background: color-mix(
+        in srgb,
+        var(--site-theme-text, var(--darkgray)) 6%,
+        var(--site-theme-reader, var(--glass-reading))
+      );
     }
   }
   .katex-display {
@@ -1607,7 +1619,8 @@ a.article-row.internal {
     grid-template-columns: 1fr;
     gap: 28px;
   }
-  .lucky-previews {
+  .lucky-previews,
+  .lucky-previews.curated-previews {
     grid-template-columns: 1fr;
     gap: 14px;
     a.note-preview.internal {
@@ -1864,7 +1877,7 @@ a.article-row.internal {
     background: var(--site-theme-chip-fill);
     color: var(--site-theme-accent);
   }
-  #refresh-random-notes,
+  :is(#refresh-random-notes, #refresh-curated-notes),
   .maintenance-toolbar [data-maintenance-action="new"] {
     background: var(--site-theme-signal);
     border-color: var(--site-theme-signal);
@@ -1944,9 +1957,6 @@ a.article-row.internal {
     th {
       background: var(--site-theme-table-fill);
       color: var(--site-theme-muted);
-    }
-    tr:nth-child(even) {
-      background: transparent;
     }
   }
   // Shiki's inner code background must not hide the themed pre surface.

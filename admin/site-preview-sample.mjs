@@ -83,9 +83,9 @@ function home(settings) {
   return `<div class="home-workspace layout-${settings.home.layout} density-${settings.home.density}" data-home-template="${sitePages(settings).homeTemplate}"><p class="home-eyebrow"><span class="home-identity">${escape(settings.brand.name)}</span><span class="home-identity-subtitle">${escape(settings.brand.subtitle)}</span></p><div class="home-heading"><h1>${escape(settings.home.title)}</h1><span>6 篇样稿</span></div>${settings.home.description ? `<p class="home-description">${escape(settings.home.description)}</p>` : ""}<div class="home-modules">${sections
     .map((section) => {
       let body = ""
-      if (section.id === "featured" || section.id === "recent") {
+      if (["featured", "curated", "recent"].includes(section.id)) {
         const compact = section.id === "recent"
-        body = `<div class="home-note-previews ${compact ? "recent-previews" : "lucky-previews"}">${samples
+        body = `<div class="home-note-previews ${compact ? "recent-previews" : "lucky-previews"}${section.id === "curated" ? " curated-previews" : ""}">${samples
           .slice(0, Math.min(6, sectionLimit(section)))
           .map((note, index) => card(settings, note, index, compact))
           .join("")}</div>`
@@ -99,7 +99,7 @@ function home(settings) {
               `<div class="frost-environment"><div class="frosted-panel sample-memory" data-spotlight><time>${note.date}</time><p>${escape(note.excerpt)}</p></div></div>`,
           )
           .join("")}</div>`
-      return `<section class="home-module module-${section.id}" data-section-id="${section.id}"><div class="module-heading"><div class="module-title"><h2>${escape(section.title)}</h2>${section.id === "featured" ? `<button id="refresh-random-notes" type="button">${svg("M20 7v5h-5M4 17v-5h5M6 7a7 7 0 0 1 12-1M6 18a7 7 0 0 0 12-1")}<span>换一组</span></button>` : ""}</div><a class="internal" href="#">全部 ↗</a></div>${body}</section>`
+      return `<section class="home-module module-${section.id}" data-section-id="${section.id}"><div class="module-heading"><div class="module-title"><h2>${escape(section.title)}</h2>${["featured", "curated"].includes(section.id) ? `<button class="refresh-home-notes" id="${section.id === "curated" ? "refresh-curated-notes" : "refresh-random-notes"}" type="button" title="换一组">${svg("M20 7v5h-5M4 17v-5h5M6 7a7 7 0 0 1 12-1M6 18a7 7 0 0 0 12-1")}<span>换一组</span></button>` : ""}</div><a class="internal" href="#">全部 ↗</a></div>${body}</section>`
     })
     .join("")}</div></div>`
 }

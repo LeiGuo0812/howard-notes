@@ -10,6 +10,8 @@ import {
   normalizeSite,
   applyHomeTemplate,
   orderedSections,
+  moveHomeSection,
+  sectionLimit,
   designVariables,
   designStyle,
   CHINESE_FONTS,
@@ -93,6 +95,49 @@ test("layout defaults preserve existing configuration; templates and heatmap pin
   assert.equal(orderedSections(knowledge)[0].id, "activity")
   assert.doesNotThrow(() => validateSite(knowledge))
 })
+test("curated defaults preserve visible modules and every module can be freely arranged", () => {
+  const original = structuredClone(settings)
+  const configured = normalizeSite(settings)
+  assert.deepEqual(
+    configured.home.sections.filter((section) => section.enabled).map((section) => section.id),
+    orderedSections(original)
+      .filter((section) => section.enabled)
+      .map((section) => section.id),
+  )
+  const curated = configured.home.sections.find((section) => section.id === "curated")
+  assert.equal(curated.enabled, false)
+  assert.equal(sectionLimit(curated), 4)
+  assert.equal(sectionLimit({ id: "curated" }), 4)
+  curated.enabled = true
+  curated.limit = 8
+  assert.doesNotThrow(() => validateSite(configured))
+  curated.limit = 9
+  assert.throws(() => validateSite(configured), /展示数量/)
+  curated.limit = 4
+  const ids = configured.home.sections.map((section) => section.id)
+  for (const id of ids) {
+    const arranged = normalizeSite(settings)
+    const from = arranged.home.sections.findIndex((section) => section.id === id)
+    const destination = from === 0 ? arranged.home.sections.length - 1 : 0
+    assert.equal(moveHomeSection(arranged, id, destination), true)
+    assert.equal(arranged.home.activityPinned, false)
+    assert.equal(orderedSections(arranged)[destination].id, id)
+    assert.equal(
+      normalizeSite(JSON.parse(JSON.stringify(arranged))).home.sections[destination].id,
+      id,
+    )
+    arranged.home.sections.forEach((section) => {
+      section.enabled = false
+    })
+    assert.doesNotThrow(() => validateSite(arranged))
+    assert.equal(orderedSections(arranged).filter((section) => section.enabled).length, 0)
+  }
+  const before = JSON.stringify(configured)
+  assert.equal(moveHomeSection(configured, "unknown", 0), false)
+  assert.equal(moveHomeSection(configured, "activity", -1), false)
+  assert.equal(JSON.stringify(configured), before)
+  assert.deepEqual(settings, original)
+})
 test("style validation rejects injected CSS and invalid sizes; configured counts exclude unpublished notes", () => {
   const configured = normalizeSite(settings)
   configured.design.accentColor = "#884466"
@@ -136,7 +181,7 @@ test("legacy home tag slot migrates to four memory previews and removes browsing
   const normalized = normalizeSite(legacy)
   assert.deepEqual(
     normalized.home.sections.map((section) => section.id),
-    ["recent", "memories", "topics", "featured", "activity"],
+    ["recent", "memories", "topics", "featured", "curated", "activity"],
   )
   assert.deepEqual(normalized.home.sections[1], {
     id: "memories",
@@ -409,4 +454,25 @@ test("memory hub has only a shell and never adds cards to article discovery data
     result.data.tags.map(({ title }) => title),
     ["article-only"],
   )
+})
+
+test("curated homepage pool contains every public featured article and excludes drafts", () => {
+  const articles = Array.from({ length: 12 }, (_, index) => article(index, { featured: true }))
+  articles.push(article(90, { published: false, featured: true }))
+  articles.push(article(91, { published: true, featured: false }))
+  const before = structuredClone(articles)
+  const { output, data } = generateSitePages(
+    settings,
+    { version: 2, articles },
+    readActivity(articles),
+  )
+  assert.equal(data.featured.length, 12)
+  assert.deepEqual(
+    new Set(data.featured.map(({ id }) => id)),
+    new Set(articles.slice(0, 12).map(({ id }) => id)),
+  )
+  const collection = splitNote(output.get("collections/featured.md").toString()).data.listing
+  assert.equal(collection.total, 12)
+  assert.ok(!data.featured.some(({ id }) => id === "note-90" || id === "note-91"))
+  assert.deepEqual(articles, before)
 })

@@ -1,5 +1,5 @@
-import { paginateItems, sampleItems } from "./browsing"
-import { homeData, homePreview, selectActivity } from "./home-browser"
+import { paginateItems } from "./browsing"
+import { mountHomeRecommendations, selectActivity } from "./home-browser"
 import { setupLayoutPreview } from "./layout-preview"
 import { setupTimeline } from "./timeline"
 import { setupPageScrollControls } from "./scroll-controls"
@@ -87,37 +87,7 @@ function setupNoteBrowser() {
   window.addCleanup(() =>
     document.removeEventListener("error", hideBrokenThumbnail, { capture: true }),
   )
-  const recommendations = document.querySelector<HTMLElement>("#random-notes")
-  const pool = homeData()
-  let redraw = () => {}
-  if (recommendations && pool) {
-    const notes = pool.notes
-    const draw = () => {
-      let chosen = sampleItems(notes, Number(recommendations.dataset.count) || 3)
-      // Always change at least one article when there is a larger pool.
-      const previous = new Set(
-        [...recommendations.querySelectorAll<HTMLAnchorElement>(".note-preview")].map((note) =>
-          new URL(note.href).pathname.split("/").at(-1),
-        ),
-      )
-      if (notes.length > chosen.length && chosen.every((note) => previous.has(note[0]))) {
-        chosen = [
-          sampleItems(
-            notes.filter((note) => !previous.has(note[0])),
-            1,
-          )[0],
-          ...chosen.slice(1),
-        ]
-      }
-      recommendations.replaceChildren(...chosen.map((note) => homePreview(note, { frosted: true })))
-    }
-    const refresh = document.querySelector<HTMLButtonElement>("#refresh-random-notes")
-    refresh?.addEventListener("click", draw)
-    window.addCleanup(() => refresh?.removeEventListener("click", draw))
-    draw()
-    redraw = draw
-  }
-  setupLayoutPreview(redraw)
+  setupLayoutPreview(mountHomeRecommendations((cleanup) => window.addCleanup(cleanup)))
   // Auxiliary reading surfaces share the material. Prose and graph nodes stay
   // still; the global graph/search dialogs keep their viewport positioning.
   for (const panel of document.querySelectorAll<HTMLElement>(".reading-sidebar .toc")) {

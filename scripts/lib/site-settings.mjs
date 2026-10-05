@@ -3,6 +3,7 @@ export const SITE_PATH = "library/site.json"
 // normalizeSite/orderedSections migrate them before editing and rendering.
 export const SECTION_IDS = [
   "featured",
+  "curated",
   "recent",
   "topics",
   "memories",
