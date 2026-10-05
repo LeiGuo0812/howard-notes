@@ -1168,39 +1168,49 @@ a.article-row.internal {
     background: var(--highlight);
     color: var(--darkgray);
   }
-  .table-container {
+  .table-container,
+  table:not(.table-container > table) {
     margin-block: 1.5em;
     border: 1px solid var(--lightgray);
     border-radius: max(0px, calc(var(--site-radius) - 6px));
     overflow-x: auto;
     overscroll-behavior-inline: contain;
-    table {
-      margin: 0;
-      font-size: 0.88em;
-      line-height: 1.65;
-      border-collapse: collapse;
-    }
-    th,
-    td {
-      padding: 11px 14px;
-      border-color: var(--lightgray);
-    }
-    th {
-      background: var(--glass-code);
-      color: var(--dark);
-      font-weight: 600;
-    }
-    tbody tr:nth-child(odd) > td {
-      background: var(--site-theme-reader, var(--glass-reading));
-    }
-    tbody tr:nth-child(even) > td {
-      // Neutral foreground tint stays legible across every light/dark palette.
-      background: color-mix(
-        in srgb,
-        var(--site-theme-text, var(--darkgray)) 6%,
-        var(--site-theme-reader, var(--glass-reading))
-      );
-    }
+  }
+  // Runtime Markdown is inserted as HTML, so its tables do not pass through
+  // Quartz's static TableContainer component. Give bare tables one scroller.
+  table:not(.table-container > table) {
+    display: block;
+    max-width: 100%;
+  }
+  table {
+    font-size: 0.88em;
+    line-height: 1.65;
+    border-collapse: collapse;
+  }
+  .table-container > table {
+    margin: 0;
+  }
+  th,
+  td {
+    min-width: 75px;
+    padding: 11px 14px;
+    border-color: var(--lightgray);
+  }
+  th {
+    background: var(--glass-code);
+    color: var(--dark);
+    font-weight: 600;
+  }
+  tbody tr:nth-child(odd) > td {
+    background: var(--site-theme-reader, var(--glass-reading));
+  }
+  tbody tr:nth-child(even) > td {
+    // Neutral foreground tint stays legible across every light/dark palette.
+    background: color-mix(
+      in srgb,
+      var(--site-theme-text, var(--darkgray)) 6%,
+      var(--site-theme-reader, var(--glass-reading))
+    );
   }
   .katex-display {
     max-width: 100%;
@@ -1947,7 +1957,8 @@ a.article-row.internal {
       color: var(--site-theme-muted);
       border-left-color: color-mix(in srgb, var(--site-theme-accent) 55%, transparent);
     }
-    .table-container {
+    .table-container,
+    table:not(.table-container > table) {
       border-color: var(--site-theme-table-line);
     }
     th,
