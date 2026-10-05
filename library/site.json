@@ -118,6 +118,12 @@
       "title": "Ai",
       "category": "Ai",
       "visible": true
+    },
+    {
+      "id": "topic-c3ea528c-dbad-48fe-a238-59d780bf0e0d",
+      "title": "学术写作",
+      "category": "学术写作",
+      "visible": true
     }
   ],
   "collections": [
